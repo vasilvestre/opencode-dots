@@ -66,10 +66,14 @@ the comments I received, the issues already filed) and writes three things:
 - `state/tend/<repo>/lessons.md`: durable rules the material proves. `reply-pr`
   and `review-pr` read this file before acting, so a mistake made once becomes
   a rule for every later run in that repository.
-- Up to two issues, deduplicated by title against the existing ones.
-- At most one pull request, only when the fix is mechanical and under twenty
-  lines. `auto_merge=true` asks GitHub to merge it once the checks pass; leave
-  it false for repositories you do not own.
+- At most one issue, and only when the material proves the defect: a red check,
+  a revert, a fix commit that followed mine, a maintainer or CI comment, or a
+  reported wrong output. `state/tend/<repo>/raised.txt` records every subject
+  a pass filed or skipped, so it does not come back under another wording.
+- At most one pull request, only for that finding, only when the fix is
+  mechanical and under twenty lines, and none while an earlier `tend/` pull
+  request is still open. `auto_merge=true` asks GitHub to merge it once the
+  checks pass; leave it false for repositories you do not own.
 
 The timer is not enabled by the install, because each pass spends one agent run
 per repository:
@@ -95,7 +99,13 @@ $EDITOR awf-gh.yaml     # add your private repos
 - `reply-pr` answers a review comment and pushes the requested change.
 - `tend-repo` reads what happened in a repository, keeps its lessons, files the
   defects as issues and opens at most one pull request, with optional
-  auto-merge.
+  auto-merge. A rule it finds that holds beyond that repository goes to
+  `~/dreams/dreaming/inbox/` and then through the normal dream promotion. The
+  reasons for that split, with the measurements behind them, are in
+  [`docs/memory.md`](docs/memory.md).
+
+An issue carrying the `dot` label becomes one pull request, through
+`fix-issue`; see `docs/workflows.md`.
 
 `docs/workflows.md` documents each one: its trigger, its inputs, its steps, and
 a minimal skeleton to write your own.
@@ -156,12 +166,14 @@ cp systemd/* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now dots.service
 systemctl --user enable --now dots-awf-gh.timer
+systemctl --user enable --now dots-dashboard.service
 ```
 
 `dots.service` runs `docker compose up -d` and stays active. The timer runs one
-`awf-gh` pass every two minutes. The dedup state lives in `./state`, bind-mounted
-at `/state` and gitignored: a `compose down` keeps it, and removing that
-directory resets it.
+`awf-gh` pass every two minutes. `dots-dashboard.service` keeps the page on
+127.0.0.1:8099 up, so it records run logs even when no browser is open. The
+dedup state lives in `./state`, bind-mounted at `/state` and gitignored: a
+`compose down` keeps it, and removing that directory resets it.
 
 ## Security
 
@@ -174,39 +186,65 @@ step posts it with `gh pr comment`. The agent never runs the PR's tests.
 
 ## Tower
 
-Tower indexes a workspace in a daemon and exposes it to agents over MCP. It
-overlaps what opencode already does (`read`, `glob`, `grep`, `edit`), so the
-gain shows up only on large or multi-repo workspaces. It is `v0.1.0`.
-
-Test it before baking it in:
+Tower indexes a workspace in a daemon and exposes it to agents over MCP, plus a
+durable agent-memory store. The Linux release tarballs are still empty (PR
+awf-project/tower#99), so build it from source:
 
 ```bash
-make check                                 # image without tower
-docker run --rm -it -v "$HOME/projects:/workspace" opencode-dots:latest bash
-# inside: curl the tower tarball, run it on one small repo, see what it buys
+git clone https://github.com/awf-project/tower /tmp/tower-src
+cd /tmp/tower-src
+make install                 # tower -> ~/.local/bin
+make install-extensions GLOBAL=1
 ```
 
-Then build with `--build-arg WITH_TOWER=1` and declare it in
-`agent/opencode.jsonc` as an MCP server. The Dockerfile already knows where the
-tarball is.
+The `agent_memory` extension gets storage access only when its binary sits next
+to `tower`, and `make install` does not copy it yet (PR awf-project/tower#100).
+Until that lands, link it:
+
+```bash
+ln -sfn ~/.local/share/tower/extensions/agent_memory/agent_memory_extension \
+  ~/.local/bin/agent_memory_extension
+```
+
+Then declare `tower mcp` in `~/.config/opencode/opencode.jsonc` under
+`mcp.servers`. With `DOT_OPENCODE=local` that is enough: the opencode server
+runs on the host, so it finds `tower` on `PATH`. `tower init` in a repository
+scaffolds `.towerignore` and `.tower/config.toml`; without `tower init` the
+daemon warns and indexes every non-hidden file.
+
+The image build keeps `WITH_TOWER=1` for `DOT_OPENCODE=docker`, which needs the
+tarball fix first.
 
 ## Dashboard
 
 `make dashboard` builds `cmd/dashboard` and serves a page on
 http://127.0.0.1:8099. It shows:
 
-- awf executions running now, with their current step
-- the run history and its success, failure and average duration counters
+- awf executions running now, with their current step and a live log
+- the run history and its success, failure and average duration counters, each
+  run with its recorded log
 - reviewed pull requests from `state/reviews/`, with the review and the diff
   behind a click
 - answered pull requests from `state/replies/`, with the reply and the pushed
   commit
 - the pull requests the watcher already saw
+- a Workflows tab: click a workflow to see its steps as blocks, chained by
+  their success arrows, with the failure target on each step
+- a Memory tab: per repository, the rules in `state/tend/<owner>/<repo>/lessons.md`
+  and the facts in `memory.md`, with the date the last pass covered
+- a Repos tab: every repository in `awf-gh.yaml`, the workflows that watch it,
+  their triggers and author filters, and the PRs the watcher already saw
 
 The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
-running (`make up`). It binds loopback only and reads `state/` without writing.
+running (`make up`). It binds loopback only and reads `state/` without writing,
+except `state/logs/`: awf forgets an execution's events once the run leaves its
+session registry, so the dashboard records each running execution's event
+stream there while it runs, and deletes files older than 30 days like awf does
+for its own history. A log exists only for runs that happened while the
+dashboard was up: `dots-dashboard.service` keeps it up.
 
-Flags: `-addr`, `-state`, `-awf`, `-ui`.
+Flags: `-addr`, `-state`, `-awf`, `-ui`, `-awfgh` (watcher config, default
+`awf-gh.yaml`).
 
 ```bash
 ./bin/dashboard -state ~/elsewhere/state -awf http://127.0.0.1:2511
