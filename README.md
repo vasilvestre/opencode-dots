@@ -79,8 +79,9 @@ systemctl --user enable --now dots-awf-gh.timer
 ```
 
 `dots.service` runs `docker compose up -d` and stays active. The timer runs one
-`awf-gh` pass every two minutes. The dedup state lives in a named volume, so a
-`compose down` does not lose it.
+`awf-gh` pass every two minutes. The dedup state lives in `./state`, bind-mounted
+at `/state` and gitignored: a `compose down` keeps it, and removing that
+directory resets it.
 
 ## Security
 
