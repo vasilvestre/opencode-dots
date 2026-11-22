@@ -1,0 +1,14 @@
+[Unit]
+Description=dots activity dashboard on 127.0.0.1:8099
+# The page proxies awf and records run logs, so it starts with the stack.
+After=dots.service
+Wants=dots.service
+
+[Service]
+WorkingDirectory=%h/projects/perso/opencode-dots
+ExecStart=%h/projects/perso/opencode-dots/bin/dashboard
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

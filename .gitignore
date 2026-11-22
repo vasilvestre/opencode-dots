@@ -1,5 +1,6 @@
 bin/*
 state/
+.tower/
 .env
 compose.override.yaml
 # Local awf-gh config: names the private repos we watch, this repo is public.

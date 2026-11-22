@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dots · opencode-dots</title>
+<script>
+  // Resolve the theme before first paint: auto follows the system, saved value wins.
+  const storedTheme = localStorage.getItem("dots-theme") || "auto";
+  const systemDark = matchMedia("(prefers-color-scheme: dark)");
+  const resolveTheme = () => storedTheme === "auto" ? (systemDark.matches ? "dark" : "light") : storedTheme;
+  document.documentElement.dataset.theme = resolveTheme();
+  document.documentElement.dataset.themeMode = storedTheme;
+</script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115; --panel: #161a21; --panel2: #1d222b; --line: #262c37;
+    --text: #e6e9ef; --dim: #8b93a3; --accent: #7c5cff; --ok: #3ecf8e;
+    --bad: #ff6b6b; --warn: #f5b041; --run: #56b6ff; --badbg: #2a1c1c;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f6f7f9; --panel: #ffffff; --panel2: #eef1f5; --line: #dce1e8;
+    --text: #1c222c; --dim: #5f6878; --accent: #5b46c4; --ok: #14805a;
+    --bad: #c53b3b; --warn: #9a6408; --run: #1f6fc4; --badbg: #fdecec;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { display: flex; align-items: center; gap: 16px; padding: 16px 24px;
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
+  header h1 span { color: var(--dim); font-weight: 400; margin-left: 6px; }
+  header nav { margin-left: auto; display: flex; gap: 14px; align-items: center; font-size: 13px; }
+  select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 3px 6px; font: inherit; font-size: 12px; cursor: pointer; }
+  .tabs { display: flex; gap: 4px; margin-left: 12px; }
+  .tabs button { background: none; border: 1px solid transparent; color: var(--dim);
+    border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .tabs button.active { background: var(--panel); border-color: var(--line); color: var(--text); }
+  #live { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  #live.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  #live.off { background: var(--bad); }
+  main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 24px; line-height: 1.2; }
+  .stat span { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .cols { display: grid; grid-template-columns: 1.15fr .85fr; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .7px; color: var(--dim);
+    margin: 22px 0 10px; font-weight: 600; }
+  h2:first-child { margin-top: 0; }
+  .empty { color: var(--dim); border: 1px dashed var(--line); border-radius: 10px; padding: 14px; }
+  .run { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 10px; }
+  .run .top { display: flex; gap: 10px; align-items: baseline; }
+  .run .wf { font-weight: 600; }
+  .run .step { color: var(--dim); font-size: 13px; }
+  .run .time { margin-left: auto; color: var(--dim); font-size: 12px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+  .badge.running { color: var(--run); border-color: var(--run); }
+  .badge.success { color: var(--ok); border-color: var(--ok); }
+  .badge.failed { color: var(--bad); border-color: var(--bad); }
+  .badge.cancelled { color: var(--warn); border-color: var(--warn); }
+  .bar { height: 3px; background: var(--panel2); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 40%; background: var(--run); animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; overflow: hidden; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th { color: var(--dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  td.num { color: var(--dim); }
+  .pr { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .pr .title { font-weight: 600; }
+  .pr .meta { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .pr .meta a { color: var(--dim); text-decoration: underline; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--dim); font-size: 12px; }
+  #memory pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; margin: 6px 0 14px; font-size: 12px; line-height: 1.5;
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  details pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; max-height: 420px; overflow: auto; white-space: pre-wrap; margin: 8px 0 0; font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    padding: 3px 10px; font-size: 12px; color: var(--text); }
+  .chip b { color: var(--accent); font-weight: 600; }
+  .pushed { color: var(--ok); font-size: 12px; }
+  .log { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; max-height: 260px; max-width: 520px; overflow: auto; white-space: pre-wrap;
+    margin: 8px 0 0; font-size: 12px; }
+  td { vertical-align: top; }
+  .repolist { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+  .repolist .pr { margin-bottom: 0; }
+  .pr .title a { color: inherit; }
+  .node { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 10px 14px; max-width: 680px; }
+  .node.terminal { border-left-color: var(--ok); background: var(--panel2); }
+  .node.failure { border-left-color: var(--bad); }
+  .n-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .n-name { font-weight: 600; }
+  .n-kind { font-size: 11px; color: var(--dim); border: 1px solid var(--line);
+    border-radius: 999px; padding: 1px 8px; }
+  .n-sub { color: var(--dim); font-size: 12px; margin-top: 4px; }
+  .n-sub code { color: var(--text); }
+  .n-foot { margin-top: 6px; font-size: 11px; color: var(--dim); }
+  .n-foot .fail { color: var(--bad); }
+  .edge { width: 2px; height: 22px; background: var(--line); margin-left: 24px; position: relative; }
+  .edge::after { content: ""; position: absolute; bottom: -1px; left: -3px;
+    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid var(--line); }
+  .edge b { position: absolute; left: 10px; top: 4px; font-size: 11px; color: var(--dim); font-weight: 400; }
+  .flow { margin-top: 12px; }
+  tr.wf-row { cursor: pointer; }
+  tr.wf-row:hover td { background: var(--panel2); }
+  tr.wf-row.sel td { background: var(--panel2); }
+  .banner { background: var(--badbg); border: 1px solid var(--bad); color: var(--bad);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>dots <span>opencode-dots</span></h1>
+  <div class="tabs">
+    <button data-view="activity" class="active">Activity</button>
+    <button data-view="workflows">Workflows</button>
+    <button data-view="repos">Repos</button>
+    <button data-view="memory">Memory</button>
+  </div>
+  <nav>
+    <a href="http://127.0.0.1:4096" target="_blank" rel="noreferrer">opencode</a>
+    <a href="/awf/docs" target="_blank" rel="noreferrer">awf API</a>
+    <select id="theme" title="Theme" aria-label="Theme">
+      <option value="auto">auto</option>
+      <option value="dark">dark</option>
+      <option value="light">light</option>
+    </select>
+    <span id="live" title="awf reachability"></span>
+  </nav>
+</header>
+<main>
+  <div class="banner" id="banner"></div>
+  <div id="view-activity">
+  <section class="stats" id="stats"></section>
+  <div class="cols">
+    <section>
+      <h2>Running now</h2>
+      <div id="runs"></div>
+      <h2>History</h2>
+      <div id="history"></div>
+    </section>
+    <section>
+      <h2>Reviewed pull requests</h2>
+      <div id="reviews"></div>
+      <h2>Replied pull requests</h2>
+      <div id="replies"></div>
+      <h2>Watcher · recently seen</h2>
+      <div id="seen"></div>
+    </section>
+  </div>
+</div>
+<section id="view-memory" hidden>
+  <h2>What the pass learned</h2>
+  <div id="memory"></div>
+</section>
+<section id="view-workflows" hidden>
+  <h2>Workflows</h2>
+  <div id="workflows"></div>
+  <div class="flow" id="flow"></div>
+</section>
+<section id="view-repos" hidden>
+  <h2>Watched repositories</h2>
+  <div class="repolist" id="repos"></div>
+</section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fileCache = new Map();
+const openDetails = new Set();
+
+async function getJSON(url) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`${res.status} ${url}`);
+  return res.json();
+}
+
+function ago(iso) {
+  const t = Date.parse(iso);
+  if (!t) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return `${Math.floor(s)}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function dur(ms) {
+  if (!ms) return "0s";
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+function badge(status) {
+  return `<span class="badge ${esc(status)}">${esc(status)}</span>`;
+}
+
+function empty(text) {
+  return `<div class="empty">${esc(text)}</div>`;
+}
+
+function detailsFor(path, label) {
+  const open = openDetails.has(path);
+  const cached = fileCache.get(path);
+  return `<details data-path="${esc(path)}" ${open ? "open" : ""}>
+    <summary>${esc(label)}</summary>
+    <pre>${cached === undefined ? "loading…" : esc(cached)}</pre>
+  </details>`;
+}
+
+function wireDetails(root) {
+  root.querySelectorAll("details[data-path]").forEach((el) => {
+    const path = el.dataset.path;
+    if (el.open && !fileCache.has(path)) loadFile(path, el);
+    el.addEventListener("toggle", () => {
+      if (el.open) { openDetails.add(path); if (!fileCache.has(path)) loadFile(path, el); }
+      else openDetails.delete(path);
+    });
+  });
+}
+
+async function loadFile(path, el) {
+  try {
+    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+    fileCache.set(path, res.ok ? await res.text() : `cannot read ${path}`);
+  } catch (e) {
+    fileCache.set(path, String(e));
+  }
+  const pre = el.querySelector("pre");
+  if (pre) pre.textContent = fileCache.get(path);
+}
+
+let lastArtifacts = null;
+
+function renderArtifacts(a) {
+  lastArtifacts = a;
+  const reviews = $("reviews");
+  reviews.innerHTML = a.reviews.length ? a.reviews.map((r) => `
+    <div class="pr">
+      <div class="title">${esc(r.id.split("-")[0])} · ${esc(r.title || "untitled")}</div>
+      <div class="meta">${esc(r.author || "unknown author")}${r.base ? ` → ${esc(r.base)}` : ""} · ${r.diff_lines} diff lines · ${r.has_review ? "review written" : "no review yet"}</div>
+      ${r.has_review ? detailsFor(`reviews/${r.id}/review.md`, "review") : ""}
+      ${detailsFor(`reviews/${r.id}/diff.patch`, "diff")}
+    </div>`).join("") : empty("No pull request reviewed yet.");
+
+  const replies = $("replies");
+  replies.innerHTML = a.replies.length ? a.replies.map((r) => `
+    <div class="pr">
+      <div class="title">${esc(r.id)} · ${esc(r.title || "untitled")}</div>
+      <div class="meta">${esc(r.author || "unknown author")}${r.branch ? ` on ${esc(r.branch)}` : ""} · ${r.comments} comment${r.comments === 1 ? "" : "s"}
+        ${r.url ? `· <a href="${esc(r.url)}" target="_blank" rel="noreferrer">GitHub</a>` : ""}
+        ${r.pushed ? `· <span class="pushed">pushed ${esc(r.pushed.slice(0, 8))}</span>` : ""}</div>
+      ${r.has_reply ? detailsFor(`replies/${r.id}/reply.md`, "reply") : ""}
+      ${detailsFor(`replies/${r.id}/diff.patch`, "diff")}
+    </div>`).join("") : empty("No reply drafted yet.");
+
+  $("seen").innerHTML = a.seen.length
+    ? `<div class="chips">${a.seen.slice().reverse().map((s) => `<span class="chip">${esc(s.repo)} <b>#${esc(s.pr)}</b></span>`).join("")}</div>`
+    : empty("The watcher has not marked anything as seen.");
+
+  renderStats();
+}
+
+let lastStats = { total: 0, failed: 0, avg: 0 };
+let lastRuns = [];
+let lastAllRuns = [];
+
+function renderStats() {
+  const a = lastArtifacts || { reviews: [], replies: [] };
+  $("stats").innerHTML = [
+    ["Live runs", lastRuns.length],
+    ["Recorded runs", lastStats.total],
+    ["Failed runs", lastStats.failed],
+    ["Avg duration", dur(lastStats.avg)],
+    ["PRs reviewed", a.reviews.length],
+    ["PRs answered", a.replies.length],
+  ].map(([label, value]) => `<div class="stat"><b>${esc(value)}</b><span>${esc(label)}</span></div>`).join("");
+}
+
+function renderRuns(executions) {
+  // awf keeps finished runs in the list; only running ones belong here.
+  lastAllRuns = executions;
+  executions = executions.filter((e) => e.status === "running");
+  lastRuns = executions;
+  $("runs").innerHTML = executions.length ? executions.map((e) => `
+    <div class="run">
+      <div class="top">
+        <span class="wf">${esc(e.workflow_name)}</span>
+        ${badge(e.status)}
+        <span class="step">${esc(e.current_step || "starting")}</span>
+        <span class="time">${esc(ago(e.started_at))}</span>
+      </div>
+      <div class="bar"><i></i></div>
+      <pre class="log" data-log="${esc(e.execution_id)}">${esc(logCache.get(e.execution_id) || "loading…")}</pre>
+    </div>`).join("") : empty("No workflow running. The timer runs one awf-gh pass every two minutes.");
+  renderStats();
+}
+
+// awf history ids differ from execution ids, so runs are matched on workflow
+// and start second to find the recorded log.
+function runKey(workflow, startedAt) {
+  return `${workflow}|${Math.floor(Date.parse(startedAt) / 1000)}`;
+}
+
+function renderHistory(entries) {
+  const byKey = new Map((lastAllRuns || []).map((e) => [runKey(e.workflow_name, e.started_at), e.execution_id]));
+  $("history").innerHTML = entries.length ? `
+    <table>
+      <thead><tr><th>Workflow</th><th>Status</th><th>Started</th><th>Duration</th><th>Log</th></tr></thead>
+      <tbody>${entries.map((e) => {
+        const id = byKey.get(runKey(e.workflow_name, e.started_at));
+        return `<tr>
+        <td>${esc(e.workflow_name)}</td>
+        <td>${badge(e.status)}</td>
+        <td class="num">${esc(new Date(e.started_at).toLocaleString())}</td>
+        <td class="num">${esc(dur(e.duration_ms))}</td>
+        <td>${id ? `<details data-log="${esc(id)}" data-key="log:${esc(id)}" ${openDetails.has(`log:${id}`) ? "open" : ""}><summary>log</summary><pre>loading…</pre></details>` : `<span class="num">none</span>`}</td>
+      </tr>`; }).join("")}</tbody>
+    </table>` : empty("No finished run recorded yet.");
+  wireLogs(document);
+}
+
+function renderStatsOnly(stats) {
+  lastStats = { total: stats.TotalExecutions, failed: stats.FailedCount, avg: stats.AvgDurationMs };
+  renderStats();
+}
+
+async function refresh() {
+  try {
+    const [exec, hist, stats] = await Promise.all([
+      getJSON("/awf/api/executions"),
+      getJSON("/awf/api/history?limit=30"),
+      getJSON("/awf/api/history/stats"),
+    ]);
+    $("live").className = "on";
+    $("banner").style.display = "none";
+    renderRuns(exec.body?.executions || []);
+    renderHistory(hist.body?.entries || []);
+    renderStatsOnly(stats.body || { TotalExecutions: 0, FailedCount: 0, AvgDurationMs: 0 });
+  } catch (e) {
+    $("live").className = "off";
+    $("banner").style.display = "block";
+    $("banner").textContent = `awf is not reachable (${e.message}). Start it with make up.`;
+  }
+}
+
+async function refreshArtifacts() {
+  try {
+    renderArtifacts(await getJSON("/api/artifacts"));
+    wireDetails(document);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+// awf streams one `data: {...}` line per event. Keep the log readable: seq,
+// step, event kind, and any prompt or error text.
+function formatLog(raw) {
+  const lines = [];
+  for (const line of raw.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    let e;
+    try { e = JSON.parse(line.slice(6)); } catch { continue; }
+    let text = `${String(e.seq ?? "").padStart(3)} ${e.step || "-"} ${e.kind || ""}`;
+    if (e.status) text += ` (${e.status})`;
+    if (e.error) text += ` error: ${e.error}`;
+    if (e.prompt) text += `\n    ${String(e.prompt).slice(0, 300).replace(/\n/g, "\n    ")}`;
+    lines.push(text);
+  }
+  return lines.join("\n");
+}
+
+const logCache = new Map();
+
+async function loadLog(id, el, force) {
+  const paint = () => {
+    const pre = el.tagName === "PRE" ? el : el.querySelector("pre");
+    if (pre) pre.textContent = logCache.get(id) || "no log recorded";
+  };
+  if (logCache.has(id) && !force) { paint(); return; }
+  try {
+    const res = await fetch(`/api/log?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+    logCache.set(id, res.ok ? formatLog(await res.text()) : "");
+  } catch (e) {
+    logCache.set(id, String(e));
+  }
+  paint();
+}
+
+function wireLogs(root) {
+  root.querySelectorAll("details[data-log]").forEach((el) => {
+    if (el.dataset.wired) return;
+    el.dataset.wired = "1";
+    const key = `log:${el.dataset.log}`;
+    el.addEventListener("toggle", () => {
+      if (el.open) { openDetails.add(key); loadLog(el.dataset.log, el); }
+      else openDetails.delete(key);
+    });
+    if (el.open) loadLog(el.dataset.log, el);
+  });
+}
+
+// Running runs keep their log open and get re-read while they stream.
+setInterval(() => {
+  document.querySelectorAll("pre[data-log]").forEach((pre) => {
+    pre.style.display = "";
+    loadLog(pre.dataset.log, pre, true);
+  });
+}, 2000);
+
+async function loadMemory() {
+  try {
+    renderMemory(await getJSON("/api/memory"));
+  } catch (e) {
+    $("memory").innerHTML = empty(`Cannot read lessons and memory (${e.message}).`);
+  }
+}
+
+function renderMemory(list) {
+  $("memory").innerHTML = list.length ? list.map((r) => `
+    <div class="pr">
+      <div class="title"><a href="https://github.com/${esc(r.repo)}" target="_blank" rel="noreferrer">${esc(r.repo)}</a></div>
+      ${r.since ? `<div class="meta">last pass covered up to ${esc(r.since)}</div>` : ""}
+      ${r.lessons ? `<div class="meta">rules</div><pre>${esc(r.lessons)}</pre>` : ""}
+      ${r.memory ? `<div class="meta">facts</div><pre>${esc(r.memory)}</pre>` : ""}
+    </div>`).join("") : empty("No pass has written lessons or memory yet.");
+}
+
+async function loadRepos() {
+  try {
+    renderRepos(await getJSON("/api/repos"));
+  } catch (e) {
+    $("repos").innerHTML = empty(`Cannot list repositories (${e.message}).`);
+  }
+}
+
+function repoTags(e) {
+  const bits = [];
+  if (e.ignore_authors?.length) bits.push(`skips ${e.ignore_authors.length} authors`);
+  if (e.only_authors?.length) bits.push(`only ${e.only_authors.join(", ")}`);
+  return bits.length ? ` · ${esc(bits.join(" · "))}` : "";
+}
+
+function renderRepos(list) {
+  $("repos").innerHTML = list.length ? list.map((r) => `
+    <div class="pr">
+      <div class="title"><a href="https://github.com/${esc(r.repo)}" target="_blank" rel="noreferrer">${esc(r.repo)}</a></div>
+      ${r.entries.map((e) => `<div class="meta">${esc(e.workflow)} · ${esc(e.scope)} · on ${esc((e.on || []).join(", "))}${repoTags(e)}</div>`).join("")}
+      ${r.seen.length ? `<div class="chips" style="margin-top:8px">${r.seen.map((p) => `<span class="chip">#${esc(p)}</span>`).join("")}</div>` : ""}
+    </div>`).join("") : empty("No repository in awf-gh.yaml.");
+}
+
+function renderWorkflows(list) {
+  $("workflows").innerHTML = list.length ? `
+    <table>
+      <thead><tr><th>Name</th><th>Scope</th><th>Version</th><th>Description</th></tr></thead>
+      <tbody>${list.map((w) => `<tr class="wf-row" data-scope="${esc(w.scope)}" data-wf="${esc(w.name)}">
+        <td>${esc(w.name)}</td>
+        <td class="num">${esc(w.scope)}</td>
+        <td class="num">${esc(w.version)}</td>
+        <td class="num">${esc(w.description || "")}</td>
+      </tr>`).join("")}</tbody>
+    </table>` : empty("No workflow found.");
+}
+
+const workflowCache = new Map();
+
+async function openFlow(row) {
+  const scope = row.dataset.scope;
+  const name = row.dataset.wf;
+  document.querySelectorAll("tr.wf-row").forEach((r) => r.classList.toggle("sel", r === row));
+  const want = `#workflows/${scope}/${name}`;
+  if (location.hash !== want) location.hash = want;
+  $("flow").innerHTML = empty("loading…");
+  try {
+    const key = `${scope}/${name}`;
+    if (!workflowCache.has(key)) workflowCache.set(key, await getJSON(`/awf/api/workflows/${key}`));
+    renderFlow(workflowCache.get(key).body);
+  } catch (e) {
+    $("flow").innerHTML = empty(`Cannot load ${name} (${e.message}).`);
+  }
+}
+
+function flowNode(name, s) {
+  const kind = s.Type || "step";
+  const term = kind === "terminal";
+  const command = (s.Command || "").split("\n").map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("set ") && !l.startsWith("#")).slice(0, 2).join(" ");
+  const agent = s.Agent ? [s.Agent.Provider, s.Agent.Options?.model].filter(Boolean).join(" · ") : "";
+  const sub = agent || command || s.Description || "";
+  const foot = [
+    s.OnSuccess ? `success → ${esc(s.OnSuccess)}` : "",
+    s.OnFailure ? `<span class="fail">on failure → ${esc(s.OnFailure)}</span>` : "",
+  ].filter(Boolean).join(" · ");
+  const bad = term && (s.Status === "failure" || name === "error");
+  return `<div class="node ${term ? "terminal" : ""} ${bad ? "failure" : ""}">
+    <div class="n-head"><span class="n-name">${esc(name)}</span><span class="n-kind">${esc(kind)}</span></div>
+    ${sub ? `<div class="n-sub"><code>${esc(sub)}</code></div>` : ""}
+    ${foot ? `<div class="n-foot">${foot}</div>` : ""}
+  </div>`;
+}
+
+function renderFlow(w) {
+  const steps = w.Steps || {};
+  const seen = new Set();
+  const chain = [];
+  // The success path is the spine; anything it skips is listed after it.
+  for (let cur = w.Initial; cur && steps[cur] && !seen.has(cur); cur = steps[cur].OnSuccess) {
+    seen.add(cur);
+    chain.push(cur);
+  }
+  const rest = Object.keys(steps).filter((n) => !seen.has(n)).sort();
+  const parts = [`<h2>${esc(w.Name)} · ${chain.length} steps</h2>`];
+  chain.forEach((name, i) => {
+    parts.push(flowNode(name, steps[name]));
+    const next = steps[name].OnSuccess;
+    if (i + 1 < chain.length) {
+      // Label the edge with its outcome when it is not the plain success hop.
+      parts.push(`<div class="edge"><b>${next === chain[i + 1] ? "success" : esc(next || "end")}</b></div>`);
+    }
+  });
+  if (rest.length) {
+    parts.push(`<h2>Other states</h2>`);
+    rest.forEach((name) => parts.push(flowNode(name, steps[name])));
+  }
+  $("flow").innerHTML = parts.join("");
+}
+
+$("workflows").addEventListener("click", (ev) => {
+  const row = ev.target.closest("tr.wf-row");
+  if (row) openFlow(row);
+});
+
+let workflowsLoaded = false;
+async function loadWorkflows() {
+  if (workflowsLoaded) return;
+  try {
+    renderWorkflows((await getJSON("/awf/api/workflows")).body?.workflows || []);
+    workflowsLoaded = true;
+  } catch (e) {
+    $("workflows").innerHTML = empty(`Cannot list workflows (${e.message}).`);
+  }
+}
+
+function showView(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
+  $("view-activity").hidden = name !== "activity";
+  $("view-workflows").hidden = name !== "workflows";
+  $("view-repos").hidden = name !== "repos";
+  $("view-memory").hidden = name !== "memory";
+  if (name === "workflows") loadWorkflows();
+  if (name === "repos") loadRepos();
+  if (name === "memory") loadMemory();
+}
+
+// The view and the open workflow live in the hash so a reload or a shared URL
+// lands on the same screen: #workflows/<scope>/<name>.
+function applyHash() {
+  const [view, scope, name] = location.hash.replace(/^#/, "").split("/");
+  if (view === "activity" || !view) {
+    showView("activity");
+    return;
+  }
+  if (view === "repos") {
+    showView("repos");
+    return;
+  }
+  if (view === "memory") {
+    showView("memory");
+    return;
+  }
+  showView("workflows");
+  loadWorkflows().then(() => {
+    if (!name) return;
+    const row = [...document.querySelectorAll("tr.wf-row")]
+      .find((r) => r.dataset.wf === name && r.dataset.scope === scope);
+    if (row) applyRow(row);
+  });
+}
+
+// applyHash runs on load and on back/forward; skip a row that already shows.
+function applyRow(row) {
+  if (row.classList.contains("sel")) return;
+  openFlow(row);
+}
+window.addEventListener("hashchange", applyHash);
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+  location.hash = `#${b.dataset.view}`;
+}));
+applyHash();
+
+const themeSelect = $("theme");
+themeSelect.value = document.documentElement.dataset.themeMode || "auto";
+themeSelect.addEventListener("change", () => {
+  const mode = themeSelect.value;
+  localStorage.setItem("dots-theme", mode);
+  document.documentElement.dataset.themeMode = mode;
+  document.documentElement.dataset.theme = mode === "auto" ? (systemDark.matches ? "dark" : "light") : mode;
+});
+systemDark.addEventListener("change", () => {
+  if (document.documentElement.dataset.themeMode === "auto")
+    document.documentElement.dataset.theme = systemDark.matches ? "dark" : "light";
+});
+
+refreshArtifacts().then(refresh);
+setInterval(refresh, 5000);
+setInterval(refreshArtifacts, 15000);
+</script>
+</body>
+</html>
