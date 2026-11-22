@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily pass over tend.list: learn, file issues, open at most one pull request
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+ExecStart=%h/projects/perso/opencode-dots/bin/tend
+TimeoutStartSec=3600

@@ -4,7 +4,9 @@
 # gh keeps its token in the host keyring, which a container cannot read, so
 # every service gets GH_TOKEN from .env instead. Run `gh auth token` to get it.
 services:
+  # Started only when bin/configure picks opencode=docker (COMPOSE_PROFILES).
   opencode:
+    profiles: ["opencode-docker"]
     build:
       context: .
       args:
@@ -23,8 +25,12 @@ services:
       GH_TOKEN: ${GH_TOKEN:-}
     restart: unless-stopped
 
+  # Started only when bin/configure picks awf=docker (COMPOSE_PROFILES).
   awf:
+    profiles: ["awf-docker"]
     image: opencode-dots:latest
+    # opencode v2 refuses to run from the home directory ("Location not found").
+    working_dir: /workspace
     command: ["awf", "serve", "--host", "0.0.0.0", "--port", "2511", "--storage", "/state/awf"]
     ports:
       - "127.0.0.1:2511:2511"
@@ -39,6 +45,12 @@ services:
     environment:
       GH_TOKEN: ${GH_TOKEN:-}
       DISCORD_WEBHOOK: ${DISCORD_WEBHOOK:-}
+      # Workflows read this instead of a hardcoded /state: a local opencode
+      # server only sees host paths.
+      STATE_DIR: /state
+      # Keep WORK_ROOT under STATE_DIR unless you also mount it: a local
+      # opencode server only reads host paths.
+      WORK_ROOT: ${WORK_ROOT:-}
     restart: unless-stopped
 
   # One-shot: driven by dots-awf-gh.timer, never left running.

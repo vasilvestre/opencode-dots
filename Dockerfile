@@ -1,8 +1,17 @@
 # One image, four binaries: nothing lands in ~/.local/bin on pop-os.
+
+# awf v0.11.10 cannot preflight opencode v2: it runs `opencode auth list`
+# without --format json and expects an "N credentials" footer that v2 dropped.
+# Build from the commit that parses the JSON form instead.
+FROM golang:1.24-bookworm AS awf-build
+# The module requires go 1.26; the official image pins GOTOOLCHAIN=local.
+ENV GOTOOLCHAIN=auto
+ARG AWF_REF=d49c6b69f2e4bddc20d2eb2358f79672d4860520
+RUN CGO_ENABLED=0 go install github.com/awf-project/cli/cmd/awf@${AWF_REF}
+
 FROM debian:stable-slim
 
 ARG TARGETARCH=amd64
-ARG AWF_VERSION=v0.11.10
 ARG TOWER_VERSION=v0.1.0
 # 0 = skip tower, 1 = include it (it is 0.1.0, opt in on purpose)
 ARG WITH_TOWER=0
@@ -17,11 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /opt/agent/bin && useradd -m -u 1000 agent
 
 # awf
-RUN set -eux; \
-    curl -fsSL -o /tmp/awf.tgz "https://github.com/awf-project/cli/releases/download/${AWF_VERSION}/awf_linux_${TARGETARCH}.tar.gz"; \
-    tar -xzf /tmp/awf.tgz -C /tmp; \
-    find /tmp -type f -name awf -perm -u+x -exec mv {} /opt/agent/bin/awf \; ; \
-    chmod +x /opt/agent/bin/awf
+COPY --from=awf-build /go/bin/awf /opt/agent/bin/awf
 
 # gh: no apt repo, just the release tarball
 RUN set -eux; \

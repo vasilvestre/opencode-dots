@@ -1,0 +1,10 @@
+# Repositories the daily tend pass reads, one per line:
+#
+#   owner/repo auto_merge
+#
+# auto_merge=true asks GitHub to merge the pull request the pass opens, once
+# the checks pass and the branch allows it. Leave it false for repositories you
+# do not own: a maintainer reviews first.
+#
+# AlteredParadox/pmss-fleet-manager false
+# vasilvestre/opencode-dots true

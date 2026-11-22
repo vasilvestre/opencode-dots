@@ -1,5 +1,10 @@
-bin/
+bin/*
 state/
 .env
+compose.override.yaml
 # Local awf-gh config: names the private repos we watch, this repo is public.
 awf-gh.yaml
+repos.map
+tend.list
+!bin/configure
+!bin/tend

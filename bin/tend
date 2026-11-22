@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# One tend-repo run per repository in tend.list. Daily, not on every poll: each
+# run spends one agent pass, so the list stays short.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+list=${TEND_LIST:-tend.list}
+if [ ! -f "$list" ]; then
+  echo "no $list, nothing to tend"
+  exit 0
+fi
+
+state=$(pwd)/state
+while read -r repo auto rest; do
+  case "$repo" in ''|'#'*) continue ;; esac
+  if [[ ! $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    echo "skip invalid repo: $repo" >&2
+    continue
+  fi
+  auto=${auto:-false}
+  case "$auto" in true|false) ;; *) echo "skip $repo: auto_merge must be true or false" >&2; continue ;; esac
+  echo "== $repo (auto_merge=$auto)"
+  docker compose run --rm -e STATE_DIR="$state" \
+    awf bash -c "cd $state && awf run tend-repo --input repo=$repo --input auto_merge=$auto"
+done < "$list"
