@@ -66,7 +66,7 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 
 ```bash
 make configure   # asks local or image per piece; writes .env, compose.override.yaml
-make build       # compiles the sibling repo ~/projects/oss/awf-gh into bin/
+make build       # compiles awf-gh from AWF_GH_SRC into bin/
 make image       # builds opencode-dots:latest (runs build first)
 make validate    # awf validate on each workflows/*.yaml (syntax only)
 make check       # image + validate + version smoke test of every binary
@@ -90,8 +90,9 @@ systemctl --user enable --now dots-tend.timer   # optional, daily
 
 ## NOTES
 
-- `make build` builds `~/projects/oss/awf-gh`, not this repo. It fails if that
-  directory is absent.
+- `make build` builds `awf-gh` from `AWF_GH_SRC` (default
+  `~/projects/oss/awf-gh`), not this repo. It stops with a clear message when
+  that path is missing.
 - `make check` proves the image and the binaries answer. It does not run a
   workflow.
 - There are no tests and no CI. `make validate` only parses the YAML.

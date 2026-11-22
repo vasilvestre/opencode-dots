@@ -4,6 +4,9 @@
 
 IMAGE  ?= opencode-dots:latest
 COMPOSE ?= docker compose
+# Where the awf-gh checkout lives. It is not published at its module path, so a
+# local clone is the only source.
+AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
 .PHONY: configure need-configure build image check up down logs awf-gh dashboard
 
@@ -13,8 +16,9 @@ configure: ## choose local or image for opencode, awf and gh; writes .env
 need-configure:
 	@test -f .env -a -f compose.override.yaml || { echo "not configured: run 'make configure'" >&2; exit 1; }
 
-build: ## compile awf-gh from the sibling repo into bin/
-	cd ~/projects/oss/awf-gh && go build -o ~/projects/perso/opencode-dots/bin/awf-gh .
+build: ## compile awf-gh from $(AWF_GH_SRC) into bin/
+	@test -d "$(AWF_GH_SRC)" || { echo "awf-gh source missing: set AWF_GH_SRC (now $(AWF_GH_SRC))" >&2; exit 1; }
+	cd "$(AWF_GH_SRC)" && go build -o "$(CURDIR)/bin/awf-gh" .
 
 image: build
 	$(COMPOSE) --profile opencode-docker build opencode
