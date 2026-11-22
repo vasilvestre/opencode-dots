@@ -84,6 +84,10 @@ states:
       first: those are rules earlier mistakes in this repository taught, and
       the change you make must not break them.
 
+      When {{.env.STATE_DIR}}/tend/{{.inputs.repo}}/memory.md exists, read it
+      too: what the repository is for, how it is laid out, and the decisions
+      already taken.
+
       The comment to answer is the last one in pr.json. The author of the pull
       request is me, so a comment from me is not a question to answer.
 

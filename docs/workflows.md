@@ -1,6 +1,6 @@
 # Workflows
 
-Three workflows live in `workflows/`. Each one is a small state machine that
+Four workflows live in `workflows/`. Each one is a small state machine that
 `awf` runs to completion. You can run any of them by hand; the timers only
 decide when.
 
@@ -9,6 +9,7 @@ decide when.
 | `review-pr` | `awf-gh`, on `pr-opened`, `pr-updated`, `checks-failed` | yes | no |
 | `reply-pr` | `awf-gh`, on `review-comment` | yes | yes, on branches you own |
 | `tend-repo` | `bin/tend`, daily | yes, one per repo | yes, through a pull request |
+| `fix-issue` | `awf-gh`, on `issue-labeled` | yes, one per issue | yes, one branch per issue |
 
 Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
 that is an absolute host path, because the local opencode server resolves paths
@@ -30,9 +31,14 @@ repos:
 Steps:
 
 1. `fetch` writes `meta.json` and `diff.patch` to
-   `$STATE_DIR/reviews/pr<N>-<sha>/`.
-2. `review` asks the agent to write `review.md`, or nothing when the pull
-   request needs no comment.
+   `$STATE_DIR/reviews/pr<N>-<sha>/`, then checks out the pull request head in
+   `work/` beside them. The reviewer reads the callers, the types and the tests
+   with `read`, `glob` and `grep`, so a finding can rest on a file outside the
+   diff.
+2. `review` asks the agent to write `review.md`: a correctness section, then a
+   security section that walks trust boundaries, secrets, privileges, data
+   destruction, dependencies and failure paths. The agent writes `verdict.txt`
+   with `merge` or `hold`; a security finding always means `hold`.
 3. `post` runs `gh pr review --comment --body-file`.
 4. `notify` posts to Discord when `DISCORD_WEBHOOK` is set.
 
@@ -78,8 +84,14 @@ vasilvestre/opencode-dots true
 ```
 
 The second column is `auto_merge`. Keep it `false` for repositories you do not
-own: the maintainer reviews first. With `true`, the workflow asks GitHub to
-merge the pull request once the checks pass.
+own: the maintainer reviews first. With `true`, the workflow first runs
+`review-pr` on the pull request it just opened and reads the one-word verdict
+in `verdict.txt`. Only `merge` enables GitHub auto-merge, so a `hold` review
+leaves the pull request waiting. The checks still have to pass.
+
+`bin/tend` skips a repository with no commit and no issue or comment movement
+since its cursor in `state/tend/<owner>/<repo>/since`, using two `gh api` calls
+instead of an agent pass.
 
 Steps:
 
@@ -87,21 +99,117 @@ Steps:
    they received, the diffs of your commits, and the existing issues. It writes
    `material.md` in `$STATE_DIR/tend/<owner>/<repo>/` and adds a worktree of the
    default branch.
-2. `learn` asks the agent for three things: rewrite `lessons.md`, write
-   `findings.json`, and optionally fix one mechanical defect in the worktree
-   with a `pr.md` describing the pull request.
-3. `file` opens an issue per finding, skipping titles that already exist.
+2. `learn` asks the agent for five things: rewrite `lessons.md` (rules learned
+   from mistakes), rewrite `memory.md` (durable facts about the repository that
+   are not rules), write `findings.json`, optionally fix one mechanical defect
+   in the worktree with a `pr.md` describing the pull request, and write
+   `promote.md` with the rules that hold beyond this repository.
+3. `file` opens one issue, and only for the finding the agent marked
+   `"confidence": "high"`. Every finding it files or skips goes into
+   `raised.txt`, so a later pass treats that subject as decided.
 4. `patch` commits the worktree change on a `tend/<date>` branch, pushes it and
-   opens the pull request. With `auto_merge=true` it then runs
-   `gh pr merge --auto --squash`.
+   opens the pull request. It discards the change when no high-confidence
+   finding backs it, or when a `tend/` pull request is still open. With
+   `auto_merge=true` it runs `review-pr` on that pull request, then
+   `gh pr merge --auto --squash` only on a `merge` verdict.
 5. `notify` sends one digest and moves the cursor to today. A failed pass keeps
    the old cursor, so tomorrow replays the same window.
 
-### Lessons feed the other workflows
+### What is worth opening
 
-`lessons.md` is keyed by repository, and `review-pr` and `reply-pr` read the
-same file. A mistake the pass learned from therefore reaches the next reply in
-that repository, not only the pass that found it.
+The pass runs again tomorrow on almost the same code, so an item it opens sits
+in front of a maintainer for good. Open nothing unless the material proves the
+defect: a red check, a revert, a fix commit that followed mine, a maintainer or
+CI comment naming the fault, a reported wrong output, or two `path:line` that
+cannot both hold. Noticing something while reading is not proof, and a style
+opinion is not a defect.
+
+The gate is mechanical, not only a prompt line:
+
+- `findings.json` holds at most one object, with `"confidence": "high"` and an
+  `"evidence"` line; `file` creates nothing for an object that lacks either.
+- `file` appends every finding to `raised.txt` (`filed` or `skipped`), and
+  `learn` reads that file first, so the same subject does not come back under
+  another wording.
+- `survey` writes `open_pr`, the number of open `tend/` pull requests. When it
+  is not zero, `learn` leaves the worktree alone and `patch` discards any
+  change, so pull requests do not pile up.
+- `patch` discards a change that no high-confidence finding backs.
+
+An empty pass is the normal outcome.
+
+### Lessons and memory feed the other workflows
+
+`lessons.md` and `memory.md` are keyed by repository, and `review-pr` and
+`reply-pr` read both. A mistake the pass learned from reaches the next review in
+that repository, not only the pass that found it. Keep the split strict: a rule
+you must follow belongs in `lessons.md`, a fact about the repository belongs in
+`memory.md`. `~/dreams` covers what holds across every project, so neither file
+repeats it.
+
+### How a lesson leaves the repository
+
+`promote.md` holds zero to three lines a pass judged true outside its
+repository, written without naming it. `bin/tend` copies each new line into
+`~/dreams/dreaming/inbox/<owner>_<repo>.md` in the candidate format the dream
+pass writes, once: a line already in the inbox is not added again. The nightly
+light pass reads that directory, so the line reaches `~/dreams/MEMORY.md`
+through the same promotion the rest of your memory goes through. No repository
+path is shared between the container and `~/dreams`, which is why the delivery
+happens on the host, in `bin/tend`, after the pass succeeds.
+
+Write nothing there by habit: the file is a queue, not a dump. A pass that
+promotes everything makes `~/dreams` useless. [`memory.md`](memory.md) records
+what the research measures about shared and unfiltered memory.
+
+## fix-issue
+
+Turns one labeled issue into one pull request. The label is the trigger: an
+issue nobody labels is never touched, and `awf-gh` fires once per issue and
+label, so a fixed issue does not come back on the next pass.
+
+```yaml
+# awf-gh.yaml
+repos:
+  - repo: vasilvestre/opencode-dots
+    scope: local
+    workflow: fix-issue
+    on: [issue-labeled]
+    labels: ["dot"]
+```
+
+The label must exist on the repository before you use it:
+
+```bash
+gh label create dot -R owner/repo \
+  --description "Let the agent fix this issue and open a pull request" \
+  --color 6c5ce7
+gh issue edit 2 -R owner/repo --add-label dot
+```
+
+Steps:
+
+1. `fetch` writes `issue.json` (title, body, author, labels, comments) to
+   `$STATE_DIR/fix/<owner>/<repo>/issue-<N>/`, adds a worktree of the default
+   branch, and copies `lessons.md` and `memory.md` from the last tend pass if
+   they exist.
+2. `fix` asks the agent to prove the defect first, quoting `path:line`, then to
+   make the smallest change that fixes it and write `fix.md`: the pull request
+   title, then the body. An issue that is already fixed, or wrong, ends the run
+   with no pull request and no failure.
+3. `push` commits on a `fix/<N>-<date>` branch, pushes it and opens a pull
+   request whose body ends with `Closes #N`, so merging closes the issue.
+4. `notify` posts the pull request URL on Discord when `DISCORD_WEBHOOK` is set.
+
+`fix-issue` never merges. The pull request waits for your review, or for
+whatever closes it.
+
+To replay an issue, drop its key from the state file; the label stays:
+
+```bash
+docker compose --profile jobs run --rm awf-gh \
+  --forget 'owner/repo#issue2'
+```
 
 ## Run one by hand
 

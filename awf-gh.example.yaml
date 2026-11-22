@@ -20,3 +20,12 @@ repos:
     workflow: reply-pr
     on: [review-comment]
     only_authors: ["your-login"]
+
+  # Turn a labeled issue into a pull request. The label is the trigger, so no
+  # issue is touched until you add it; awf-gh fires once per issue and label.
+  - repo: your-org/your-repo
+    scope: local
+    workflow: fix-issue
+    on: [issue-labeled]
+    labels: ["dot"]
+    ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]

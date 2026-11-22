@@ -1,16 +1,43 @@
 #!/usr/bin/env bash
 # One tend-repo run per repository in tend.list. Daily, not on every poll: each
-# run spends one agent pass, so the list stays short.
+# run spends one agent pass, so a repository with no activity since its last
+# pass is skipped without starting an agent.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 list=${TEND_LIST:-tend.list}
+awf_api=${AWF_URL:-http://127.0.0.1:2511}
 if [ ! -f "$list" ]; then
   echo "no $list, nothing to tend"
   exit 0
 fi
 
+# The repository check runs on the host, outside the container, so it needs the
+# token that .env already carries for compose.
+if [ -z "${GH_TOKEN:-}" ] && [ -f .env ]; then
+  GH_TOKEN=$(sed -n 's/^GH_TOKEN=//p' .env | head -1)
+  export GH_TOKEN
+fi
+
 state=$(pwd)/state
+
+# A pass may name rules that hold beyond its repository. Copy them once into the
+# inbox the nightly dream pass reads, so they can reach ~/dreams/MEMORY.md.
+inbox=${DREAMS_INBOX:-$HOME/dreams/dreaming/inbox}
+deliver_promotions() { # $1 = owner/repo
+  local src="$state/tend/$1/promote.md" box line
+  [ -s "$src" ] || return 0
+  [ -d "$inbox" ] || return 0
+  box="$inbox/$(printf '%s' "$1" | tr '/' '_').md"
+  while IFS= read -r line; do
+    line=$(printf '%s' "$line" | sed 's/^[[:space:]]*[-*][[:space:]]*//; s/[[:space:]]*$//')
+    [ -n "$line" ] || continue
+    grep -Fq -- "Candidate: $line" "$box" 2>/dev/null && continue
+    printf -- '- Candidate: %s\n  - project: %s\n  - evidence: "tend pass on %s, %s"\n' \
+      "$line" "$1" "$1" "$(date +%F)" >> "$box"
+  done < "$src"
+}
+
 while read -r repo auto rest; do
   case "$repo" in ''|'#'*) continue ;; esac
   if [[ ! $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
@@ -19,7 +46,48 @@ while read -r repo auto rest; do
   fi
   auto=${auto:-false}
   case "$auto" in true|false) ;; *) echo "skip $repo: auto_merge must be true or false" >&2; continue ;; esac
+
+  # The cursor the workflow writes on a successful pass. A failed pass leaves
+  # the old one, so the same window is replayed.
+  since_file="$state/tend/$repo/since"
+  if [ -s "$since_file" ]; then
+    since=$(cat "$since_file")
+    commits=$(gh api "repos/$repo/commits?since=${since}T00:00:00Z&per_page=1" --jq length 2>/dev/null || echo 1)
+    threads=$(gh api "repos/$repo/issues?since=${since}T00:00:00Z&state=all&per_page=1" --jq length 2>/dev/null || echo 1)
+    if [ "$commits" = 0 ] && [ "$threads" = 0 ]; then
+      echo "skip $repo: no activity since $since"
+      continue
+    fi
+  fi
+
   echo "== $repo (auto_merge=$auto)"
-  docker compose run --rm -e STATE_DIR="$state" \
-    awf bash -c "cd $state && awf run tend-repo --input repo=$repo --input auto_merge=$auto"
+
+  # Dispatch through awf serve so the run lands in its history and the
+  # dashboard records its log. Running `awf run` directly left no trace.
+  body=$(jq -nc --arg repo "$repo" --arg auto "$auto" '{inputs:{repo:$repo,auto_merge:$auto}}')
+  if ! resp=$(curl -sf -X POST "$awf_api/api/workflows/local/tend-repo/run" \
+      -H 'Content-Type: application/json' -d "$body"); then
+    echo "tend: cannot reach awf at $awf_api, is make up running?" >&2
+    exit 1
+  fi
+  id=$(printf '%s' "$resp" | jq -r '.body.execution_id // empty')
+  if [ -z "$id" ]; then
+    echo "tend: dispatch refused: $resp" >&2
+    exit 1
+  fi
+  deadline=$(( $(date +%s) + ${TEND_TIMEOUT:-5400} ))
+  while :; do
+    status=$(curl -sf "$awf_api/api/executions/$id" | jq -r '.body.status // empty')
+    case "$status" in
+      running|pending) ;;
+      completed) echo "tend: $repo done"; deliver_promotions "$repo"; break ;;
+      "") echo "tend: lost execution $id" >&2; exit 1 ;;
+      *) echo "tend: $repo ended $status" >&2; exit 1 ;;
+    esac
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "tend: $repo timed out after ${TEND_TIMEOUT:-5400}s" >&2
+      exit 1
+    fi
+    sleep 10
+  done
 done < "$list"
