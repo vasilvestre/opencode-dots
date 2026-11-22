@@ -30,4 +30,4 @@ logs:
 	$(COMPOSE) logs -f --tail=50
 
 awf-gh: ## one polling pass, for testing by hand
-	$(COMPOSE) run --rm awf-gh
+	$(COMPOSE) --profile jobs run --rm awf-gh
