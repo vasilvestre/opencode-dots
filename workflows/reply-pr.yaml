@@ -198,7 +198,7 @@ states:
       fi
       title=$(jq -r '.title // ""' "$d/pr.json")
       msg="Réponse postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
-      https://github.com/{{.inputs.repo}}/pull/{{.inputs.pr}}"
+      <https://github.com/{{.inputs.repo}}/pull/{{.inputs.pr}}>"
       jq -n --arg c "$msg" '{content: $c}' \
         | curl -fsS -o /dev/null -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK" \
         || echo "discord notification failed"

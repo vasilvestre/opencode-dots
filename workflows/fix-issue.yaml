@@ -162,7 +162,7 @@ states:
       echo "issue #$iss: ${pr:-no pull request}"
       if [ -n "$pr" ] && [ -n "${DISCORD_WEBHOOK:-}" ]; then
         msg="$repo issue #$iss:
-      $pr"
+      <$pr>"
         jq -n --arg c "$msg" '{content: $c}' \
           | curl -fsS -o /dev/null -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK" \
           || echo "discord notification failed"

@@ -308,8 +308,10 @@ states:
       set -eu
       repo={{.inputs.repo}}
       d=${STATE_DIR:-/state}/tend/$repo
-      issues=$(cat "$d/issues-created.txt" 2>/dev/null || true)
+      # Angle brackets stop Discord from expanding a GitHub link preview.
+      issues=$(awk -F'\t' '{ printf "%s <%s>\n", $1, $2 }' "$d/issues-created.txt" 2>/dev/null || true)
       pr=$(cat "$d/pr-url" 2>/dev/null || true)
+      if [ -n "$pr" ]; then pr="<$pr>"; fi
       if [ -z "$issues$pr" ]; then
         echo "nothing opened for $repo"
       else
