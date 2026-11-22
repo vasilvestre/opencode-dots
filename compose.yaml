@@ -39,6 +39,9 @@ services:
       - .:/work:ro
       - ./workflows:/home/agent/.config/awf/workflows:ro
       - ${HOME}/projects:/workspace
+      # Workflows look a repository up in repos.map by absolute host path, so
+      # that same path has to resolve inside the container.
+      - ${HOME}/projects:${HOME}/projects
       # Bind mount, not a named volume: named volumes arrive root-owned and the
       # agent user cannot write them.
       - ./state:/state
