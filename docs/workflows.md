@@ -34,7 +34,10 @@ Steps:
    `$STATE_DIR/reviews/pr<N>-<sha>/`, then checks out the pull request head in
    `work/` beside them. The reviewer reads the callers, the types and the tests
    with `read`, `glob` and `grep`, so a finding can rest on a file outside the
-   diff.
+   diff. When a check on that commit has failed, `fetch` also writes
+   `checks.json` and `ci-failed.log`, the last 300 lines of `--log-failed` for
+   up to three failed runs. Logs are best effort: a check that is not a GitHub
+   Actions run leaves no log, and the review goes on without it.
 2. `review` asks the agent to write `review.md`: a correctness section, then a
    security section that walks trust boundaries, secrets, privileges, data
    destruction, dependencies and failure paths. The agent writes `verdict.txt`

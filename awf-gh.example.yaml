@@ -4,13 +4,13 @@
 # repos you watch, and this repository is public.
 awf_url: http://awf:2511
 state_path: /state/awf-gh/seen.jsonl
-max_per_run: 2
+max_per_run: 6
 
 repos:
   - repo: awf-project/cli
     scope: local
     workflow: review-pr
-    on: [pr-opened, pr-updated]
+    on: [pr-opened, pr-updated, checks-failed]
     ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
 
   # Answer review comments on your own PRs. only_authors keeps other people's
