@@ -86,8 +86,33 @@ states:
         echo "no answer needed on {{.inputs.repo}}#{{.inputs.pr}}"
       fi
     timeout: 120
-    on_success: done
+    on_success: notify
     on_failure: error
+
+  # Only speak up when something was posted. Best effort: a dead webhook must
+  # never fail a step that already ran.
+  notify:
+    type: step
+    command: |
+      set -eu
+      d=/state/replies/pr{{.inputs.pr}}
+      if [ ! -s "$d/reply.md" ]; then
+        echo "no answer posted, no notification"
+        exit 0
+      fi
+      if [ -z "${DISCORD_WEBHOOK:-}" ]; then
+        echo "DISCORD_WEBHOOK unset, no notification"
+        exit 0
+      fi
+      title=$(jq -r '.title // ""' "$d/pr.json")
+      msg="Réponse postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
+      https://github.com/{{.inputs.repo}}/pull/{{.inputs.pr}}"
+      jq -n --arg c "$msg" '{content: $c}' \
+        | curl -fsS -o /dev/null -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK" \
+        || echo "discord notification failed"
+    timeout: 30
+    on_success: done
+    on_failure: done
 
   done:
     type: terminal

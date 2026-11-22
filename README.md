@@ -37,6 +37,17 @@ make logs   # follow both
 docker compose --profile jobs run --rm awf-gh awf-gh --config /work/awf-gh.yaml --dry-run
 ```
 
+## Discord notifications
+
+`review-pr` and `reply-pr` end with a `notify` step. When `DISCORD_WEBHOOK` is
+set in `.env`, it posts one line plus the PR link to that channel webhook. The
+`reply-pr` step stays silent when the agent decided no answer was needed. The
+step never fails the workflow: an unset variable or a dead webhook only prints
+a line in the logs.
+
+Create the webhook in the target channel: channel settings, Integrations,
+Webhooks, New Webhook, Copy Webhook URL.
+
 ## Watch list
 
 The repos the watcher polls are private names, and this repository is public.

@@ -38,6 +38,7 @@ services:
       - ./state:/state
     environment:
       GH_TOKEN: ${GH_TOKEN:-}
+      DISCORD_WEBHOOK: ${DISCORD_WEBHOOK:-}
     restart: unless-stopped
 
   # One-shot: driven by dots-awf-gh.timer, never left running.

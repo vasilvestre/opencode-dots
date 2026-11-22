@@ -65,8 +65,28 @@ states:
       gh pr comment {{.inputs.pr}} --repo {{.inputs.repo}} \
         --body-file "$d/review.md"
     timeout: 120
-    on_success: done
+    on_success: notify
     on_failure: error
+
+  # Best effort: a dead webhook must never fail a review that is already posted.
+  notify:
+    type: step
+    command: |
+      set -eu
+      d=/state/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
+      if [ -z "${DISCORD_WEBHOOK:-}" ]; then
+        echo "DISCORD_WEBHOOK unset, no notification"
+        exit 0
+      fi
+      title=$(jq -r '.title // ""' "$d/meta.json")
+      msg="Review postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
+      https://github.com/{{.inputs.repo}}/pull/{{.inputs.pr}}"
+      jq -n --arg c "$msg" '{content: $c}' \
+        | curl -fsS -o /dev/null -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK" \
+        || echo "discord notification failed"
+    timeout: 30
+    on_success: done
+    on_failure: done
 
   done:
     type: terminal
