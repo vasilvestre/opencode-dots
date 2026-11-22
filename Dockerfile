@@ -45,17 +45,17 @@ RUN set -eux; \
 COPY bin/ /opt/agent/bin/
 RUN chmod +x /opt/agent/bin/*
 
-USER agent
-WORKDIR /home/agent
-
-# The official installer writes to ~/.opencode/bin, which stays in the image.
-RUN curl -fsSL https://opencode.ai/install | bash
-
 # Pre-create every bind-mount target: Docker creates missing parents as root,
 # and then the agent cannot write next to them.
 RUN mkdir -p /home/agent/.local/share/opencode /home/agent/.local/state \
              /home/agent/.config/gh /home/agent/.config/opencode /state \
     && chown -R agent:agent /home/agent /state
+
+USER agent
+WORKDIR /home/agent
+
+# The official installer writes to ~/.opencode/bin, which stays in the image.
+RUN curl -fsSL https://opencode.ai/install | bash
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bash"]

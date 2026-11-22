@@ -1,0 +1,22 @@
+# Polled by dots-awf-gh.timer. One pass, then exit.
+#
+# Copy to awf-gh.yaml and edit. awf-gh.yaml is gitignored: it names the private
+# repos you watch, and this repository is public.
+awf_url: http://awf:2511
+state_path: /state/awf-gh/seen.jsonl
+max_per_run: 2
+
+repos:
+  - repo: awf-project/cli
+    scope: local
+    workflow: review-pr
+    on: [pr-opened, pr-updated]
+    ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+
+  # Answer review comments on your own PRs. only_authors keeps other people's
+  # PRs out; review-comment fires once per new comment.
+  - repo: your-org/your-repo
+    scope: local
+    workflow: reply-pr
+    on: [review-comment]
+    only_authors: ["your-login"]

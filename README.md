@@ -9,27 +9,43 @@ Two containers and one timer:
 | Piece | Role |
 |---|---|
 | `opencode` | `opencode serve` on `127.0.0.1:4096`. The agent itself. |
-| `awf` | `awf serve` on `127.0.0.1:8080`. Runs workflows. |
+| `awf` | `awf serve` on `127.0.0.1:2511`. Runs workflows. |
 | `awf-gh` | One-shot poll of open pull requests, started by a timer. |
 
 Nothing listens off loopback. Hermes stays the human-facing front: it already
-has the bots, it only needs one instruction to call `awf run`.
-No GitHub watcher lives inside Hermes: the timer decides, not the model.
+has the bots, and it needs one instruction to call `awf run`. No GitHub watcher
+lives inside Hermes: a timer decides, not a model.
 
 ## Build and prove it
 
+gh keeps its token in the host keyring, and a container cannot read the
+keyring. Every service therefore gets `GH_TOKEN` from `.env`:
+
 ```bash
+cp .env.example .env
+sed -i "s|^GH_TOKEN=.*|GH_TOKEN=$(gh auth token)|" .env
 make check
 ```
 
 `make check` compiles `awf-gh` from `~/projects/oss/awf-gh` into `bin/`, builds
-the image, prints every version, and runs `awf serve --help`. Read that output
-before `make up`: the `awf serve` flags in `compose.yaml` are the one thing not
-verified yet.
+the image, and prints the version of every binary plus `awf serve --help`.
+`make check` passing means the stack is real; it does not mean a workflow ran.
 
 ```bash
 make up     # start opencode and awf
 make logs   # follow both
+docker compose --profile jobs run --rm awf-gh awf-gh --config /work/awf-gh.yaml --dry-run
+```
+
+## Watch list
+
+The repos the watcher polls are private names, and this repository is public.
+`awf-gh.yaml` is therefore gitignored and only `awf-gh.example.yaml` is
+versioned:
+
+```bash
+cp awf-gh.example.yaml awf-gh.yaml
+$EDITOR awf-gh.yaml     # add your private repos
 ```
 
 ## The agent is in this repo

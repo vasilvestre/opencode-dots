@@ -1,5 +1,8 @@
 # Nothing listens on a public interface: every port stays on loopback and the
 # containers talk over the compose network.
+#
+# gh keeps its token in the host keyring, which a container cannot read, so
+# every service gets GH_TOKEN from .env instead. Run `gh auth token` to get it.
 services:
   opencode:
     build:
@@ -16,8 +19,8 @@ services:
       - ${HOME}/projects:/workspace
       # Provider credentials. Read-write because tokens refresh.
       - ${HOME}/.local/share/opencode:/home/agent/.local/share/opencode
-      # gh auth for the workflows and awf-gh, read-only.
-      - ${HOME}/.config/gh:/home/agent/.config/gh:ro
+    environment:
+      GH_TOKEN: ${GH_TOKEN:-}
     restart: unless-stopped
 
   awf:
@@ -28,11 +31,13 @@ services:
     volumes:
       - ./agent:/home/agent/.config/opencode
       - .:/work:ro
+      - ./workflows:/home/agent/.config/awf/workflows:ro
       - ${HOME}/projects:/workspace
-      - ${HOME}/.config/gh:/home/agent/.config/gh:ro
       # Bind mount, not a named volume: named volumes arrive root-owned and the
       # agent user cannot write them.
       - ./state:/state
+    environment:
+      GH_TOKEN: ${GH_TOKEN:-}
     restart: unless-stopped
 
   # One-shot: driven by dots-awf-gh.timer, never left running.
@@ -41,6 +46,7 @@ services:
     command: ["awf-gh", "--config", "/work/awf-gh.yaml"]
     volumes:
       - .:/work:ro
-      - ${HOME}/.config/gh:/home/agent/.config/gh:ro
       - ./state:/state
+    environment:
+      GH_TOKEN: ${GH_TOKEN:-}
     profiles: ["jobs"]
