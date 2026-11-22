@@ -1,0 +1,11 @@
+# Polled by dots-awf-gh.timer. One pass, then exit.
+awf_url: http://awf:2511
+state_path: /state/awf-gh/seen.jsonl
+max_per_run: 2
+
+repos:
+  - repo: awf-project/cli
+    scope: local
+    workflow: review-pr
+    on: [pr-opened, pr-updated]
+    ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]

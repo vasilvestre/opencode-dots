@@ -1,0 +1,46 @@
+# Nothing listens on a public interface: every port stays on loopback and the
+# containers talk over the compose network.
+services:
+  opencode:
+    build:
+      context: .
+      args:
+        WITH_TOWER: "0"
+    image: opencode-dots:latest
+    command: ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    ports:
+      - "127.0.0.1:4096:4096"
+    volumes:
+      # The bot's brain lives in this repo, not in ~/.config/opencode.
+      - ./agent:/home/agent/.config/opencode
+      - ${HOME}/projects:/workspace
+      # Provider credentials. Read-write because tokens refresh.
+      - ${HOME}/.local/share/opencode:/home/agent/.local/share/opencode
+      # gh auth for the workflows and awf-gh, read-only.
+      - ${HOME}/.config/gh:/home/agent/.config/gh:ro
+    restart: unless-stopped
+
+  awf:
+    image: opencode-dots:latest
+    command: ["awf", "serve", "--host", "0.0.0.0", "--port", "2511", "--storage", "/state/awf"]
+    ports:
+      - "127.0.0.1:2511:2511"
+    volumes:
+      - ./agent:/home/agent/.config/opencode
+      - .:/work:ro
+      - ${HOME}/projects:/workspace
+      - ${HOME}/.config/gh:/home/agent/.config/gh:ro
+      # Bind mount, not a named volume: named volumes arrive root-owned and the
+      # agent user cannot write them.
+      - ./state:/state
+    restart: unless-stopped
+
+  # One-shot: driven by dots-awf-gh.timer, never left running.
+  awf-gh:
+    image: opencode-dots:latest
+    command: ["awf-gh", "--config", "/work/awf-gh.yaml"]
+    volumes:
+      - .:/work:ro
+      - ${HOME}/.config/gh:/home/agent/.config/gh:ro
+      - ./state:/state
+    profiles: ["jobs"]
