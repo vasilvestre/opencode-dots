@@ -8,7 +8,7 @@ COMPOSE ?= docker compose
 # local clone is the only source.
 AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
-.PHONY: configure need-configure build image check up down logs awf-gh dashboard
+.PHONY: configure need-configure build image validate check up down logs awf-gh dashboard
 
 configure: ## choose local or image for opencode, awf and gh; writes .env
 	bin/configure
@@ -24,7 +24,7 @@ image: build
 	$(COMPOSE) --profile opencode-docker build opencode
 
 validate: ## parse every workflow and stop on the first failure
-	docker compose run --rm awf bash -c 'for f in /home/agent/.config/awf/workflows/*.yaml; do awf validate "$$(basename "$$f" .yaml)"; done'
+	$(COMPOSE) run --rm awf awf validate --dir /home/agent/.config/awf/workflows/
 
 check: image validate ## verify every binary and the serve flags before trusting the stack
 	$(COMPOSE) --profile opencode-docker run --rm --entrypoint bash opencode -c '\
