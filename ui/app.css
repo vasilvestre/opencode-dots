@@ -197,8 +197,6 @@ input[type="search"] { min-width: 200px; }
 .muted { color: var(--muted); }
 .num { font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--mono); }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 .section-head {
   display: flex; align-items: baseline; gap: 10px;
   margin-bottom: 10px;

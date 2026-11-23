@@ -8,7 +8,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <script>
   // Theme before first paint: no flash when the page opens in light mode.
-  (function () {
+  (() => {
     var mode = localStorage.getItem("dots-theme") || "auto";
     var dark = mode === "dark" || (mode === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
     var el = document.documentElement;

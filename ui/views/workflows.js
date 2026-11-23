@@ -3,7 +3,6 @@ import { awf, getJSON } from "../api.js";
 import { createEditor } from "../editor.js";
 import { renderFlow } from "../flow.js";
 import { navigate } from "../router.js";
-import { toast } from "../toast.js";
 
 // Workflows are read through awf, edited on disk. The list pairs each awf
 // entry with its file so the page knows what it can actually write.
@@ -15,7 +14,6 @@ export function mountWorkflows(el, arg) {
   let mode = "editor";
   let editor = null;
   const detailCache = new Map();
-  const listCacheKey = new Map();
 
   const search = h("input", {
     class: "search",
@@ -147,10 +145,6 @@ export function mountWorkflows(el, arg) {
       kind: "workflow",
       scope: wf.scope,
       name: wf.name,
-      onSaved: () => {
-        detailCache.delete(`${wf.scope}/${wf.name}`);
-        toast("Saved. awf reads the file on the next run.", { tone: "ok" });
-      },
     });
     if (destroyed || selected !== wf.name) { ed.destroy(); return; }
     editor = ed;

@@ -9,7 +9,6 @@ import { navigate } from "./router.js";
 // Validation is awf's own endpoint, which re-reads the file from disk.
 export async function createEditor({ path, kind, scope = "global", name }) {
   const state = { saved: "", busy: false, dirty: false };
-  let destroyed = false;
 
   const gutter = h("div", { class: "gutter", "aria-hidden": "true" });
   const area = h("textarea", {
@@ -174,7 +173,7 @@ export async function createEditor({ path, kind, scope = "global", name }) {
     } else if (ev.key === "Tab" && !ev.ctrlKey && !ev.metaKey) {
       ev.preventDefault();
       const { selectionStart: a, selectionEnd: b, value } = area;
-      area.value = value.slice(0, a) + "  " + value.slice(b);
+      area.value = `${value.slice(0, a)}  ${value.slice(b)}`;
       area.selectionStart = area.selectionEnd = a + 2;
       paintGutter();
       setDirty();
@@ -192,7 +191,6 @@ export async function createEditor({ path, kind, scope = "global", name }) {
     el,
     isDirty: () => state.dirty,
     destroy() {
-      destroyed = true;
       window.removeEventListener("beforeunload", beforeUnload);
     },
     reload: revert,

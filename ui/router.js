@@ -16,7 +16,7 @@ export function parseRoute(hash = location.hash) {
 }
 
 export function routeHref(view, arg = "") {
-  return `#${view}${arg ? "/" + arg : ""}`;
+  return `#${view}${arg ? `/${arg}` : ""}`;
 }
 
 export function navigate(view, arg = "", { replace = false } = {}) {
@@ -30,7 +30,7 @@ export function startRouter(onRoute) {
   let current = null;
   const run = () => {
     const route = parseRoute();
-    const key = route.view + "/" + route.arg;
+    const key = `${route.view}/${route.arg}`;
     if (key === current) return;
     current = key;
     onRoute(route);

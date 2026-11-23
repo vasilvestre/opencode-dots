@@ -30,7 +30,7 @@ export async function request(url, opts = {}) {
   }
   const body = await readBody(res);
   if (!res.ok) {
-    const message = (body && body.error) || (typeof body === "string" ? body : `HTTP ${res.status}`);
+    const message = (body?.error) || (typeof body === "string" ? body : `HTTP ${res.status}`);
     throw new ApiError(message, res.status, body);
   }
   return body;

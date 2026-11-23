@@ -107,7 +107,7 @@ export function mountActivity(el) {
       renderKpis();
       renderRuns();
       renderHistory();
-    } catch (err) {
+    } catch {
       // app.js shows the awf banner; keep the last good data on screen.
       runsCount.textContent = "awf unreachable";
     }
@@ -251,7 +251,7 @@ export function mountActivity(el) {
     });
     const updateCost = async () => {
       const c = await runCost(run.execution_id, run.started_at);
-      if (!c || !c.cost) return;
+      if (!c?.cost) return;
       costEl.textContent = money(c);
       costEl.title = `${c.input.toLocaleString()} in · ${c.output.toLocaleString()} out · ${c.cache_read.toLocaleString()} cached`;
     };
@@ -270,7 +270,7 @@ export function mountActivity(el) {
       let data;
       try { data = JSON.parse(ev.data); } catch { return; }
       const kind = data.kind || "event";
-      text = trimLines(text + eventLine({ ...data, kind }) + "\n", MAX_LOG_LINES);
+      text = trimLines(`${text + eventLine({ ...data, kind })}\n`, MAX_LOG_LINES);
       paint(text);
       if (kind === "workflow.completed" || kind === "workflow.failed") {
         es.close();
@@ -449,7 +449,7 @@ export function mountActivity(el) {
       const raw = await getText(`/api/stream?id=${encodeURIComponent(entry.logId)}`);
       pre.textContent = formatLog(raw) || "The log is empty.";
       const c = await runCost(entry.logId, entry.started_at, entry.completed_at);
-      if (c && c.cost) modal.querySelector("h2").textContent += ` · ${money(c)}`;
+      if (c?.cost) modal.querySelector("h2").textContent += ` · ${money(c)}`;
     } catch (err) {
       pre.textContent = `No log on disk for this run (${err.message}). The recorder only keeps runs seen while the dashboard runs.`;
     }

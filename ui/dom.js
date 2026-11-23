@@ -32,12 +32,6 @@ export function h(tag, props, ...kids) {
   return el;
 }
 
-export const frag = (...kids) => {
-  const f = document.createDocumentFragment();
-  append(f, kids);
-  return f;
-};
-
 export function mount(el, ...kids) {
   el.replaceChildren();
   append(el, kids);
@@ -45,27 +39,3 @@ export function mount(el, ...kids) {
 }
 
 export const $ = (sel, root = document) => root.querySelector(sel);
-
-export function debounce(fn, wait = 200) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
-}
-
-// Small observable value. Views subscribe, the data layer sets.
-export function createStore(initial) {
-  let value = initial;
-  const subs = new Set();
-  return {
-    get: () => value,
-    set(next) {
-      if (Object.is(next, value)) return;
-      value = next;
-      for (const fn of subs) fn(value);
-    },
-    subscribe(fn) {
-      subs.add(fn);
-      fn(value);
-      return () => subs.delete(fn);
-    },
-  };
-}

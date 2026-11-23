@@ -54,7 +54,7 @@ export function formatLog(raw) {
   const lines = [];
   for (const line of String(raw).split("\n")) {
     if (!line.startsWith("data: ")) continue;
-    try { lines.push(eventLine(JSON.parse(line.slice(6)))); } catch { continue; }
+    try { lines.push(eventLine(JSON.parse(line.slice(6)))); } catch { }
   }
   return lines.join("\n");
 }
