@@ -35,6 +35,13 @@ export function mountRepos(el) {
         h("a", { href: `https://github.com/${r.repo}`, target: "_blank", rel: "noreferrer" }, h("b", {}, r.repo)),
         r.seen.length ? h("span", { class: "muted", style: { fontSize: "12px" } }, `${r.seen.length} seen`) : null,
       ),
+      // Tower indexes this checkout, so a missing or empty ignore file turns
+      // the index into noise on the next run.
+      r.tower_ignore ? h("div", { class: "warning", style: { marginTop: "10px" } },
+        r.tower_ignore === "missing"
+          ? "Tower indexes this repository and .towerignore is missing. Run tower init, then list what it must skip."
+          : "Tower indexes this repository and .towerignore holds no pattern. Add the paths and files Tower must skip.",
+      ) : null,
       h("div", { class: "stack", style: { gap: "6px", marginTop: "10px" } },
         r.entries.map((e) => h("div", { class: "row", style: { fontSize: "12.5px" } },
           h("span", { class: "badge" }, e.scope),

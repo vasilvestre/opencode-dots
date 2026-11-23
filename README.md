@@ -264,7 +264,9 @@ http://127.0.0.1:8099. It shows:
 - a Memory tab: per repository, the rules in `state/tend/<owner>/<repo>/lessons.md`
   and the facts in `memory.md`, with the date the last pass covered
 - a Repos tab: every repository in `awf-gh.yaml`, the workflows that watch it,
-  their triggers and author filters, and the PRs the watcher already saw
+  their triggers and author filters, and the PRs the watcher already saw. A
+  warning marks the repositories Tower indexes whose `.towerignore` is missing
+  or lists no pattern.
 
 The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
 running (`make up`). It binds loopback only. It writes three things:
@@ -288,7 +290,8 @@ so you check the fields before running.
 Flags: `-addr`, `-state`, `-root` (repository holding the editable files),
 `-awf`, `-ui`, `-awfgh` (watcher config, default `awf-gh.yaml`),
 `-opencode-db` (empty finds it under `$XDG_DATA_HOME`, `~/.local/share` or
-`state/`), `-transcripts` (empty finds awf's per-run transcripts in the same
+`state/`), `-opencode` (default the opencode config under `$XDG_CONFIG_HOME`),
+`-transcripts` (empty finds awf's per-run transcripts in the same
 way).
 
 ```bash

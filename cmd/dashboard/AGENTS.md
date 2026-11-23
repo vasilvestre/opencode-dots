@@ -16,7 +16,7 @@ for local config files. One Go file, `main.go`, package `main`. The frontend is
 | `/api/costs?from=&to=` | every opencode session in a window, for the history table |
 | `/api/stream?id=` | tails the run: awf's transcript when present, else `state/logs/<id>.jsonl` |
 | `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run |
-| `/api/repos` | `awf-gh.yaml` plus the seen list |
+| `/api/repos` | `awf-gh.yaml`, the seen list, and `repos.map` for the Tower check |
 | `/api/repos/names` | repository names for the run dialog, from the configs and `state/tend` |
 | `/api/replay?id=` | what a finished run was given: workflow, scope and inputs |
 | `/api/memory` | `state/tend/<owner>/<repo>/{lessons,memory}.md` and `since` |
@@ -88,12 +88,18 @@ the operator fills the rest. Nothing here is written to disk.
 - Artifact reads stop at `reviews/` and `replies/`: `state/` also holds git
   clones and must not be walkable.
 - Each handler answers JSON with `Cache-Control: no-store`.
+- `/api/repos` sets `tower_ignore` ("missing" or "empty") only when the
+  opencode config declares a tower MCP server that is not disabled, and the
+  repository's checkout in `repos.map` has a `.towerignore` that is absent or
+  lists no pattern. The Repos tab renders it as a warning; Tower indexes every
+  non-hidden file without one.
 
 ## FLAGS
 
 `-addr`, `-state` (default `STATE_DIR`), `-root` (default the repository root;
 holds `workflows/` and the local configs), `-awf` (default `AWF_URL`), `-ui`,
-`-awfgh` (default `awf-gh.yaml`).
+`-awfgh` (default `awf-gh.yaml`), `-opencode` (default the opencode config under
+`$XDG_CONFIG_HOME`).
 
 ## NOTES
 

@@ -74,6 +74,10 @@ type watchedRepo struct {
 	Repo    string    `json:"repo"`
 	Entries []ghEntry `json:"entries"`
 	Seen    []string  `json:"seen"`
+
+	// TowerIgnore is set only when Tower is enabled and the repository has a
+	// local checkout whose .towerignore is missing or holds no pattern.
+	TowerIgnore string `json:"tower_ignore,omitempty"`
 }
 
 // Artifact reads stop at these directories: state/ also holds git clones.
@@ -96,6 +100,7 @@ func main() {
 	ui := flag.String("ui", filepath.Join(root, "ui", "index.html"), "dashboard page")
 	opencodedb := flag.String("opencode-db", "", "opencode database, empty finds it in the usual places")
 	transcripts := flag.String("transcripts", "", "awf transcript directory, empty finds it in the usual places")
+	opencode := flag.String("opencode", defaultOpencodeConfig(), "opencode config declaring the tower MCP server")
 	flag.Parse()
 
 	target, err := url.Parse(*awf)
@@ -110,7 +115,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencodedb: *opencodedb, active: map[string]bool{}, tried: map[string]bool{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencodedb: *opencodedb, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}}
 	d.indexed = d.loadIndexed()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +159,7 @@ type dash struct {
 	awfgh       string
 	transcripts string
 	opencodedb  string
+	opencode    string
 	mu          sync.Mutex
 	active      map[string]bool
 	tried       map[string]bool
@@ -783,6 +789,7 @@ func (d *dash) repos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	idx := map[string]int{}
+	tower, paths := towerEnabled(d.opencode), repoPaths(filepath.Join(d.root, "repos.map"))
 	for _, e := range cfg.Repos {
 		i, ok := idx[e.Repo]
 		if !ok {
@@ -791,6 +798,11 @@ func (d *dash) repos(w http.ResponseWriter, r *http.Request) {
 			out = append(out, watchedRepo{Repo: e.Repo, Entries: []ghEntry{}, Seen: []string{}})
 		}
 		out[i].Entries = append(out[i].Entries, e)
+		// Only a repository with a local checkout can be checked: the runner
+		// clones the others elsewhere.
+		if tower && paths[e.Repo] != "" {
+			out[i].TowerIgnore = towerIgnoreState(paths[e.Repo])
+		}
 	}
 	lines := strings.Split(readFile(filepath.Join(d.state, "awf-gh", "seen.jsonl"), 1<<20), "\n")
 	for _, s := range dedupeSeen(lines) {
@@ -799,6 +811,61 @@ func (d *dash) repos(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, out)
+}
+
+// towerEnabled reports whether the opencode config declares a tower MCP server
+// that is not disabled. The file is JSONC, so the entry is scanned rather than
+// parsed.
+//
+// shortcut: a comment or a nested object inside that entry would throw the scan
+// off; switch to a JSONC parser if the config grows one.
+var (
+	towerEntryRE = regexp.MustCompile(`(?s)"tower"\s*:\s*\{(.*?)\}`)
+	towerOffRE   = regexp.MustCompile(`"disabled"\s*:\s*true`)
+)
+
+func towerEnabled(path string) bool {
+	m := towerEntryRE.FindStringSubmatch(readFile(path, 1<<20))
+	return m != nil && !towerOffRE.MatchString(m[1])
+}
+
+// towerIgnoreState says what `.towerignore` in dir still needs: "missing" when
+// the file is absent, "empty" when it holds no pattern, "" when it is fine.
+func towerIgnoreState(dir string) string {
+	body, err := os.ReadFile(filepath.Join(dir, ".towerignore"))
+	if err != nil {
+		return "missing"
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			return ""
+		}
+	}
+	return "empty"
+}
+
+// repoPaths reads repos.map: one `owner/repo=/absolute/checkout` per line.
+func repoPaths(path string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(readFile(path, 1<<20), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if i := strings.IndexByte(line, '='); i > 0 {
+			out[strings.TrimSpace(line[:i])] = strings.TrimSpace(line[i+1:])
+		}
+	}
+	return out
+}
+
+// defaultOpencodeConfig finds the config that declares the MCP servers.
+func defaultOpencodeConfig() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "opencode", "opencode.jsonc")
 }
 
 var repoNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
