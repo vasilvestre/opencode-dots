@@ -12,15 +12,33 @@ for local config files. One Go file, `main.go`, package `main`. The frontend is
 | `/api/artifacts` | `state/reviews/`, `state/replies/`, `state/awf-gh/seen.jsonl` |
 | `/api/file?path=` | one artifact file, under `reviews/` or `replies/` only |
 | `/api/log?id=` | `state/logs/<id>.jsonl` |
-| `/api/stream?id=` | tails `state/logs/<id>.jsonl` as SSE, replaying what already ran |
+| `/api/cost?id=&from=&to=` | what opencode charged for one run |
+| `/api/costs?from=&to=` | every opencode session in a window, for the history table |
+| `/api/stream?id=` | tails the run: awf's transcript when present, else `state/logs/<id>.jsonl` |
 | `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run |
 | `/api/repos` | `awf-gh.yaml` plus the seen list |
 | `/api/repos/names` | repository names for the run dialog, from the configs and `state/tend` |
+| `/api/replay?id=` | what a finished run was given: workflow, scope and inputs |
 | `/api/memory` | `state/tend/<owner>/<repo>/{lessons,memory}.md` and `since` |
 | `/api/files` | the editable files: `workflows/*.yaml` and the local configs |
 | `/api/source?path=` | one editable file as text |
 | `/api/save` (PUT) | writes one editable file, keeps a `.bak` |
 | `/awf/*` | proxied to `AWF_URL`, default `http://127.0.0.1:2511` |
+
+## REPLAY
+
+`/api/replay` feeds the Replay button on a finished run. awf keeps no copy of
+the inputs, so the values are recovered twice:
+
+1. from the run log: every workflow prompt spells `owner/repo#123`, and a review
+   run also writes `pr123-<sha>`. `replayInputs` reads them back, which is a
+   guess and the page says so.
+2. from the page itself: when a run starts from the run dialog, `ui/run.js`
+   keeps its exact inputs in `localStorage` under `dots-run-<id>`. That copy
+   wins, and it only exists in the browser that started the run.
+
+If a prompt changes shape, the guess degrades to the fields it still finds and
+the operator fills the rest. Nothing here is written to disk.
 
 ## RULES
 
@@ -40,9 +58,21 @@ for local config files. One Go file, `main.go`, package `main`. The frontend is
 - The only other write is `state/logs/`: the watcher goroutine records a
   running execution's event stream, because awf forgets it once the run leaves
   its session registry. It prunes logs older than 30 days.
+- `/api/stream` prefers awf's per-run transcript (`<data dir>/awf/transcripts/<id>.jsonl`),
+  which also holds the agent messages the event stream omits. The recorder's
+  file stays the fallback and the source of the terminal state, because the
+  transcript has no terminal record. Both are trusted local files: they contain
+  pull request text, so the listener stays on loopback.
 - The page must not open awf's own event stream. awf gives the event channel to
   a single reader, and that reader is the recorder here: a second one would take
   half the events from it. `/api/stream` tails the recorded file instead.
+- awf parses the agent price out of opencode's stream and drops it, so
+  `/api/cost` reads opencode's database instead (`session_v2`, older `session`),
+  matching sessions by the working directory awf runs agents in (`state/`) and
+  by the run's time window. `/api/costs` returns the raw sessions so the page
+  attributes each to one history row; a run can overlap its neighbour. It goes
+  through the `sqlite3` binary: no Go driver. The image installs that binary.
+  Without that binary or database the page shows no price.
 - awf history ids differ from execution ids, so `state/logs/index.jsonl`
   records workflow and start time for every kept log. The page joins a history
   row to its log on workflow plus start second; `/api/executions` lists running

@@ -1,8 +1,9 @@
 import { h, mount } from "../dom.js";
 import { awf, getJSON, getText } from "../api.js";
-import { ago, dur, elapsed, formatLog, when } from "../format.js";
+import { ago, dur, elapsed, eventLine, formatLog, when } from "../format.js";
 import { toast } from "../toast.js";
 import { confirmDialog, openModal } from "../modal.js";
+import { openRunModal, recalledRun } from "../run.js";
 
 const REFRESH_MS = 5000;
 const ARTIFACTS_MS = 15000;
@@ -17,6 +18,8 @@ export function mountActivity(el) {
     filter: "",
     status: "all",
     artifacts: { reviews: [], replies: [], seen: [] },
+    sessions: [],
+    costs: new Map(),
   };
   const fileCache = new Map();
   const runCards = new Map(); // execution id -> {card, step, time, stream}
@@ -65,7 +68,8 @@ export function mountActivity(el) {
           h("table", {},
             h("thead", {}, h("tr", {},
               h("th", {}, "Workflow"), h("th", {}, "Status"), h("th", {}, "Started"),
-              h("th", {}, "Duration"), h("th", { class: "actions" }, "Log"),
+              h("th", {}, "Duration"), h("th", {}, "Cost"), h("th", {}, "Run id"),
+              h("th", { class: "actions" }, "Log"),
             )),
             historyBody,
           ),
@@ -97,6 +101,7 @@ export function mountActivity(el) {
       state.executions = execRes.body?.executions || [];
       state.runs = state.executions.filter((e) => e.status === "running");
       state.history = attachLogIds(histRes.body?.entries || [], logsRes || []);
+      loadSessions();
       const s = statsRes.body || {};
       state.stats = { total: s.TotalExecutions || 0, failed: s.FailedCount || 0, avg: s.AvgDurationMs || 0 };
       renderKpis();
@@ -106,6 +111,41 @@ export function mountActivity(el) {
       // app.js shows the awf banner; keep the last good data on screen.
       runsCount.textContent = "awf unreachable";
     }
+  }
+
+  // opencode charges per agent turn; the price lives in its own database.
+  async function runCost(id, from, to) {
+    const q = new URLSearchParams({ id, from });
+    if (to) q.set("to", to);
+    try {
+      const c = await getJSON(`/api/cost?${q}`);
+      return c.available ? c : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function money(c) {
+    return c.cost >= 0.01 ? `$${c.cost.toFixed(3)}` : `$${c.cost.toFixed(4)}`;
+  }
+
+  // One query covers every row on the page; /api/costs returns the sessions in
+  // the window, the page sums them per row.
+  async function loadSessions() {
+    const times = state.history.flatMap((e) => [Date.parse(e.started_at), Date.parse(e.completed_at) || 0])
+      .filter((t) => t > 0);
+    if (!times.length) return;
+    const q = new URLSearchParams({
+      from: new Date(Math.min(...times) - 60000).toISOString(),
+      to: new Date(Math.max(...times) + 120000).toISOString(),
+    });
+    try {
+      const res = await getJSON(`/api/costs?${q}`);
+      state.sessions = res.available ? res.sessions || [] : [];
+    } catch {
+      state.sessions = [];
+    }
+    attributeSessions();
   }
 
   async function refreshArtifacts() {
@@ -118,15 +158,21 @@ export function mountActivity(el) {
     }
   }
 
-  // awf history ids differ from execution ids, so rows join on workflow plus
-  // start second, the same key the backend records in logs/index.jsonl.
+  // awf history records carry their own id, not the execution id, so rows join
+  // on workflow plus start second, the key the backend writes to
+  // logs/index.jsonl. Two runs can start in the same second: take each id once.
   function attachLogIds(entries, logs) {
-    const byKey = new Map(logs.map((l) => [runKey(l.workflow_name, l.started_at), l.execution_id]));
-    for (const e of state.executions) {
-      const key = runKey(e.workflow_name, e.started_at);
-      if (!byKey.has(key)) byKey.set(key, e.execution_id);
-    }
-    return entries.map((e) => ({ ...e, logId: byKey.get(runKey(e.workflow_name, e.started_at)) }));
+    const byKey = new Map();
+    const add = (workflow, startedAt, id) => {
+      const key = runKey(workflow, startedAt);
+      byKey.set(key, [...(byKey.get(key) || []), id]);
+    };
+    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id);
+    for (const e of state.executions) add(e.workflow_name, e.started_at, e.execution_id);
+    return entries.map((e) => {
+      const list = byKey.get(runKey(e.workflow_name, e.started_at));
+      return { ...e, logId: list?.length ? list.shift() : undefined };
+    });
   }
 
   // --- summary ------------------------------------------------------------
@@ -167,6 +213,7 @@ export function mountActivity(el) {
         runs.appendChild(entry.card);
       }
       entry.step.textContent = run.current_step || "starting";
+      entry.updateCost();
       entry.time.textContent = elapsed(run.started_at);
       const pre = entry.pre;
       const text = logText.get(run.execution_id);
@@ -176,6 +223,7 @@ export function mountActivity(el) {
 
   function createRunCard(run) {
     const step = h("span", { class: "step muted" }, "starting");
+    const costEl = h("span", { class: "cost muted num" });
     const time = h("span", { class: "time muted num" });
     const pre = h("pre", { class: "log" }, logText.get(run.execution_id) || "connecting to the stream…");
     const card = h("div", { class: "run" },
@@ -183,6 +231,7 @@ export function mountActivity(el) {
         h("b", {}, run.workflow_name),
         h("span", { class: "badge running" }, "running"),
         step,
+        costEl,
         h("span", { class: "spacer" }),
         time,
         h("button", {
@@ -200,7 +249,14 @@ export function mountActivity(el) {
         pre.scrollTop = pre.scrollHeight;
       }
     });
-    return { card, step, time, pre, stream };
+    const updateCost = async () => {
+      const c = await runCost(run.execution_id, run.started_at);
+      if (!c || !c.cost) return;
+      costEl.textContent = money(c);
+      costEl.title = `${c.input.toLocaleString()} in · ${c.output.toLocaleString()} out · ${c.cache_read.toLocaleString()} cached`;
+    };
+    updateCost();
+    return { card, step, costEl, time, pre, stream, updateCost };
   }
 
   // The backend records awf's single event stream, so the page tails that file
@@ -214,11 +270,7 @@ export function mountActivity(el) {
       let data;
       try { data = JSON.parse(ev.data); } catch { return; }
       const kind = data.kind || "event";
-      const line = `${String(data.seq ?? "").padStart(3)} ${data.step || "-"} ${kind}` +
-        (data.status ? ` (${data.status})` : "") +
-        (data.error ? ` error: ${data.error}` : "") +
-        (data.prompt ? `\n    ${String(data.prompt).slice(0, 300).replace(/\n/g, "\n    ")}` : "");
-      text = trimLines(text + line + "\n", MAX_LOG_LINES);
+      text = trimLines(text + eventLine({ ...data, kind }) + "\n", MAX_LOG_LINES);
       paint(text);
       if (kind === "workflow.completed" || kind === "workflow.failed") {
         es.close();
@@ -259,13 +311,62 @@ export function mountActivity(el) {
     }
   }
 
+  // A session usually starts inside the run that launched it. Runs recorded
+  // back to back overlap a little, so when several rows match, the longer run
+  // keeps it: a probe that lasted milliseconds cannot have launched a turn.
+  // Sessions outside every run window fall back to a wider window, because a
+  // step may prepare for a while before the agent starts.
+  function attributeSessions() {
+    const buckets = state.history.map((e) => {
+      const start = Date.parse(e.started_at);
+      const end = e.completed_at ? Date.parse(e.completed_at) : start;
+      return {
+        key: rowKey(e),
+        from: start - 5000,
+        to: end + 5000,
+        looseFrom: start - 60000,
+        looseTo: end + 180000,
+        len: end - start,
+        cost: 0,
+      };
+    });
+    const claim = (s, loose) => {
+      let best = null;
+      for (const b of buckets) {
+        const from = loose ? b.looseFrom : b.from;
+        const to = loose ? b.looseTo : b.to;
+        if (s.at < from || s.at > to) continue;
+        if (!best || b.len > best.len) best = b;
+      }
+      return best;
+    };
+    for (const s of state.sessions) {
+      const best = claim(s, false) || claim(s, true);
+      if (best) best.cost += s.cost;
+    }
+    state.costs = new Map(buckets.map((b) => [b.key, b.cost]));
+  }
+
+  function rowKey(e) {
+    return `${e.workflow_name}|${e.started_at}`;
+  }
+
+  function costOf(e) {
+    return state.costs.get(rowKey(e)) || 0;
+  }
+
+  function costCell(e) {
+    const c = costOf(e);
+    return c ? money({ cost: c }) : h("span", { class: "muted" }, "—");
+  }
+
   function renderHistory() {
     const rows = state.history.filter((e) =>
       (!state.filter || (e.workflow_name || "").toLowerCase().includes(state.filter)) &&
       (state.status === "all" || e.status === state.status));
     historyCount.textContent = `${rows.length} of ${state.history.length}`;
     if (!rows.length) {
-      mount(historyBody, h("tr", {}, h("td", { colspan: "5" }, h("div", { class: "empty" },
+      mount(historyBody, h("tr", {}, h("td", { colspan: "7" }, h("div", { class: "empty" },
         state.history.length ? "No run matches the filter." : "No finished run recorded yet."))));
       return;
     }
@@ -274,23 +375,81 @@ export function mountActivity(el) {
       h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
       h("td", { class: "num muted", title: when(e.started_at) }, ago(e.started_at)),
       h("td", { class: "num" }, dur(e.duration_ms)),
+      h("td", { class: "num" }, costCell(e)),
+      h("td", {}, e.logId
+        ? h("button", {
+          class: "btn ghost sm mono",
+          title: `${e.logId} (click to copy)`,
+          onclick: () => copyId(e.logId),
+        }, e.logId.slice(0, 8))
+        : h("span", { class: "muted" }, "—")),
       h("td", { class: "actions" },
         e.logId
           ? h("button", { class: "btn sm", onclick: () => showLog(e) }, "Log")
           : h("span", { class: "muted" }, "—"),
+        h("button", { class: "btn ghost sm", title: `Run ${e.workflow_name} again`, onclick: () => replay(e) }, "Replay"),
       ),
     )));
+  }
+
+  async function copyId(id) {
+    try {
+      await navigator.clipboard.writeText(id);
+      toast(`Run id copied: ${id}`, { tone: "info" });
+    } catch {
+      toast(`Run id: ${id}`, { tone: "info", timeout: 15000 });
+    }
+  }
+
+  // replay opens the run dialog of the same workflow. The inputs come from the
+  // page's own record when it started the run, otherwise from the run log.
+  async function replay(entry) {
+    let info = { workflow: entry.workflow_name, scope: "global", inputs: {}, source: "none" };
+    try {
+      const q = new URLSearchParams({ workflow: entry.workflow_name || "" });
+      if (entry.logId) q.set("id", entry.logId);
+      info = await getJSON(`/api/replay?${q}`);
+    } catch (err) {
+      toast(`Cannot read what this run was given: ${err.message}`, { tone: "err" });
+    }
+    const recalled = recalledRun(entry.logId);
+    const prefill = recalled?.inputs || info.inputs || {};
+    let detail;
+    try {
+      detail = (await awf(`/api/workflows/${encodeURIComponent(info.scope)}/${encodeURIComponent(info.workflow)}`)).body;
+    } catch (err) {
+      toast(`Cannot load ${info.workflow}: ${err.message}`, { tone: "err" });
+      return;
+    }
+    const note = recalled
+      ? "Same inputs as the run you started from this browser. Check them before running."
+      : info.source === "log"
+        ? "These inputs are read back from the run log, not stored by awf. Check them before running."
+        : "No record of what this run was given. Fill the inputs in.";
+    openRunModal({
+      scope: info.scope,
+      name: info.workflow,
+      inputs: detail.Inputs || [],
+      prefill,
+      note,
+      onStarted: (id) => {
+        toast(`Run started: ${String(id).slice(0, 8)}`, { tone: "ok" });
+        refresh();
+      },
+    });
   }
 
   async function showLog(entry) {
     const pre = h("pre", { style: { maxHeight: "60vh" } }, "loading…");
     const modal = openModal({
-      title: `${entry.workflow_name} · ${when(entry.started_at)}`,
+      title: `${entry.workflow_name} · ${when(entry.started_at)} · ${entry.logId ? entry.logId.slice(0, 8) : "no id"}`,
       body: pre,
     });
     try {
-      const raw = await getText(`/api/log?id=${encodeURIComponent(entry.logId)}`);
+      const raw = await getText(`/api/stream?id=${encodeURIComponent(entry.logId)}`);
       pre.textContent = formatLog(raw) || "The log is empty.";
+      const c = await runCost(entry.logId, entry.started_at, entry.completed_at);
+      if (c && c.cost) modal.querySelector("h2").textContent += ` · ${money(c)}`;
     } catch (err) {
       pre.textContent = `No log on disk for this run (${err.message}). The recorder only keeps runs seen while the dashboard runs.`;
     }

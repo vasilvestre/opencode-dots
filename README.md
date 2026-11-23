@@ -235,9 +235,12 @@ tarball fix first.
 `make dashboard` builds `cmd/dashboard` and serves a page on
 http://127.0.0.1:8099. It shows:
 
-- awf executions running now, with their current step and a live log
-- the run history and its success, failure and average duration counters, each
-  run with its recorded log
+- awf executions running now, with their current step and a live log that
+  includes what the agent said on its turn
+- the run history, its success, failure and average duration counters, and the
+  price of each run that spent an agent turn
+- Replay on a finished run: it reopens the run dialog of the same workflow with
+  the inputs that run used, so a fix can be retested without retyping them
 - reviewed pull requests from `state/reviews/`, with the review and the diff
   behind a click
 - answered pull requests from `state/replies/`, with the reply and the pushed
@@ -262,8 +265,20 @@ Saving is limited to `workflows/*.yaml`, `awf-gh.yaml`, `tend.list` and
 The page never commits: read the diff and commit yourself. See
 [ADR 0004](ADR/0004-dashboard-edits-local-config.md).
 
+Prices come from opencode's own database, because awf reads the cost of a turn
+and drops it. The page runs one `sqlite3` query per refresh; with no `sqlite3`
+binary or no database it shows no price. In Docker, the image ships it.
+
+Replay has two sources. A run the page started keeps its exact inputs in the
+browser that started it. For any other run, the page reads them back from the
+run log, where every prompt spells `owner/repo#123`; it labels that as a guess
+so you check the fields before running.
+
 Flags: `-addr`, `-state`, `-root` (repository holding the editable files),
-`-awf`, `-ui`, `-awfgh` (watcher config, default `awf-gh.yaml`).
+`-awf`, `-ui`, `-awfgh` (watcher config, default `awf-gh.yaml`),
+`-opencode-db` (empty finds it under `$XDG_DATA_HOME`, `~/.local/share` or
+`state/`), `-transcripts` (empty finds awf's per-run transcripts in the same
+way).
 
 ```bash
 ./bin/dashboard -state ~/elsewhere/state -awf http://127.0.0.1:2511

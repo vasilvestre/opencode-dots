@@ -17,6 +17,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -93,6 +94,8 @@ func main() {
 	awfgh := flag.String("awfgh", filepath.Join(root, "awf-gh.yaml"), "watcher config")
 	awf := flag.String("awf", envOr("AWF_URL", "http://127.0.0.1:2511"), "awf API base URL")
 	ui := flag.String("ui", filepath.Join(root, "ui", "index.html"), "dashboard page")
+	opencodedb := flag.String("opencode-db", "", "opencode database, empty finds it in the usual places")
+	transcripts := flag.String("transcripts", "", "awf transcript directory, empty finds it in the usual places")
 	flag.Parse()
 
 	target, err := url.Parse(*awf)
@@ -107,7 +110,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, active: map[string]bool{}, tried: map[string]bool{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencodedb: *opencodedb, active: map[string]bool{}, tried: map[string]bool{}}
 	d.indexed = d.loadIndexed()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -126,9 +129,12 @@ func main() {
 	mux.HandleFunc("/api/file", d.file)
 	mux.HandleFunc("/api/log", d.log)
 	mux.HandleFunc("/api/stream", d.stream)
+	mux.HandleFunc("/api/cost", d.cost)
+	mux.HandleFunc("/api/costs", d.costs)
 	mux.HandleFunc("/api/logs", d.logs)
 	mux.HandleFunc("/api/repos", d.repos)
 	mux.HandleFunc("/api/repos/names", d.repoNames)
+	mux.HandleFunc("/api/replay", d.replay)
 	mux.HandleFunc("/api/memory", d.tendMemory)
 	mux.HandleFunc("/api/files", d.files)
 	mux.HandleFunc("/api/source", d.source)
@@ -142,14 +148,16 @@ func main() {
 }
 
 type dash struct {
-	state   string
-	root    string
-	awf     string
-	awfgh   string
-	mu      sync.Mutex
-	active  map[string]bool
-	tried   map[string]bool
-	indexed map[string]bool
+	state       string
+	root        string
+	awf         string
+	awfgh       string
+	transcripts string
+	opencodedb  string
+	mu          sync.Mutex
+	active      map[string]bool
+	tried       map[string]bool
+	indexed     map[string]bool
 }
 
 // watchRuns records the event stream of every running execution into
@@ -295,12 +303,15 @@ func (d *dash) stream(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "bad id"})
 		return
 	}
-	path := filepath.Join(d.state, "logs", id+".jsonl")
 	// A run can be listed a moment before the recorder opens its file.
-	for i := 0; i < 20 && !exists(path); i++ {
+	for i := 0; i < 20 && !exists(filepath.Join(d.state, "logs", id+".jsonl")) && d.transcriptPath(id) == ""; i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
-	f, err := os.Open(path)
+	source, transcript := d.transcriptPath(id), true
+	if source == "" {
+		source, transcript = filepath.Join(d.state, "logs", id+".jsonl"), false
+	}
+	f, err := os.Open(source)
 	if err != nil {
 		writeJSONStatus(w, http.StatusNotFound, map[string]string{"error": "no log recorded"})
 		return
@@ -319,6 +330,7 @@ func (d *dash) stream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	carry := ""
+	draining := false
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := f.Read(buf)
@@ -327,15 +339,23 @@ func (d *dash) stream(w http.ResponseWriter, r *http.Request) {
 			lines := strings.Split(carry, "\n")
 			carry = lines[len(lines)-1]
 			for _, line := range lines[:len(lines)-1] {
-				payload, ok := strings.CutPrefix(line, "data: ")
-				if !ok {
+				frame := line
+				if transcript {
+					converted, ok := transcriptFrame(line)
+					if !ok {
+						continue
+					}
+					frame = converted
+				} else if payload, ok := strings.CutPrefix(line, "data: "); ok {
+					frame = payload
+				} else {
 					continue
 				}
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", frame); err != nil {
 					return
 				}
 				flusher.Flush()
-				if strings.Contains(payload, `"kind":"workflow.`) {
+				if !transcript && strings.Contains(frame, `"kind":"workflow.`) {
 					return
 				}
 			}
@@ -344,12 +364,271 @@ func (d *dash) stream(w http.ResponseWriter, r *http.Request) {
 		if err != nil && err != io.EOF {
 			return
 		}
+		// The transcript has no terminal record; the recorder's file does.
+		if !transcript || d.recordedTerminal(id) {
+			if draining {
+				return
+			}
+			draining = true
+			time.Sleep(400 * time.Millisecond)
+			continue
+		}
 		select {
 		case <-r.Context().Done():
 			return
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+}
+
+// cost reports what opencode charged for a run. awf reads the price out of
+// opencode's stream and drops it, so the number comes from opencode's own
+// database: one session per agent step, opened in the working directory the
+// workflow ran in. The query goes through the sqlite3 binary so the dashboard
+// keeps a single static dependency; when it or the database is missing, the
+// page simply shows no price.
+func (d *dash) cost(w http.ResponseWriter, r *http.Request) {
+	if !logID(r.URL.Query().Get("id")) {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "bad id"})
+		return
+	}
+	from, err := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "from must be RFC3339"})
+		return
+	}
+	to := time.Now()
+	if s := r.URL.Query().Get("to"); s != "" {
+		if parsed, err := time.Parse(time.RFC3339, s); err == nil {
+			to = parsed
+		}
+	}
+	db := d.opencodeDB()
+	if db == "" || !exists(db) {
+		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false})
+		return
+	}
+	cost, err := d.queryCost(db, from.Add(-time.Minute), to.Add(2*time.Minute))
+	if err != nil {
+		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false, "error": err.Error()})
+		return
+	}
+	cost.Available = true
+	writeJSON(w, cost)
+}
+
+type runCost struct {
+	Available bool    `json:"available"`
+	Cost      float64 `json:"cost"`
+	Input     int64   `json:"input"`
+	Output    int64   `json:"output"`
+	CacheRead int64   `json:"cache_read"`
+	Sessions  int     `json:"sessions"`
+}
+
+func (d *dash) opencodeDB() string {
+	if d.opencodedb != "" {
+		return d.opencodedb
+	}
+	var dirs []string
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		dirs = append(dirs, xdg)
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		dirs = append(dirs, filepath.Join(home, ".local", "share"))
+	}
+	dirs = append(dirs, d.state)
+	for _, dir := range dirs {
+		if p := filepath.Join(dir, "opencode", "opencode.db"); exists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// queryCost sums the sessions opencode opened for this run. Older opencode
+// releases keep them in `session`, newer ones in `session_v2`.
+func (d *dash) queryCost(db string, from, to time.Time) (runCost, error) {
+	var out runCost
+	sessions, err := d.sessionCosts(db, from, to)
+	if err != nil {
+		return out, err
+	}
+	for _, s := range sessions {
+		out.Cost += s.Cost
+		out.Input += s.Input
+		out.Output += s.Output
+		out.CacheRead += s.CacheRead
+	}
+	out.Sessions = len(sessions)
+	return out, nil
+}
+
+// sessionCost is one opencode session: awf opens one per agent step.
+type sessionCost struct {
+	At        int64   `json:"at"`
+	Cost      float64 `json:"cost"`
+	Input     int64   `json:"input"`
+	Output    int64   `json:"output"`
+	CacheRead int64   `json:"cache_read"`
+}
+
+// sessionCosts lists the sessions opencode opened for agents, by start time.
+// The caller attributes them to runs; one query covers a whole history page.
+func (d *dash) sessionCosts(db string, from, to time.Time) ([]sessionCost, error) {
+	// awf runs agents in its own working directory, state/. Matching the repo
+	// root too would also count interactive sessions, which cost far more.
+	abs, err := filepath.Abs(d.state)
+	if err != nil {
+		return nil, err
+	}
+	base := "'" + strings.ReplaceAll(abs, "'", "''") + "'"
+	quoted := fmt.Sprintf("%s or directory like %s", base, base+"||'/%'")
+	for _, table := range []string{"session_v2", "session"} {
+		q := fmt.Sprintf("select time_created, coalesce(cost,0), coalesce(tokens_input,0), "+
+			"coalesce(tokens_output,0), coalesce(tokens_cache_read,0) from %s "+
+			"where (directory = %s) and time_created between %d and %d order by time_created",
+			table, quoted, from.UnixMilli(), to.UnixMilli())
+		raw, err := exec.Command("sqlite3", "-readonly", "-noheader", "-separator", "|", db, q).Output()
+		if err != nil {
+			continue
+		}
+		var out []sessionCost
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			if line == "" {
+				continue
+			}
+			fields := strings.Split(line, "|")
+			if len(fields) != 5 {
+				continue
+			}
+			var s sessionCost
+			fmt.Sscanf(fields[0], "%d", &s.At)
+			fmt.Sscanf(fields[1], "%f", &s.Cost)
+			fmt.Sscanf(fields[2], "%d", &s.Input)
+			fmt.Sscanf(fields[3], "%d", &s.Output)
+			fmt.Sscanf(fields[4], "%d", &s.CacheRead)
+			out = append(out, s)
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("no session table in %s", filepath.Base(db))
+}
+
+// costs lists what opencode charged between two RFC3339 instants. The page
+// sums the sessions per history row, so the whole table costs one query.
+func (d *dash) costs(w http.ResponseWriter, r *http.Request) {
+	from, err1 := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+	to, err2 := time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+	if err1 != nil || err2 != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "from and to must be RFC3339"})
+		return
+	}
+	db := d.opencodeDB()
+	if db == "" || !exists(db) {
+		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false})
+		return
+	}
+	sessions, err := d.sessionCosts(db, from, to)
+	if err != nil {
+		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false, "error": err.Error()})
+		return
+	}
+	if sessions == nil {
+		sessions = []sessionCost{}
+	}
+	writeJSON(w, map[string]any{"available": true, "sessions": sessions})
+}
+
+// transcriptEvent is one line of awf's per-run transcript: the same step events
+// as the SSE stream, plus the agent messages the stream omits.
+type transcriptEvent struct {
+	Seq     uint64 `json:"seq"`
+	Type    string `json:"type"`
+	Payload struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Error  string `json:"error"`
+		Blocks []struct {
+			Text string `json:"text"`
+		} `json:"blocks"`
+	} `json:"payload"`
+}
+
+// transcriptFrame rewrites a transcript line into the frame shape the page
+// expects, with the message text the agent produced, cut to keep frames small.
+func transcriptFrame(line string) (string, bool) {
+	var ev transcriptEvent
+	if json.Unmarshal([]byte(line), &ev) != nil || ev.Type == "" {
+		return "", false
+	}
+	status := ev.Payload.Status
+	if ev.Type == "step.started" {
+		status = "running"
+	}
+	var text strings.Builder
+	for _, b := range ev.Payload.Blocks {
+		if t := strings.Join(strings.Fields(b.Text), " "); t != "" {
+			text.WriteString(t)
+			text.WriteString(" ")
+		}
+	}
+	frame, err := json.Marshal(map[string]any{
+		"kind":   ev.Type,
+		"seq":    ev.Seq,
+		"step":   ev.Payload.Name,
+		"status": status,
+		"error":  ev.Payload.Error,
+		"text":   truncate(strings.TrimSpace(text.String()), 400),
+	})
+	if err != nil {
+		return "", false
+	}
+	return string(frame), true
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// transcriptPath finds the file awf writes for a run. awf lives either on the
+// host (XDG data dir) or in a container that shares state/, hence the list.
+func (d *dash) transcriptPath(id string) string {
+	for _, dir := range d.transcriptDirs() {
+		if p := filepath.Join(dir, id+".jsonl"); exists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func (d *dash) transcriptDirs() []string {
+	if d.transcripts != "" {
+		return []string{d.transcripts}
+	}
+	dirs := []string{filepath.Join(d.state, "awf", "transcripts")}
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		dirs = append(dirs, filepath.Join(xdg, "awf", "transcripts"))
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		dirs = append(dirs, filepath.Join(home, ".local", "share", "awf", "transcripts"))
+	}
+	return dirs
+}
+
+// recordedTerminal reports whether the recorder already saw the end of the run.
+func (d *dash) recordedTerminal(id string) bool {
+	b, err := os.ReadFile(filepath.Join(d.state, "logs", id+".jsonl"))
+	if err != nil {
+		return false
+	}
+	if len(b) > 4096 {
+		b = b[len(b)-4096:]
+	}
+	return strings.Contains(string(b), `"kind":"workflow.`)
 }
 
 // logID keeps the id from reaching the filesystem as a path.
@@ -363,6 +642,135 @@ func logID(id string) bool {
 		}
 	}
 	return true
+}
+
+// replayRun answers /api/replay: what a finished run was asked to do, so the
+// page can offer the same run again. awf keeps no copy of the inputs, so the
+// values come either from the run log (see replayInputs) or from the page's own
+// record written when it started the run (state/runs/<id>.json).
+type replayRun struct {
+	Workflow string            `json:"workflow"`
+	Scope    string            `json:"scope"`
+	Inputs   map[string]string `json:"inputs"`
+	Source   string            `json:"source"`
+}
+
+// replayInputs reads the inputs back from a run log. Every workflow spells the
+// target in its prompts ("owner/repo#123", "issue #7") and review runs also
+// write the head commit as "pr123-<sha>", so the log holds what the run was
+// given. It is a guess: the page shows it as one and the operator can correct it.
+func replayInputs(text string) map[string]string {
+	// Transcript lines are JSON: the prompt keeps its escapes, and a bare `\n`
+	// would glue an `n` onto the repository name.
+	text = strings.NewReplacer(`\n`, " ", `\t`, " ", `\"`, `"`).Replace(text)
+	out := map[string]string{}
+	if m := repoIssueRE.FindStringSubmatch(text); m != nil {
+		out["repo"] = m[1] + "/" + m[2]
+		out["pr"] = m[3]
+	}
+	if m := prShaRE.FindStringSubmatch(text); m != nil {
+		out["sha"] = m[2]
+		if out["pr"] == "" {
+			out["pr"] = m[1]
+		}
+	}
+	if idx := issueRE.FindStringSubmatchIndex(text); idx != nil {
+		out["issue"] = text[idx[2]:idx[3]]
+		// fix-issue names the repository before the issue ("in owner/repo,
+		// issue #7") instead of as owner/repo#7.
+		if out["repo"] == "" {
+			from := idx[0] - 200
+			if from < 0 {
+				from = 0
+			}
+			if r := namedRepoRE.FindStringSubmatch(text[from:idx[0]]); r != nil {
+				out["repo"] = r[1]
+			}
+		}
+	}
+	return out
+}
+
+var (
+	workflowNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	repoIssueRE    = regexp.MustCompile(`([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([0-9]+)`)
+	prShaRE        = regexp.MustCompile(`\bpr([0-9]+)-([0-9a-f]{7,40})\b`)
+	namedRepoRE    = regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*)`)
+	issueRE        = regexp.MustCompile(`\bissue #([0-9]+)`)
+)
+
+// runText returns the log of a run: the transcript first, since only it holds
+// the agent prompts, then the recorder file.
+func (d *dash) runText(id string) string {
+	if p := d.transcriptPath(id); p != "" {
+		return readFile(p, 4<<20)
+	}
+	return readFile(filepath.Join(d.state, "logs", id+".jsonl"), 1<<20)
+}
+
+func (d *dash) indexEntry(id string) (logIndex, bool) {
+	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
+		var e logIndex
+		if json.Unmarshal([]byte(line), &e) == nil && e.ID == id {
+			return e, true
+		}
+	}
+	return logIndex{}, false
+}
+
+// scopeOf asks awf where a workflow lives, falling back to global: every local
+// workflow of this repository is registered there.
+func (d *dash) scopeOf(name string) string {
+	client := &http.Client{Timeout: 900 * time.Millisecond}
+	resp, err := client.Get(d.awf + "/api/workflows")
+	if err != nil {
+		return "global"
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Workflows []struct {
+			Name  string `json:"name"`
+			Scope string `json:"scope"`
+		} `json:"workflows"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&out) != nil {
+		return "global"
+	}
+	for _, w := range out.Workflows {
+		if w.Name == name && w.Scope != "" {
+			return w.Scope
+		}
+	}
+	return "global"
+}
+
+func (d *dash) replay(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id != "" && !logID(id) {
+		writeJSONStatus(w, 400, map[string]string{"error": "bad run id"})
+		return
+	}
+	out := replayRun{Inputs: map[string]string{}, Source: "none"}
+	if entry, ok := d.indexEntry(id); ok {
+		out.Workflow = entry.WorkflowName
+	}
+	if out.Workflow == "" {
+		if name := r.URL.Query().Get("workflow"); workflowNameRE.MatchString(name) {
+			out.Workflow = name
+		}
+	}
+	if out.Workflow == "" {
+		writeJSONStatus(w, 404, map[string]string{"error": "no workflow recorded for this run"})
+		return
+	}
+	out.Scope = d.scopeOf(out.Workflow)
+	if id != "" {
+		if guess := replayInputs(d.runText(id)); len(guess) > 0 {
+			out.Inputs = guess
+			out.Source = "log"
+		}
+	}
+	writeJSON(w, out)
 }
 
 func (d *dash) repos(w http.ResponseWriter, r *http.Request) {

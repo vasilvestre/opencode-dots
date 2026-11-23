@@ -35,19 +35,26 @@ export function bytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-// awf streams one `data: {...}` line per event. Keep the log readable: seq,
-// step, event kind, and any prompt or error text.
+// One log line for one event: seq, step, kind, status, then the text the step
+// or the agent produced.
+export function eventLine(e) {
+  let text = `${String(e.seq ?? "").padStart(3)} ${e.step || "-"} ${e.kind || ""}`;
+  if (e.status) text += ` (${e.status})`;
+  if (e.error) text += ` error: ${e.error}`;
+  // A prompt is context the workflow sent; keep it short. The agent's answer is
+  // what the reader came for.
+  const body = e.text || e.prompt;
+  const limit = e.kind === "message.user" ? 160 : 600;
+  if (body) text += `\n    ${String(body).slice(0, limit).replace(/\n/g, "\n    ")}`;
+  return text;
+}
+
+// awf streams one `data: {...}` line per event.
 export function formatLog(raw) {
   const lines = [];
   for (const line of String(raw).split("\n")) {
     if (!line.startsWith("data: ")) continue;
-    let e;
-    try { e = JSON.parse(line.slice(6)); } catch { continue; }
-    let text = `${String(e.seq ?? "").padStart(3)} ${e.step || "-"} ${e.kind || ""}`;
-    if (e.status) text += ` (${e.status})`;
-    if (e.error) text += ` error: ${e.error}`;
-    if (e.prompt) text += `\n    ${String(e.prompt).slice(0, 300).replace(/\n/g, "\n    ")}`;
-    lines.push(text);
+    try { lines.push(eventLine(JSON.parse(line.slice(6)))); } catch { continue; }
   }
   return lines.join("\n");
 }

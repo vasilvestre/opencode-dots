@@ -2,12 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The page joins a history row to a log on workflow plus start second, so the
@@ -207,5 +210,88 @@ func TestStreamReplaysAndStops(t *testing.T) {
 	}
 	if strings.Contains(body, `"step":"late"`) {
 		t.Fatalf("stream kept reading after the terminal frame: %q", body)
+	}
+}
+
+// The transcript carries the agent messages the SSE stream omits.
+func TestTranscriptFrame(t *testing.T) {
+	line := `{"seq":6,"type":"message.assistant","payload":{"blocks":[{"type":"text","text":"I checked the\n  guard files first."}]}}`
+	frame, ok := transcriptFrame(line)
+	if !ok {
+		t.Fatal("transcriptFrame refused an assistant message")
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(frame), &got); err != nil {
+		t.Fatalf("frame is not JSON: %q", frame)
+	}
+	if got["kind"] != "message.assistant" || got["text"] != "I checked the guard files first." {
+		t.Fatalf("unexpected frame %v", got)
+	}
+	if _, ok := transcriptFrame("not json"); ok {
+		t.Fatal("transcriptFrame accepted a broken line")
+	}
+}
+
+// Prices come from opencode's own database, read through the sqlite3 binary.
+func TestQueryCost(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 not installed")
+	}
+	dir := t.TempDir()
+	db := filepath.Join(dir, "opencode.db")
+	now := time.Now()
+	sql := `create table session_v2 (id text, directory text, parent_id text, cost real,
+		tokens_input integer, tokens_output integer, tokens_cache_read integer,
+		time_created integer, time_updated integer);
+		insert into session_v2 values
+		('a','` + dir + `',null,0.5,100,10,1000,` + fmt.Sprint(now.UnixMilli()) + `,` + fmt.Sprint(now.UnixMilli()) + `),
+		('b','` + dir + `/child',null,0.25,50,5,0,` + fmt.Sprint(now.UnixMilli()) + `,` + fmt.Sprint(now.UnixMilli()) + `),
+		('c','/elsewhere',null,9,1,1,0,` + fmt.Sprint(now.UnixMilli()) + `,` + fmt.Sprint(now.UnixMilli()) + `);`
+	if out, err := exec.Command("sqlite3", db, sql).CombinedOutput(); err != nil {
+		t.Fatalf("creating the database: %v: %s", err, out)
+	}
+
+	d := &dash{state: dir}
+	got, err := d.queryCost(db, now.Add(-time.Hour), now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("queryCost: %v", err)
+	}
+	if got.Cost != 0.75 || got.Sessions != 2 || got.Input != 150 {
+		t.Fatalf("queryCost returned %+v, want the two sessions under the state directory", got)
+	}
+}
+
+func TestReplayInputs(t *testing.T) {
+	reply := `1 fetch step.started (running)
+6 - message.user
+   You answer a review comment on my pull request AlteredParadox/pmss-fleet-manager#235.
+   Read /state/replies/pr235/pr.json`
+	got := replayInputs(reply)
+	if got["repo"] != "AlteredParadox/pmss-fleet-manager" || got["pr"] != "235" {
+		t.Fatalf("reply-pr inputs = %v", got)
+	}
+
+	review := `6 - message.user
+   You review pull request vasilvestre/opencode-dots#12.
+   Read /state/reviews/pr12-9f8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b/meta.json`
+	got = replayInputs(review)
+	if got["sha"] != "9f8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b" {
+		t.Fatalf("review-pr sha = %v", got)
+	}
+
+	issue := "You fix one reported defect in awf-project/cli, issue #42."
+	got = replayInputs(issue)
+	if got["repo"] != "awf-project/cli" || got["issue"] != "42" {
+		t.Fatalf("fix-issue inputs = %v", got)
+	}
+
+	escaped := `"text":"You answer a review comment on my pull request\nawf-project/cli#447.\nRead"`
+	got = replayInputs(escaped)
+	if got["repo"] != "awf-project/cli" || got["pr"] != "447" {
+		t.Fatalf("escaped prompt inputs = %v", got)
+	}
+
+	if n := len(replayInputs("nothing to see")); n != 0 {
+		t.Fatalf("plain text produced %d inputs", n)
 	}
 }
