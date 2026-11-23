@@ -1,15 +1,16 @@
 # workflows/
 
-Five awf state machines. Each file is a whole workflow: inputs, states, terminal
+Six awf state machines. Each file is a whole workflow: inputs, states, terminal
 states. `docs/workflows.md` explains what each one does; this file holds the
 rules for editing them.
 
 | File | Trigger | May push |
 | --- | --- | --- |
-| `review-pr.yaml` | `awf-gh`: pr-opened, pr-updated, checks-failed | no |
+| `review-pr.yaml` | `awf-gh`: pr-opened, pr-updated, checks-failed | yes, on my own `fix/*` branches |
 | `reply-pr.yaml` | `awf-gh`: review-comment | yes, on owned branches |
 | `tend-repo.yaml` | `bin/tend`, daily | yes, one PR |
 | `fix-issue.yaml` | `awf-gh`: issue-labeled | yes, one branch |
+| `fix-ci.yaml` | `awf-gh`: checks-failed | yes, on your own PR branch |
 | `ask-pr.yaml` | the dashboard's Ask button, one per message | no |
 
 ## SHAPE
@@ -53,7 +54,12 @@ rules for editing them.
   `"confidence": "high"` plus an evidence line. `raised.txt` records every filed
   or skipped subject so it never returns. An open `tend/` PR blocks a new one.
 - `tend-repo` auto-merge runs only on a `merge` verdict from `review-pr`.
-- `review-pr`: a security finding forces `hold`.
+- `review-pr`: a security finding forces `hold`. On `hold` for my own `fix/*`
+  pull request that closes an issue, the `address` step clears the findings and
+  `push` commits them, capped by `MAX_FIX_REVIEW_ATTEMPTS` (default 3) counted in
+  `reviews/pr<pr>/attempts`. The next `pr-updated` starts a fresh review, so the
+  loop ends in a merge or in `stuck.md` plus a Discord notice. A finding that
+  needs a human decision writes `stuck.md` and stops.
 - `reply-pr`: `only_authors` in `awf-gh.yaml` keeps other people's PRs out.
 
 ## DO NOT

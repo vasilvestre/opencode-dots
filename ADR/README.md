@@ -16,6 +16,8 @@ your mind by writing a new one that supersedes it.
 | [0006](0006-per-pull-request-memory.md) | Memory of one pull request across runs | accepted | 2026-11-23 |
 | [0007](0007-ask-the-agent-about-a-pull-request.md) | Ask the agent about a pull request from the dashboard | accepted | 2026-11-23 |
 | [0008](0008-run-cost-comes-from-awf.md) | Run cost comes from awf | accepted | 2026-11-23 |
+| [0009](0009-review-pr-merges-fix-pulls.md) | review-pr merges its own fix-issue pull requests | accepted | 2026-11-23 |
+| [0010](0010-review-fix-loop.md) | review-pr closes its own loop: fix, push, re-review | accepted | 2026-11-23 |
 
 ## When to write one
 

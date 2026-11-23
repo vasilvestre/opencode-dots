@@ -29,3 +29,12 @@ repos:
     on: [issue-labeled]
     labels: ["dot"]
     ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+
+  # Turn a red check on your own pull request into one pushed commit. The
+  # dedup key is the head commit, and it has no workflow in it: a repository
+  # cannot watch checks-failed with review-pr and fix-ci at once.
+  - repo: your-org/your-repo
+    scope: local
+    workflow: fix-ci
+    on: [checks-failed]
+    only_authors: ["your-login"]

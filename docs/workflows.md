@@ -1,6 +1,6 @@
 # Workflows
 
-Five workflows live in `workflows/`. Each one is a small state machine that
+Six workflows live in `workflows/`. Each one is a small state machine that
 `awf` runs to completion. You can run any of them by hand; the timers only
 decide when.
 
@@ -10,6 +10,7 @@ decide when.
 | `reply-pr` | `awf-gh`, on `review-comment` | yes | yes, on branches you own |
 | `tend-repo` | `bin/tend`, daily | yes, one per repo | yes, through a pull request |
 | `fix-issue` | `awf-gh`, on `issue-labeled` | yes, one per issue | yes, one branch per issue |
+| `fix-ci` | `awf-gh`, on `checks-failed` | yes, one per red commit | yes, on your own pull request branch |
 | `ask-pr` | the Ask button on a pull request card | yes, one per message | no |
 
 Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
@@ -254,6 +255,60 @@ To replay an issue, drop its key from the state file; the label stays:
 ```bash
 docker compose --profile jobs run --rm awf-gh \
   --forget 'owner/repo#issue2'
+```
+
+## fix-ci
+
+Turns a red check on one of your own pull requests into one pushed commit.
+`awf-gh` already derives `checks-failed` from the check rollup, and its dedup
+key is the head commit: an unchanged commit fires once, a new push fires again.
+
+```yaml
+# awf-gh.yaml
+repos:
+  - repo: awf-project/cli
+    scope: local
+    workflow: fix-ci
+    on: [checks-failed]
+    only_authors: ["vasilvestre"]
+```
+
+One rule when you add this: the dedup key has no workflow in it. A repository
+cannot watch `checks-failed` with two workflows, because the first one to fire
+records the key and the second never sees it. Pick `fix-ci` or `review-pr` for
+that event and drop the other.
+
+Steps:
+
+1. `fetch` writes `meta.json`, `diff.patch`, `checks.json`, `failed-runs.txt`
+   and `ci-failed.log` (the last 400 lines of `--log-failed`, three runs at
+   most) to `$STATE_DIR/ci-fix/<owner>/<repo>/pr<N>/<sha>/`, and adds a
+   detached worktree of the head branch in `work/`. The run directory is keyed
+   by commit, so two runs on one pull request never share a worktree.
+2. `guard` stops before the agent when the pull request is not open, when the
+   author or the branch owner is not you, when the branch is `main` or
+   `master`, when no failure log is readable, or when the fix budget is spent.
+   `stuck.md` records the budget stop.
+3. `fix` asks the agent to name the failure from the log, quote the line that
+   proves it, and make the smallest change that fixes it. An infrastructure
+   failure (timeout, cancelled run, rate limit, runner out of memory, network)
+   means `stuck.md` and no change. The agent may run the cheap check the
+   repository documents, and it may not weaken or skip the failing check.
+4. `push` commits on the pull request branch with the first line of `fix.md` as
+   the message, and pushes only when your account owns the head repository. It
+   discards a worktree change that no `fix.md` backs.
+5. `notify` posts to Discord when a commit was pushed or the run stopped, then
+   drops the worktree.
+
+The loop is the real risk: a fix that pushes and leaves the check red fires
+again on the new commit. `push` counts its own commits in
+`$STATE_DIR/ci-fix/<owner>/<repo>/pr<N>/attempts`, and `guard` stops past
+`MAX_CI_FIX_ATTEMPTS` (default 2). The count expires after a day without a
+push. To replay a pull request, delete that file:
+
+```bash
+rm -f state/ci-fix/owner/repo/pr123/attempts
+docker compose --profile jobs run --rm awf-gh --forget 'owner/repo#123'
 ```
 
 ## ask-pr
