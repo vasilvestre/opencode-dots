@@ -18,7 +18,27 @@ inputs:
     required: false
 
 states:
-  initial: fetch
+  initial: guard
+
+  # A force-push moves the head while a run for the old sha is still alive. That
+  # run must stop before it reviews, pushes or merges the wrong commit, so the
+  # first state drops it as soon as the head no longer matches the input.
+  guard:
+    type: step
+    command: |
+      set -eu
+      head=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json headRefOid --jq .headRefOid)
+      if [ "$head" != "{{.inputs.sha}}" ]; then
+        echo "SUPERSEDED: head $head is not {{.inputs.sha}}, this run is stale"
+        exit 0
+      fi
+      echo "CURRENT: {{.inputs.sha}} is still the head"
+    timeout: 60
+    transitions:
+      - when: 'states.guard.Output contains "SUPERSEDED:"'
+        goto: done
+    on_success: fetch
+    on_failure: error
 
   fetch:
     type: step
@@ -185,9 +205,17 @@ states:
       set -eu
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
       test -s "$d/review.md"
+      head=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json headRefOid --jq .headRefOid)
+      if [ "$head" != "{{.inputs.sha}}" ]; then
+        echo "SUPERSEDED: head moved to $head, dropping this review"
+        exit 0
+      fi
       gh pr comment {{.inputs.pr}} --repo {{.inputs.repo}} \
         --body-file "$d/review.md"
     timeout: 120
+    transitions:
+      - when: 'states.post.Output contains "SUPERSEDED:"'
+        goto: done
     on_success: decide
     on_failure: error
 
@@ -225,7 +253,7 @@ states:
       limit=${MAX_FIX_REVIEW_ATTEMPTS:-3}
       if [ "$count" -ge "$limit" ]; then
         printf 'Stopped after %s fix rounds without a merge; a human must look.\n' \
-          "$count" > "$d/stuck.md"
+          "$count" > "$base/stuck.md"
         echo "STUCK: fix budget exhausted after $count rounds"
         exit 0
       fi
@@ -312,15 +340,18 @@ states:
       set -eu
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
       base=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}
-      if [ -s "$d/stuck.md" ]; then
-        echo "stuck, no push: $(cat "$d/stuck.md")"
+      head=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json headRefOid --jq .headRefOid)
+      [ "$head" = "{{.inputs.sha}}" ] || { echo "SUPERSEDED: head moved to $head, no push"; exit 0; }
+      if [ -s "$base/stuck.md" ]; then
+        echo "stuck, no push: $(cat "$base/stuck.md")"
         exit 0
       fi
       work="$d/work"
       branch=$(jq -r '.headRefName' "$d/meta.json")
       head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
       if [ -z "$(git -C "$work" status --porcelain)" ]; then
-        echo "no code change for {{.inputs.repo}}#{{.inputs.pr}}"
+        printf 'A fix round produced no change; a human must look.\n' > "$base/stuck.md"
+        echo "STUCK: no code change for {{.inputs.repo}}#{{.inputs.pr}}"
         exit 0
       fi
       if [ ! -s "$d/fixmsg.md" ]; then
@@ -369,6 +400,8 @@ states:
     command: |
       set -eu
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
+      head=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json headRefOid --jq .headRefOid)
+      [ "$head" = "{{.inputs.sha}}" ] || { echo "SUPERSEDED: head moved to $head, no merge"; exit 0; }
       verdict=$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)
       if [ "$verdict" != "merge" ]; then
         echo "automerge: verdict '$verdict', not merging"

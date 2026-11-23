@@ -54,7 +54,10 @@ rules for editing them.
   `"confidence": "high"` plus an evidence line. `raised.txt` records every filed
   or skipped subject so it never returns. An open `tend/` PR blocks a new one.
 - `tend-repo` auto-merge runs only on a `merge` verdict from `review-pr`.
-- `review-pr`: a security finding forces `hold`. On `hold` for my own `fix/*`
+- `review-pr`: a security finding forces `hold`.
+- `review-pr` runs drop themselves when the pull request head no longer matches
+  the input sha (`guard` at the start, and again before `push` and merge), so a
+  force-push never leaves two runs acting on two commits. On `hold` for my own `fix/*`
   pull request that closes an issue, the `address` step clears the findings and
   `push` commits them, capped by `MAX_FIX_REVIEW_ATTEMPTS` (default 3) counted in
   `reviews/pr<pr>/attempts`. The next `pr-updated` starts a fresh review, so the
