@@ -132,23 +132,13 @@ states:
       iss={{.inputs.issue}}
       d=${STATE_DIR:-/state}/fix/$repo/issue-$iss
       work="$d/work"
-      # A run that declines must still say so where I read the issue: the
-      # agent's answer is the whole result, and silence looks like a failure.
-      decline() {
-        if [ -s "$d/answer.md" ]; then
-          gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" >/dev/null
-          echo "commented the reason on issue #$iss"
-        fi
-      }
       if [ -z "$(git -C "$work" status --porcelain)" ]; then
         echo "no code change for issue #$iss"
-        decline
         exit 0
       fi
       if [ ! -s "$d/fix.md" ]; then
         echo "worktree changed without fix.md: discarding"
         git -C "$work" checkout -- .
-        decline
         exit 0
       fi
       title=$(head -1 "$d/fix.md")
@@ -179,6 +169,8 @@ states:
       d=${STATE_DIR:-/state}/fix/$repo/issue-$iss
       pr=$(cat "$d/pr-url" 2>/dev/null || true)
       echo "issue #$iss: ${pr:-no pull request}"
+      # A run that declines must still say so where I read the issue: the
+      # agent's answer is the whole result, and silence looks like a failure.
       if [ -z "$pr" ] && [ -s "$d/answer.md" ]; then
         gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
           || echo "issue comment failed"
