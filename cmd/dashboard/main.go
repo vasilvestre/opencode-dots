@@ -122,6 +122,7 @@ func main() {
 	}
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}}
+	d.targets = map[string]targetMemo{}
 	d.costs = map[string]costMemo{}
 	d.indexed = d.loadIndexed()
 	mux := http.NewServeMux()
@@ -179,6 +180,11 @@ type dash struct {
 	// is reused until the file changes.
 	costMu sync.Mutex
 	costs  map[string]costMemo
+
+	// replayInputs is a regexp pass over up to 4 MB of log, so the target per
+	// run is parsed off the request path and kept by log version.
+	targetMu sync.Mutex
+	targets  map[string]targetMemo
 }
 
 // watchRuns records the event stream of every running execution into
@@ -188,6 +194,7 @@ func (d *dash) watchRuns() {
 	lastPrune := time.Time{}
 	for {
 		d.recordRuns()
+		d.cacheTargets()
 		if time.Since(lastPrune) > 6*time.Hour {
 			d.pruneLogs()
 			lastPrune = time.Now()
@@ -231,6 +238,14 @@ func (d *dash) pruneLogs() {
 	d.mu.Lock()
 	d.indexed = indexed
 	d.mu.Unlock()
+
+	d.targetMu.Lock()
+	for id := range d.targets {
+		if !indexed[id] {
+			delete(d.targets, id)
+		}
+	}
+	d.targetMu.Unlock()
 }
 
 // recordRuns records every execution awf knows and has no log for yet. A run
@@ -818,6 +833,61 @@ func replayInputs(text string) map[string]string {
 	return out
 }
 
+// targetMemo keeps the last answer for one run log, keyed by its size and
+// modification time, because the page asks again on every refresh.
+type targetMemo struct {
+	size int64
+	mod  time.Time
+	in   map[string]string
+}
+
+// target returns the target cached for a run. cacheTargets does the parsing,
+// so a request never reads a transcript.
+func (d *dash) target(id string) map[string]string {
+	d.targetMu.Lock()
+	defer d.targetMu.Unlock()
+	return d.targets[id].in
+}
+
+// completeTarget reports whether a parsed target names the repository and the
+// pull request or issue, so a log that keeps growing cannot improve it.
+func completeTarget(in map[string]string) bool {
+	return in["repo"] != "" && (in["pr"] != "" || in["issue"] != "")
+}
+
+// cacheTargets parses the target of every indexed run whose log changed since
+// the last pass. A log stops changing once its run ends, cancelled or not, so
+// it is read once however it ended. A partial guess does not settle: a run
+// that names its issue before its repository is read again when the log grows.
+func (d *dash) cacheTargets() {
+	d.mu.Lock()
+	ids := make([]string, 0, len(d.indexed))
+	for id := range d.indexed {
+		ids = append(ids, id)
+	}
+	d.mu.Unlock()
+	for _, id := range ids {
+		path := d.transcriptPath(id)
+		if path == "" {
+			path = filepath.Join(d.state, "logs", id+".jsonl")
+		}
+		st, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		d.targetMu.Lock()
+		memo := d.targets[id]
+		d.targetMu.Unlock()
+		if completeTarget(memo.in) || (memo.size == st.Size() && memo.mod.Equal(st.ModTime())) {
+			continue
+		}
+		in := replayInputs(readFile(path, 4<<20))
+		d.targetMu.Lock()
+		d.targets[id] = targetMemo{size: st.Size(), mod: st.ModTime(), in: in}
+		d.targetMu.Unlock()
+	}
+}
+
 var (
 	workflowNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	repoIssueRE    = regexp.MustCompile(`([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([0-9]+)`)
@@ -1381,17 +1451,22 @@ func (d *dash) noteIndex(id, workflow, started string) {
 }
 
 func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
-	// Each row carries its price so the history table needs no second request.
+	// Each row carries its price and target so the history table needs no
+	// second request.
 	type row struct {
 		logIndex
-		Cost float64 `json:"cost,omitempty"`
+		Cost  float64 `json:"cost,omitempty"`
+		Repo  string  `json:"repo,omitempty"`
+		PR    string  `json:"pr,omitempty"`
+		Issue string  `json:"issue,omitempty"`
 	}
 	out := []row{}
 	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID != "" {
 			usd, _ := d.runCost(e.ID)
-			out = append(out, row{logIndex: e, Cost: usd})
+			t := d.target(e.ID)
+			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"]})
 		}
 	}
 	writeJSON(w, out)

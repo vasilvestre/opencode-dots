@@ -16,7 +16,7 @@ for local config files. One Go file, `main.go`, package `main`. The frontend is
 | `/api/costs?from=&to=` | every opencode session in a window, for the history table |
 | `/api/usage` | `state/logs/index.jsonl` plus each run's log: what each pull request cost and which workflow spent it |
 | `/api/stream?id=` | tails the run: awf's transcript when present, else `state/logs/<id>.jsonl` |
-| `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run |
+| `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run, plus its price and target |
 | `/api/repos` | `awf-gh.yaml`, the seen list, and `repos.map` for the Tower check |
 | `/api/repos/names` | repository names for the run dialog, from the configs and `state/tend` |
 | `/api/replay?id=` | what a finished run was given: workflow, scope and inputs |
@@ -103,7 +103,9 @@ counted once.
   text: it never reads GitHub.
   The sum is memoised by file size and modification time, because the page asks
   on every refresh. `/api/logs` carries the same number per row, so the history
-  table needs no second request. A run from an older awf has no price.
+  table needs no second request. It also carries the run's `repo` and `pr` or
+  `issue`, parsed from the log by `cacheTargets` and kept by log version. A run
+  from an older awf has no price.
 - awf history ids differ from execution ids, so `state/logs/index.jsonl`
   records workflow and start time for every kept log. The page joins a history
   row to its log on workflow plus start second; `/api/executions` lists running
