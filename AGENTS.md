@@ -21,7 +21,7 @@ cmd/dashboard/ Go server for the activity page
 docs/          workflow reference, memory-design rationale
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
 systemd/       user units and timers
-ui/            single-file dashboard page, no build step
+ui/            dashboard: index.html shell, ES modules, no build step
 state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 ```
 
@@ -33,10 +33,11 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Record or change a decision | `ADR/` | `ADR/README.md` holds the index and rules |
 | Understand a workflow's steps | `docs/workflows.md` | trigger, inputs, steps, YAML skeleton |
 | Why memory is split in three | `docs/memory.md` | measurements and citations |
-| Change the dashboard | `cmd/dashboard/main.go` | frontend in `ui/index.html` |
+| Change the dashboard | `cmd/dashboard/main.go` | frontend modules in `ui/` |
 | Choose local vs image | `bin/configure` | writes `.env` and `compose.override.yaml` |
 | Daily tend dispatch | `bin/tend` | reads `tend.list`, posts to the awf API |
 | Bot instructions | `agent/AGENTS.md` | mounted config, not documentation |
+| Dashboard edits a config file | `/api/save` in `main.go` | allowlist and backups, see ADR 0004 |
 | Watcher config example | `awf-gh.example.yaml` | real `awf-gh.yaml` is gitignored |
 
 ## CONVENTIONS
@@ -89,7 +90,7 @@ Systemd install:
 mkdir -p ~/.config/systemd/user
 cp systemd/* ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now dots.service dots-awf-gh.timer dots-dashboard.service
+systemctl --user enable --now dots.service dots-awf.service dots-awf-gh.timer dots-dashboard.service
 systemctl --user enable --now dots-tend.timer   # optional, daily
 ```
 

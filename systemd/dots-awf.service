@@ -1,0 +1,16 @@
+[Unit]
+Description=awf API server for the dots stack
+# awf-gh and the dashboard talk to it, so it comes before both.
+After=network-online.target
+
+[Service]
+EnvironmentFile=%h/projects/perso/opencode-dots/.env
+# Workflow steps default to /state, which only exists in the image.
+Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
+WorkingDirectory=%h/projects/perso/opencode-dots/state
+ExecStart=/usr/local/bin/awf serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

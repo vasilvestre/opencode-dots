@@ -177,11 +177,14 @@ mkdir -p ~/.config/systemd/user
 cp systemd/* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now dots.service
+systemctl --user enable --now dots-awf.service
 systemctl --user enable --now dots-awf-gh.timer
 systemctl --user enable --now dots-dashboard.service
 ```
 
-`dots.service` runs `docker compose up -d` and stays active. The timer runs one
+`dots.service` runs `docker compose up -d` and stays active. `dots-awf.service`
+runs the local `awf serve` when `bin/configure` picked `awf=local`; skip it for
+`awf=docker`, where the container serves the API. The timer runs one
 `awf-gh` pass every two minutes. `dots-dashboard.service` keeps the page on
 127.0.0.1:8099 up, so it records run logs even when no browser is open. The
 dedup state lives in `./state`, bind-mounted at `/state` and gitignored: a
@@ -240,23 +243,27 @@ http://127.0.0.1:8099. It shows:
 - answered pull requests from `state/replies/`, with the reply and the pushed
   commit
 - the pull requests the watcher already saw
-- a Workflows tab: click a workflow to see its steps as blocks, chained by
-  their success arrows, with the failure target on each step
+- a Workflows tab: the success path of a workflow in order, each step stating
+  where it goes on success, on failure and on a branch, plus an editor that
+  saves, validates and runs the file without leaving the page
+- a Config tab: `awf-gh.yaml`, `tend.list` and `repos.map` in the same editor
 - a Memory tab: per repository, the rules in `state/tend/<owner>/<repo>/lessons.md`
   and the facts in `memory.md`, with the date the last pass covered
 - a Repos tab: every repository in `awf-gh.yaml`, the workflows that watch it,
   their triggers and author filters, and the PRs the watcher already saw
 
 The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
-running (`make up`). It binds loopback only and reads `state/` without writing,
-except `state/logs/`: awf forgets an execution's events once the run leaves its
-session registry, so the dashboard records each running execution's event
-stream there while it runs, and deletes files older than 30 days like awf does
-for its own history. A log exists only for runs that happened while the
-dashboard was up: `dots-dashboard.service` keeps it up.
+running (`make up`). It binds loopback only. It writes three things:
+`state/logs/` (awf forgets an execution's events once the run leaves its
+session registry, so the dashboard records them while it runs and deletes files
+older than 30 days), and the four local config files you edit from the page.
+Saving is limited to `workflows/*.yaml`, `awf-gh.yaml`, `tend.list` and
+`repos.map`; the previous content stays as a stamped `.bak` beside the file.
+The page never commits: read the diff and commit yourself. See
+[ADR 0004](ADR/0004-dashboard-edits-local-config.md).
 
-Flags: `-addr`, `-state`, `-awf`, `-ui`, `-awfgh` (watcher config, default
-`awf-gh.yaml`).
+Flags: `-addr`, `-state`, `-root` (repository holding the editable files),
+`-awf`, `-ui`, `-awfgh` (watcher config, default `awf-gh.yaml`).
 
 ```bash
 ./bin/dashboard -state ~/elsewhere/state -awf http://127.0.0.1:2511

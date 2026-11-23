@@ -51,6 +51,10 @@ services:
       # Workflows read this instead of a hardcoded /state: a local opencode
       # server only sees host paths.
       STATE_DIR: /state
+      # awf serve 0.11 ignores --storage and writes its history and states
+      # under $XDG_DATA_HOME/awf. Point that at the mount, or every recreate
+      # starts with an empty history.
+      XDG_DATA_HOME: /state
       # reply-pr runaway-loop cap. The agent decides when to stop; this only
       # catches an absurd number of pushed rounds.
       MAX_REPLY_ROUNDS: ${MAX_REPLY_ROUNDS:-10}

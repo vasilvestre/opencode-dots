@@ -11,15 +11,18 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MODE_OPENCODE=local
 MODE_AWF=docker
 MODE_GH=local
+ARG_OPENCODE=
+ARG_AWF=
+ARG_GH=
 ASSUME_YES=0
 GIVEN=0
 
 for arg in "$@"; do
   case "$arg" in
     --root=*) ROOT=${arg#*=} ;;
-    --opencode=*) MODE_OPENCODE=${arg#*=}; GIVEN=1 ;;
-    --awf=*) MODE_AWF=${arg#*=}; GIVEN=1 ;;
-    --gh=*) MODE_GH=${arg#*=}; GIVEN=1 ;;
+    --opencode=*) ARG_OPENCODE=${arg#*=}; GIVEN=1 ;;
+    --awf=*) ARG_AWF=${arg#*=}; GIVEN=1 ;;
+    --gh=*) ARG_GH=${arg#*=}; GIVEN=1 ;;
     -y|--yes) ASSUME_YES=1 ;;
     -h|--help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
@@ -40,6 +43,11 @@ if [ -f "$ROOT/.env" ]; then
     esac
   done < "$ROOT/.env"
 fi
+
+# A flag on the command line wins over the previous answer.
+if [ -n "$ARG_OPENCODE" ]; then MODE_OPENCODE=$ARG_OPENCODE; fi
+if [ -n "$ARG_AWF" ]; then MODE_AWF=$ARG_AWF; fi
+if [ -n "$ARG_GH" ]; then MODE_GH=$ARG_GH; fi
 
 die() { echo "configure: $*" >&2; exit 1; }
 require_local() { command -v "$1" >/dev/null 2>&1 || die "$1 is not on PATH, cannot use it locally"; }

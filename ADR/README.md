@@ -11,6 +11,7 @@ your mind by writing a new one that supersedes it.
 | [0001](0001-memory-split-in-three.md) | Split agent memory into three stores | accepted | 2026-11-23 |
 | [0002](0002-shell-steps-own-side-effects.md) | The agent never writes to a remote; shell steps do | accepted | 2026-11-23 |
 | [0003](0003-private-config-not-in-git.md) | Private names never enter git | accepted | 2026-11-23 |
+| [0004](0004-dashboard-edits-local-config.md) | The dashboard edits local config files | accepted | 2026-11-23 |
 
 ## When to write one
 

@@ -1,4 +1,6 @@
 bin/*
+# `make dashboard` and `go build ./cmd/dashboard` write the binary here.
+/dashboard
 state/
 .tower/
 .env
