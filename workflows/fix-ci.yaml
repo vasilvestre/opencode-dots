@@ -265,6 +265,14 @@ states:
         git -C "$work" clean -fdq
         exit 0
       fi
+      # A commit pushed onto a branch that already conflicts with its base only
+      # buries the conflict. Stop the round and say what has to happen first.
+      mergeable=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json mergeable --jq .mergeable)
+      if [ "$mergeable" = "CONFLICTING" ]; then
+        printf '%s\n' "The pull request conflicts with its base branch. Rebase the branch before the next round." > "$d/stuck.md"
+        echo "pull request conflicts with its base, no push"
+        exit 0
+      fi
       title=$(head -1 "$d/fix.md")
       body=$(tail -n +2 "$d/fix.md")
       # Commit as the account that holds the token, otherwise GitHub renders

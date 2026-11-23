@@ -201,6 +201,19 @@ states:
       git -C "$work" checkout --quiet -b "$branch"
       git -C "$work" add -A
       git -C "$work" commit --quiet -m "$title"
+      # The agent step can run for 25 minutes, so the base read at fetch time is
+      # already old when the branch is pushed. Rebase onto a fresh base now, or
+      # the pull request opens with conflicts. A rebase that cannot apply is not
+      # a reason to lose the work: push as is and let the log say so.
+      base=$(cat "$d/default_branch")
+      if git -C "$work" fetch --quiet "https://github.com/$repo.git" "refs/heads/$base"; then
+        if git -C "$work" rebase --quiet FETCH_HEAD; then
+          echo "rebased onto $base" | tee -a "$d/push.log"
+        else
+          git -C "$work" rebase --abort
+          echo "rebase onto $base failed, pushing the commit as is" | tee -a "$d/push.log"
+        fi
+      fi
       git -C "$work" push --quiet "https://github.com/$repo.git" "HEAD:$branch"
       printf '\n\nCloses #%s\n' "$iss" >> "$d/fix.md"
       url=$(gh pr create --repo "$repo" --head "$branch" --base "$(cat "$d/default_branch")" \
