@@ -181,6 +181,8 @@ states:
     command: |
       set -eu
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
+      # The checkout is the bulk of the run and nothing reads it now.
+      rm -rf "$d/work"
       if [ -z "${DISCORD_WEBHOOK:-}" ]; then
         echo "DISCORD_WEBHOOK unset, no notification"
         exit 0
