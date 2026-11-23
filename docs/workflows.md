@@ -64,16 +64,27 @@ Steps:
 
 1. `fetch` reads the pull request, its diff and the branch name, then adds a
    detached worktree of the head branch under `$STATE_DIR/replies/pr<N>/work`.
-2. `guard` leaves a merged or closed pull request alone: it writes `silent` and
-   nothing else happens. On an open one it counts the rounds already answered
-   (one comment of yours that pushed a commit) and writes `stuck.md` only past
-   a high safety cap, `MAX_REPLY_ROUNDS` (default 10).
+2. `guard` settles in shell what shell can settle, so the agent never spends a
+   pass on nothing. It writes `silent` and stops the workflow at `done` when the
+   pull request is merged or closed, and when the last comment that is not yours
+   only summons another reviewer, such as `@codex review`: that bot answers, and
+   reading the whole thread to find nothing once cost 1m47. On an open one it
+   also counts the rounds already answered (one comment of yours that pushed a
+   commit) and writes `stuck.md` only past a high safety cap,
+   `MAX_REPLY_ROUNDS` (default 10).
 3. `reply` asks the agent to answer in `reply.md` and to make the requested
    change in the worktree. The agent writes `stuck.md` itself when it is blocked
    by something it cannot do (a real environment test such as the Home Assistant
    ingress, credentials or external access it lacks, a decision for a human) or
    when the thread is a real ping-pong that never converges. A review still
    making concrete progress is not a ping-pong and gets answered.
+
+   Each run on a pull request reads `worklog.md` from the previous run, and
+   rewrites it at the end: what the thread asked, what was decided or changed,
+   the pushed commit, what is still open. The agent also stores one
+   `session_summary` record in tower memory, so the next run finds the earlier
+   work by searching `owner/repo#N`. `fetch` recreates the directory, so it
+   copies `worklog.md` aside and puts it back.
 4. `push` commits and pushes, but only when the head repository belongs to you
    and the branch is not `main` or `master`.
 5. `post` comments on the pull request, with the pushed commit when there is
@@ -227,7 +238,9 @@ Steps:
 2. `fix` asks the agent to prove the defect first, quoting `path:line`, then to
    make the smallest change that fixes it and write `fix.md`: the pull request
    title, then the body. An issue that is already fixed, or wrong, ends the run
-   with no pull request and no failure.
+   with no pull request and no failure. A run on an issue that was already
+   worked reads `worklog.md` and the tower memory record of the earlier run
+   before it starts, and rewrites `worklog.md` at the end.
 3. `push` commits on a `fix/<N>-<date>` branch, pushes it and opens a pull
    request whose body ends with `Closes #N`, so merging closes the issue.
 4. `notify` posts the pull request URL on Discord when `DISCORD_WEBHOOK` is set.

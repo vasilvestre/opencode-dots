@@ -13,6 +13,7 @@ your mind by writing a new one that supersedes it.
 | [0003](0003-private-config-not-in-git.md) | Private names never enter git | accepted | 2026-11-23 |
 | [0004](0004-dashboard-edits-local-config.md) | The dashboard edits local config files | accepted | 2026-11-23 |
 | [0005](0005-run-cost-from-opencode-db.md) | Run cost comes from opencode's database | accepted | 2026-11-23 |
+| [0006](0006-per-pull-request-memory.md) | Memory of one pull request across runs | accepted | 2026-11-23 |
 
 ## When to write one
 

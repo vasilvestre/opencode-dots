@@ -31,7 +31,10 @@ rules for editing them.
   merges. Do not give the model a push.
 - Name the exact files the agent may write, and forbid everything else.
 - Prompts that must stay short are capped: `lessons.md` 15 lines, `memory.md`
-  25 lines.
+  25 lines, `worklog.md` 25 lines.
+- `worklog.md` is the memory of earlier runs on the same pull request or issue.
+  The agent reads it first and rewrites it at the end; a `fetch` step that wipes
+  its directory copies the file aside and puts it back.
 
 ## SHELL STEPS
 
