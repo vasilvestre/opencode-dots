@@ -121,7 +121,8 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}, targets: map[string]map[string]string{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}}
+	d.targets = map[string]targetMemo{}
 	d.costs = map[string]costMemo{}
 	d.indexed = d.loadIndexed()
 	mux := http.NewServeMux()
@@ -179,9 +180,9 @@ type dash struct {
 	costs  map[string]costMemo
 
 	// replayInputs is a regexp pass over up to 4 MB of log, so the target per
-	// run is parsed once and kept: a finished log never changes.
+	// run is parsed off the request path and kept by log version.
 	targetMu sync.Mutex
-	targets  map[string]map[string]string
+	targets  map[string]targetMemo
 }
 
 // watchRuns records the event stream of every running execution into
@@ -191,6 +192,7 @@ func (d *dash) watchRuns() {
 	lastPrune := time.Time{}
 	for {
 		d.recordRuns()
+		d.cacheTargets()
 		if time.Since(lastPrune) > 6*time.Hour {
 			d.pruneLogs()
 			lastPrune = time.Now()
@@ -234,6 +236,14 @@ func (d *dash) pruneLogs() {
 	d.mu.Lock()
 	d.indexed = indexed
 	d.mu.Unlock()
+
+	d.targetMu.Lock()
+	for id := range d.targets {
+		if !indexed[id] {
+			delete(d.targets, id)
+		}
+	}
+	d.targetMu.Unlock()
 }
 
 // recordRuns records every execution awf knows and has no log for yet. A run
@@ -625,23 +635,59 @@ func replayInputs(text string) map[string]string {
 	return out
 }
 
-// target returns the target replayInputs found for a run, cached by execution.
-// A run that just started may not name its target yet, so it is parsed again
-// until it does or its log reaches the end.
+// targetMemo keeps the last answer for one run log, keyed by its size and
+// modification time, because the page asks again on every refresh.
+type targetMemo struct {
+	size int64
+	mod  time.Time
+	in   map[string]string
+}
+
+// target returns the target cached for a run. cacheTargets does the parsing,
+// so a request never reads a transcript.
 func (d *dash) target(id string) map[string]string {
 	d.targetMu.Lock()
-	t, ok := d.targets[id]
-	d.targetMu.Unlock()
-	if ok {
-		return t
+	defer d.targetMu.Unlock()
+	return d.targets[id].in
+}
+
+// completeTarget reports whether a parsed target names the repository and the
+// pull request or issue, so a log that keeps growing cannot improve it.
+func completeTarget(in map[string]string) bool {
+	return in["repo"] != "" && (in["pr"] != "" || in["issue"] != "")
+}
+
+// cacheTargets parses the target of every indexed run whose log changed since
+// the last pass. A log stops changing once its run ends, cancelled or not, so
+// it is read once however it ended. A partial guess does not settle: a run
+// that names its issue before its repository is read again when the log grows.
+func (d *dash) cacheTargets() {
+	d.mu.Lock()
+	ids := make([]string, 0, len(d.indexed))
+	for id := range d.indexed {
+		ids = append(ids, id)
 	}
-	t = replayInputs(d.runText(id))
-	if len(t) > 0 || d.recordedTerminal(id) {
+	d.mu.Unlock()
+	for _, id := range ids {
+		path := d.transcriptPath(id)
+		if path == "" {
+			path = filepath.Join(d.state, "logs", id+".jsonl")
+		}
+		st, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
 		d.targetMu.Lock()
-		d.targets[id] = t
+		memo := d.targets[id]
+		d.targetMu.Unlock()
+		if completeTarget(memo.in) || (memo.size == st.Size() && memo.mod.Equal(st.ModTime())) {
+			continue
+		}
+		in := replayInputs(readFile(path, 4<<20))
+		d.targetMu.Lock()
+		d.targets[id] = targetMemo{size: st.Size(), mod: st.ModTime(), in: in}
 		d.targetMu.Unlock()
 	}
-	return t
 }
 
 var (

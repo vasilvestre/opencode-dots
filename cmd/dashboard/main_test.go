@@ -55,6 +55,82 @@ func TestLogIndex(t *testing.T) {
 	}
 }
 
+// The history row names the target its log spells, and a log that names none
+// settles once it stops changing instead of being read on every refresh.
+func TestLogTargets(t *testing.T) {
+	state := t.TempDir()
+	os.MkdirAll(filepath.Join(state, "logs"), 0o755)
+	id := "eeaaffff-1234-1234-1234-123456789012"
+	log := filepath.Join(state, "logs", id+".jsonl")
+	os.WriteFile(log, []byte(`data: {"text":"review awf-project/cli#447"}`+"\n"), 0o644)
+
+	d := &dash{state: state, indexed: map[string]bool{}, targets: map[string]targetMemo{}}
+	d.noteIndex(id, "review-pr", "2026-11-23T10:00:00Z")
+	d.cacheTargets()
+
+	rec := httptest.NewRecorder()
+	d.logs(rec, httptest.NewRequest(http.MethodGet, "/api/logs", nil))
+	var out []struct {
+		Repo string `json:"repo"`
+		PR   string `json:"pr"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out) != 1 {
+		t.Fatalf("api/logs returned %q (err %v), want 1 entry", rec.Body.String(), err)
+	}
+	if out[0].Repo != "awf-project/cli" || out[0].PR != "447" {
+		t.Fatalf("api/logs lost the target: %+v", out[0])
+	}
+
+	// fix-issue can name the issue before the repository, so a guess without
+	// the repository is read again once the log names it.
+	part := "dddddddd-1234-1234-1234-123456789012"
+	partLog := filepath.Join(state, "logs", part+".jsonl")
+	os.WriteFile(partLog, []byte("data: {\"text\":\"issue #7\"}\n"), 0o644)
+	d.noteIndex(part, "fix-issue", "2026-11-23T10:02:00Z")
+	d.cacheTargets()
+	if in := d.target(part); in["repo"] != "" {
+		t.Fatalf("partial target = %v, want no repository yet", in)
+	}
+	os.WriteFile(partLog, []byte("data: {\"text\":\"in awf-project/cli, issue #7\"}\n"), 0o644)
+	d.cacheTargets()
+	if in := d.target(part); in["repo"] != "awf-project/cli" || in["issue"] != "7" {
+		t.Fatalf("target after the log grew = %v, want awf-project/cli#7", in)
+	}
+
+	// A log that names no target is cached for the version read, so an
+	// unchanged log is not parsed again.
+	none := "bbbbcccc-1234-1234-1234-123456789012"
+	noneLog := filepath.Join(state, "logs", none+".jsonl")
+	os.WriteFile(noneLog, []byte("data: {\"kind\":\"step.started\"}\n"), 0o644)
+	d.noteIndex(none, "tend-repo", "2026-11-23T10:05:00Z")
+	d.cacheTargets()
+	if in := d.target(none); len(in) != 0 {
+		t.Fatalf("target = %v, want none", in)
+	}
+	st, err := os.Stat(noneLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.targetMu.Lock()
+	memo := d.targets[none]
+	d.targetMu.Unlock()
+	if memo.size != st.Size() || !memo.mod.Equal(st.ModTime()) {
+		t.Fatalf("cached log version = %d %v, want %d %v", memo.size, memo.mod, st.Size(), st.ModTime())
+	}
+
+	// Prune drops the cache with the index line it belongs to.
+	os.Remove(log)
+	os.Remove(noneLog)
+	d.pruneLogs()
+	d.targetMu.Lock()
+	_, keptA := d.targets[id]
+	_, keptB := d.targets[none]
+	d.targetMu.Unlock()
+	if keptA || keptB {
+		t.Fatal("prune kept the target of a dropped log")
+	}
+}
+
 func TestResolveEditable(t *testing.T) {
 	d := &dash{root: "/repo"}
 	ok := []string{
