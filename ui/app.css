@@ -287,6 +287,7 @@ td.actions { text-align: right; white-space: nowrap; }
   padding: 12px; background: var(--surface);
 }
 .item .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.item .meta .btn { vertical-align: baseline; }
 .item details { margin-top: 8px; }
 .item summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .item details[open] summary { margin-bottom: 8px; }
@@ -464,3 +465,20 @@ td.actions { text-align: right; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+.chat { display: flex; flex-direction: column; gap: 12px; }
+.chat-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.chat-log { display: flex; flex-direction: column; gap: 10px; max-height: 52vh; overflow-y: auto; padding-right: 4px; }
+.bubble { max-width: 86%; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+.bubble.user { align-self: flex-end; background: var(--accent-soft); border-color: transparent; }
+.bubble.assistant { align-self: flex-start; }
+.bubble.system { align-self: center; max-width: 92%; background: transparent; border-style: dashed; color: var(--muted); font-size: 0.9em; }
+.bubble-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble-meta { margin-top: 6px; font-size: 0.85em; }
+.chat-status { margin: 0; font-size: 0.9em; }
+.composer { display: flex; gap: 10px; align-items: flex-end; }
+.chat-input { flex: 1; resize: vertical; min-height: 66px; }
+
+.suggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+
+.pager { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }

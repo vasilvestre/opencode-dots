@@ -28,8 +28,14 @@ states:
       rm -rf "$d"
       mkdir -p "$d"
       gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} \
-        --json title,body,author,baseRefName,headRefName,headRepository \
+        --json title,body,url,author,baseRefName,headRefName,headRepository,state \
         > "$d/meta.json"
+      # meta.json names the head repository, which differs from the base on a
+      # fork. Keep the repository to review as asked, so the page can start a
+      # question about this pull request without guessing. meta.json also
+      # carries the state, so the dashboard can fold merged and closed pull
+      # requests away instead of listing them forever.
+      printf '%s\n' "{{.inputs.repo}}" > "$d/repo"
       gh pr diff {{.inputs.pr}} --repo {{.inputs.repo}} > "$d/diff.patch" || true
       head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
       # A diff alone hides the callers, the types and the neighbouring files, so

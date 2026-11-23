@@ -256,6 +256,11 @@ http://127.0.0.1:8099. It shows:
   behind a click
 - answered pull requests from `state/replies/`, with the reply and the pushed
   commit
+- Ask on a reviewed or answered pull request: a conversation with the agent,
+  kept in `state/asks/<owner>/<repo>/pr<N>/thread.md`, which answers one
+  question per run and can read the reply and checkout an earlier run left;
+  when the answer names a next workflow, the message carries a button that
+  opens the run dialog for it
 - the pull requests the watcher already saw
 - a Workflows tab: the success path of a workflow in order, each step stating
   where it goes on success, on failure and on a branch, plus an editor that
@@ -272,15 +277,23 @@ The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
 running (`make up`). It binds loopback only. It writes three things:
 `state/logs/` (awf forgets an execution's events once the run leaves its
 session registry, so the dashboard records them while it runs and deletes files
-older than 30 days), and the four local config files you edit from the page.
+older than 30 days), `state/asks/` (the Ask conversation), and the four local
+config files you edit from the page.
 Saving is limited to `workflows/*.yaml`, `awf-gh.yaml`, `tend.list` and
 `repos.map`; the previous content stays as a stamped `.bak` beside the file.
 The page never commits: read the diff and commit yourself. See
 [ADR 0004](ADR/0004-dashboard-edits-local-config.md).
 
-Prices come from opencode's own database, because awf reads the cost of a turn
-and drops it. The page runs one `sqlite3` query per refresh; with no `sqlite3`
-binary or no database it shows no price. In Docker, the image ships it.
+Prices come from awf itself: since v0.12.0 it records what each agent step cost
+(`cost_usd`) in the run log, and the page sums that per run. A run started by an
+older awf has no price and shows none.
+
+Ask starts `workflows/ask-pr.yaml` with the message as input. The conversation
+is a file, so every turn remembers the previous ones, and the agent reads what
+is already on disk (`state/replies/pr<N>/`) before the fresh GitHub data. It
+may write only its answer: the workflow makes no clone and the prompt forbids
+commits, pushes and comments. Nothing feeds back into a verdict by itself. See
+[ADR 0007](ADR/0007-ask-the-agent-about-a-pull-request.md).
 
 Replay has two sources. A run the page started keeps its exact inputs in the
 browser that started it. For any other run, the page reads them back from the

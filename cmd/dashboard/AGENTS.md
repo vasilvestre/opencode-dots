@@ -19,6 +19,9 @@ for local config files. One Go file, `main.go`, package `main`. The frontend is
 | `/api/repos` | `awf-gh.yaml`, the seen list, and `repos.map` for the Tower check |
 | `/api/repos/names` | repository names for the run dialog, from the configs and `state/tend` |
 | `/api/replay?id=` | what a finished run was given: workflow, scope and inputs |
+| `/api/thread?repo=&pr=` | the Ask conversation for one pull request |
+| `/api/ask` (POST) | appends the question to the thread and starts `ask-pr` |
+| `/api/ask/answer` (POST) | appends `answer.md` to the thread and deletes the file |
 | `/api/memory` | `state/tend/<owner>/<repo>/{lessons,memory}.md` and `since` |
 | `/api/files` | the editable files: `workflows/*.yaml` and the local configs |
 | `/api/source?path=` | one editable file as text |
@@ -39,6 +42,31 @@ the inputs, so the values are recovered twice:
 
 If a prompt changes shape, the guess degrades to the fields it still finds and
 the operator fills the rest. Nothing here is written to disk.
+
+## ASK
+
+The Ask button on a pull request card opens a conversation. One message is one
+run of `workflows/ask-pr.yaml`, whose agent step reads `thread.md` and writes
+`answer.md`; the page then appends the answer and deletes the file, so a turn is
+counted once.
+
+- The thread lives in `state/asks/<owner>/<repo>/pr<N>/`: `thread.json` for the
+  page, `thread.md` for the agent, both written by `writeThread`. awf keeps no
+  session across runs, so the file is the memory of the conversation.
+- The repository of an artifact comes from `reviews/<id>/repo` (written by
+  `review-pr`'s fetch step) or from `replies/<id>/pr.json`'s `url`. An artifact
+  older than that has no repository, so it gets no Ask button.
+- `ask` checks, in order: `POST`, loopback `Host` and `Origin`, JSON content
+  type, 16 KiB cap, `repoNameRE`, `prNumberRE`, non-empty question. A start that
+  awf refuses rolls the question back, so the thread never keeps a message that
+  was not answered.
+- An answer may end with `SUGGEST: <workflow> k=v` lines. `parseSuggest` removes
+  every such line from the displayed text (even a malformed one), keeps at most
+  three, refuses names outside `[A-Za-z0-9_-]+`, and stores them on the message
+  as `suggest`. The page renders one button per entry; the button opens the run
+  dialog with `repo` and `pr` filled in, so nothing starts without a click.
+- `/api/ask/answer` is idempotent per `run_id`: a page that reloads mid-run
+  appends nothing twice.
 
 ## RULES
 
@@ -66,13 +94,11 @@ the operator fills the rest. Nothing here is written to disk.
 - The page must not open awf's own event stream. awf gives the event channel to
   a single reader, and that reader is the recorder here: a second one would take
   half the events from it. `/api/stream` tails the recorded file instead.
-- awf parses the agent price out of opencode's stream and drops it, so
-  `/api/cost` reads opencode's database instead (`session_v2`, older `session`),
-  matching sessions by the working directory awf runs agents in (`state/`) and
-  by the run's time window. `/api/costs` returns the raw sessions so the page
-  attributes each to one history row; a run can overlap its neighbour. It goes
-  through the `sqlite3` binary: no Go driver. The image installs that binary.
-  Without that binary or database the page shows no price.
+- awf v0.12.0 records what each agent step cost (`cost_usd`) in the run log, so
+  `/api/cost` sums that over the transcript, falling back to the recorder file.
+  The sum is memoised by file size and modification time, because the page asks
+  on every refresh. `/api/logs` carries the same number per row, so the history
+  table needs no second request. A run from an older awf has no price.
 - awf history ids differ from execution ids, so `state/logs/index.jsonl`
   records workflow and start time for every kept log. The page joins a history
   row to its log on workflow plus start second; `/api/executions` lists running

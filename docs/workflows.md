@@ -1,6 +1,6 @@
 # Workflows
 
-Four workflows live in `workflows/`. Each one is a small state machine that
+Five workflows live in `workflows/`. Each one is a small state machine that
 `awf` runs to completion. You can run any of them by hand; the timers only
 decide when.
 
@@ -10,6 +10,7 @@ decide when.
 | `reply-pr` | `awf-gh`, on `review-comment` | yes | yes, on branches you own |
 | `tend-repo` | `bin/tend`, daily | yes, one per repo | yes, through a pull request |
 | `fix-issue` | `awf-gh`, on `issue-labeled` | yes, one per issue | yes, one branch per issue |
+| `ask-pr` | the Ask button on a pull request card | yes, one per message | no |
 
 Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
 that is an absolute host path, because the local opencode server resolves paths
@@ -254,6 +255,38 @@ To replay an issue, drop its key from the state file; the label stays:
 docker compose --profile jobs run --rm awf-gh \
   --forget 'owner/repo#issue2'
 ```
+
+## ask-pr
+
+Answers one written question about one pull request. The dashboard's Ask button
+starts it; you do not run it by hand.
+
+```bash
+curl -X POST http://127.0.0.1:2511/api/workflows/global/ask-pr/run \
+  -H 'Content-Type: application/json' \
+  -d '{"inputs":{"repo":"owner/repo","pr":"42","question":"Do we merge after the checks?"}}'
+```
+
+Steps:
+
+1. `fetch` writes `pr.json`, `diff.patch` and `pr.thread.json` (comments and
+   reviews merged, oldest first) to
+   `state/asks/<owner>/<repo>/pr<N>/`. It never wipes the folder: `thread.md`
+   lives there.
+2. `ask` is one agent step. It reads `thread.md` first, then the files above,
+   then `state/replies/pr<N>/reply.md` and the read-only checkout under
+   `state/replies/pr<N>/work` when an earlier run left them. It writes
+   `answer.md` and nothing else.
+3. `done`.
+
+The conversation is the file. Every turn reads the whole `thread.md`, so the
+agent knows what it already said, and no awf session is involved. The prompt
+forbids commits, pushes and comments, and the workflow makes no clone, so there
+is nothing to push. The page appends the answer and deletes `answer.md`, which
+is why a failed run leaves the thread unchanged.
+
+The answer is a comment for you, not a verdict: `review-pr` and `reply-pr` still
+decide and act on their own triggers.
 
 ## Run one by hand
 

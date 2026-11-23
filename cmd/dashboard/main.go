@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,7 +18,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -30,15 +30,21 @@ import (
 
 type review struct {
 	ID        string `json:"id"`
+	Repo      string `json:"repo"`
+	PR        string `json:"pr"`
 	Title     string `json:"title"`
 	Author    string `json:"author"`
 	Base      string `json:"base"`
 	HasReview bool   `json:"has_review"`
 	DiffLines int    `json:"diff_lines"`
+	State     string `json:"state,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 type reply struct {
 	ID       string `json:"id"`
+	Repo     string `json:"repo"`
+	PR       string `json:"pr"`
 	Title    string `json:"title"`
 	URL      string `json:"url"`
 	Author   string `json:"author"`
@@ -46,6 +52,7 @@ type reply struct {
 	Comments int    `json:"comments"`
 	HasReply bool   `json:"has_reply"`
 	Pushed   string `json:"pushed"`
+	State    string `json:"state,omitempty"`
 }
 
 type seen struct {
@@ -98,7 +105,6 @@ func main() {
 	awfgh := flag.String("awfgh", filepath.Join(root, "awf-gh.yaml"), "watcher config")
 	awf := flag.String("awf", envOr("AWF_URL", "http://127.0.0.1:2511"), "awf API base URL")
 	ui := flag.String("ui", filepath.Join(root, "ui", "index.html"), "dashboard page")
-	opencodedb := flag.String("opencode-db", "", "opencode database, empty finds it in the usual places")
 	transcripts := flag.String("transcripts", "", "awf transcript directory, empty finds it in the usual places")
 	opencode := flag.String("opencode", defaultOpencodeConfig(), "opencode config declaring the tower MCP server")
 	flag.Parse()
@@ -115,7 +121,8 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencodedb: *opencodedb, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}}
+	d.costs = map[string]costMemo{}
 	d.indexed = d.loadIndexed()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -135,11 +142,13 @@ func main() {
 	mux.HandleFunc("/api/log", d.log)
 	mux.HandleFunc("/api/stream", d.stream)
 	mux.HandleFunc("/api/cost", d.cost)
-	mux.HandleFunc("/api/costs", d.costs)
 	mux.HandleFunc("/api/logs", d.logs)
 	mux.HandleFunc("/api/repos", d.repos)
 	mux.HandleFunc("/api/repos/names", d.repoNames)
 	mux.HandleFunc("/api/replay", d.replay)
+	mux.HandleFunc("/api/thread", d.thread)
+	mux.HandleFunc("/api/ask", d.ask)
+	mux.HandleFunc("/api/ask/answer", d.askAnswer)
 	mux.HandleFunc("/api/memory", d.tendMemory)
 	mux.HandleFunc("/api/files", d.files)
 	mux.HandleFunc("/api/source", d.source)
@@ -158,12 +167,16 @@ type dash struct {
 	awf         string
 	awfgh       string
 	transcripts string
-	opencodedb  string
 	opencode    string
 	mu          sync.Mutex
 	active      map[string]bool
 	tried       map[string]bool
 	indexed     map[string]bool
+
+	// The page asks for a price on every refresh; the last answer per run file
+	// is reused until the file changes.
+	costMu sync.Mutex
+	costs  map[string]costMemo
 }
 
 // watchRuns records the event stream of every running execution into
@@ -387,163 +400,73 @@ func (d *dash) stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// cost reports what opencode charged for a run. awf reads the price out of
-// opencode's stream and drops it, so the number comes from opencode's own
-// database: one session per agent step, opened in the working directory the
-// workflow ran in. The query goes through the sqlite3 binary so the dashboard
-// keeps a single static dependency; when it or the database is missing, the
-// page simply shows no price.
+// cost reports what one run spent. Since awf v0.12.0 the provider price of an
+// agent step travels with the run as `cost_usd`, so the number is read from the
+// run's own log: no second database, no time window to guess.
 func (d *dash) cost(w http.ResponseWriter, r *http.Request) {
-	if !logID(r.URL.Query().Get("id")) {
+	id := r.URL.Query().Get("id")
+	if !logID(id) {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "bad id"})
 		return
 	}
-	from, err := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
-	if err != nil {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "from must be RFC3339"})
-		return
-	}
-	to := time.Now()
-	if s := r.URL.Query().Get("to"); s != "" {
-		if parsed, err := time.Parse(time.RFC3339, s); err == nil {
-			to = parsed
-		}
-	}
-	db := d.opencodeDB()
-	if db == "" || !exists(db) {
-		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false})
-		return
-	}
-	cost, err := d.queryCost(db, from.Add(-time.Minute), to.Add(2*time.Minute))
-	if err != nil {
-		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false, "error": err.Error()})
-		return
-	}
-	cost.Available = true
-	writeJSON(w, cost)
+	usd, steps := d.runCost(id)
+	writeJSON(w, runCost{Available: true, Cost: usd, Steps: steps})
 }
 
 type runCost struct {
 	Available bool    `json:"available"`
 	Cost      float64 `json:"cost"`
-	Input     int64   `json:"input"`
-	Output    int64   `json:"output"`
-	CacheRead int64   `json:"cache_read"`
-	Sessions  int     `json:"sessions"`
+	Steps     int     `json:"steps"`
 }
 
-func (d *dash) opencodeDB() string {
-	if d.opencodedb != "" {
-		return d.opencodedb
-	}
-	var dirs []string
-	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-		dirs = append(dirs, xdg)
-	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		dirs = append(dirs, filepath.Join(home, ".local", "share"))
-	}
-	dirs = append(dirs, d.state)
-	for _, dir := range dirs {
-		if p := filepath.Join(dir, "opencode", "opencode.db"); exists(p) {
-			return p
-		}
-	}
-	return ""
+// costMemo keeps the last answer for one run file, keyed by its size and
+// modification time, because the page asks again on every refresh.
+type costMemo struct {
+	size  int64
+	mod   time.Time
+	usd   float64
+	steps int
 }
 
-// queryCost sums the sessions opencode opened for this run. Older opencode
-// releases keep them in `session`, newer ones in `session_v2`.
-func (d *dash) queryCost(db string, from, to time.Time) (runCost, error) {
-	var out runCost
-	sessions, err := d.sessionCosts(db, from, to)
+var costUSDRE = regexp.MustCompile(`"cost_usd":\s*([0-9.eE+-]+)`)
+
+// runCost sums the prices recorded in a run's log. The transcript carries them;
+// the recorder file is the fallback, and it carries them too once awf puts the
+// field on the stream. A run started by an older awf has no price and reports
+// zero, which the page shows as no price.
+func (d *dash) runCost(id string) (float64, int) {
+	path := d.transcriptPath(id)
+	if path == "" {
+		path = filepath.Join(d.state, "logs", id+".jsonl")
+	}
+	st, err := os.Stat(path)
 	if err != nil {
-		return out, err
+		return 0, 0
 	}
-	for _, s := range sessions {
-		out.Cost += s.Cost
-		out.Input += s.Input
-		out.Output += s.Output
-		out.CacheRead += s.CacheRead
+	d.costMu.Lock()
+	memo, ok := d.costs[id]
+	d.costMu.Unlock()
+	if ok && memo.size == st.Size() && memo.mod.Equal(st.ModTime()) {
+		return memo.usd, memo.steps
 	}
-	out.Sessions = len(sessions)
-	return out, nil
-}
-
-// sessionCost is one opencode session: awf opens one per agent step.
-type sessionCost struct {
-	At        int64   `json:"at"`
-	Cost      float64 `json:"cost"`
-	Input     int64   `json:"input"`
-	Output    int64   `json:"output"`
-	CacheRead int64   `json:"cache_read"`
-}
-
-// sessionCosts lists the sessions opencode opened for agents, by start time.
-// The caller attributes them to runs; one query covers a whole history page.
-func (d *dash) sessionCosts(db string, from, to time.Time) ([]sessionCost, error) {
-	// awf runs agents in its own working directory, state/. Matching the repo
-	// root too would also count interactive sessions, which cost far more.
-	abs, err := filepath.Abs(d.state)
-	if err != nil {
-		return nil, err
-	}
-	base := "'" + strings.ReplaceAll(abs, "'", "''") + "'"
-	quoted := fmt.Sprintf("%s or directory like %s", base, base+"||'/%'")
-	for _, table := range []string{"session_v2", "session"} {
-		q := fmt.Sprintf("select time_created, coalesce(cost,0), coalesce(tokens_input,0), "+
-			"coalesce(tokens_output,0), coalesce(tokens_cache_read,0) from %s "+
-			"where (directory = %s) and time_created between %d and %d order by time_created",
-			table, quoted, from.UnixMilli(), to.UnixMilli())
-		raw, err := exec.Command("sqlite3", "-readonly", "-noheader", "-separator", "|", db, q).Output()
-		if err != nil {
-			continue
-		}
-		var out []sessionCost
-		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-			if line == "" {
-				continue
+	var usd float64
+	var steps int
+	for _, line := range strings.Split(readFile(path, 8<<20), "\n") {
+		for _, m := range costUSDRE.FindAllStringSubmatch(line, -1) {
+			var v float64
+			if _, err := fmt.Sscanf(m[1], "%g", &v); err == nil && v > 0 {
+				usd += v
+				steps++
 			}
-			fields := strings.Split(line, "|")
-			if len(fields) != 5 {
-				continue
-			}
-			var s sessionCost
-			fmt.Sscanf(fields[0], "%d", &s.At)
-			fmt.Sscanf(fields[1], "%f", &s.Cost)
-			fmt.Sscanf(fields[2], "%d", &s.Input)
-			fmt.Sscanf(fields[3], "%d", &s.Output)
-			fmt.Sscanf(fields[4], "%d", &s.CacheRead)
-			out = append(out, s)
 		}
-		return out, nil
 	}
-	return nil, fmt.Errorf("no session table in %s", filepath.Base(db))
-}
-
-// costs lists what opencode charged between two RFC3339 instants. The page
-// sums the sessions per history row, so the whole table costs one query.
-func (d *dash) costs(w http.ResponseWriter, r *http.Request) {
-	from, err1 := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
-	to, err2 := time.Parse(time.RFC3339, r.URL.Query().Get("to"))
-	if err1 != nil || err2 != nil {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "from and to must be RFC3339"})
-		return
+	d.costMu.Lock()
+	if d.costs == nil {
+		d.costs = map[string]costMemo{}
 	}
-	db := d.opencodeDB()
-	if db == "" || !exists(db) {
-		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false})
-		return
-	}
-	sessions, err := d.sessionCosts(db, from, to)
-	if err != nil {
-		writeJSONStatus(w, http.StatusOK, map[string]any{"available": false, "error": err.Error()})
-		return
-	}
-	if sessions == nil {
-		sessions = []sessionCost{}
-	}
-	writeJSON(w, map[string]any{"available": true, "sessions": sessions})
+	d.costs[id] = costMemo{size: st.Size(), mod: st.ModTime(), usd: usd, steps: steps}
+	d.costMu.Unlock()
+	return usd, steps
 }
 
 // transcriptEvent is one line of awf's per-run transcript: the same step events
@@ -779,6 +702,297 @@ func (d *dash) replay(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// The Ask chat: one conversation per pull request, stored beside the run
+// artifacts. A message becomes a run of the ask-pr workflow, whose answer.md
+// comes back here as the next assistant message.
+type threadMessage struct {
+	Role    string       `json:"role"`
+	Text    string       `json:"text"`
+	At      string       `json:"at"`
+	RunID   string       `json:"run_id,omitempty"`
+	Cost    float64      `json:"cost,omitempty"`
+	Suggest []suggestion `json:"suggest,omitempty"`
+}
+
+// suggestion is a workflow the agent named as the next step. The page turns
+// each one into a button; nothing runs until the operator clicks it.
+type suggestion struct {
+	Workflow string            `json:"workflow"`
+	Inputs   map[string]string `json:"inputs,omitempty"`
+}
+
+var (
+	suggestRE  = regexp.MustCompile(`^SUGGEST:\s*(\S*)\s*(.*)$`)
+	suggestKV  = regexp.MustCompile(`([A-Za-z0-9_]+)=(?:"([^"]*)"|(\S+))`)
+	suggestMax = 3
+)
+
+// parseSuggest splits the answer into the text a reader sees and the workflows
+// it proposes. The agent writes one line per suggestion, at the end:
+//
+//	SUGGEST: reply-pr repo=owner/repo pr=42
+func parseSuggest(text string) (string, []suggestion) {
+	kept := []string{}
+	var out []suggestion
+	for _, line := range strings.Split(text, "\n") {
+		m := suggestRE.FindStringSubmatch(line)
+		if m == nil {
+			kept = append(kept, line)
+			continue
+		}
+		// The line never reaches the reader, even when its workflow name is
+		// refused: a suggestion the page cannot render is noise in the answer.
+		if len(out) >= suggestMax || !workflowNameRE.MatchString(m[1]) {
+			continue
+		}
+		inputs := map[string]string{}
+		for _, kv := range suggestKV.FindAllStringSubmatch(m[2], -1) {
+			v := kv[2]
+			if v == "" {
+				v = kv[3]
+			}
+			inputs[kv[1]] = v
+		}
+		if len(inputs) == 0 {
+			inputs = nil
+		}
+		out = append(out, suggestion{Workflow: m[1], Inputs: inputs})
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n")), out
+}
+
+type thread struct {
+	Repo     string          `json:"repo"`
+	PR       string          `json:"pr"`
+	Messages []threadMessage `json:"messages"`
+}
+
+var (
+	asksMu        sync.Mutex
+	prNumberRE    = regexp.MustCompile(`^[0-9]{1,7}$`)
+	askMaxSize    = 16 << 10
+	askQuestionTo = 8000
+)
+
+// prNumber reads the pull request number out of an artifact directory name
+// such as "pr447" or "pr447-<sha>".
+func prNumber(dir string) string {
+	base := strings.TrimPrefix(dir, "pr")
+	if i := strings.IndexByte(base, '-'); i >= 0 {
+		base = base[:i]
+	}
+	if prNumberRE.MatchString(base) {
+		return base
+	}
+	return ""
+}
+
+// repoFromURL keeps "owner/repo" out of a pull request URL.
+func repoFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 || parts[2-1] == "" {
+		return ""
+	}
+	repo := parts[0] + "/" + parts[1]
+	if !repoNameRE.MatchString(repo) {
+		return ""
+	}
+	return repo
+}
+
+func (d *dash) askDir(repo, pr string) string {
+	return filepath.Join(d.state, "asks", filepath.FromSlash(repo), "pr"+pr)
+}
+
+func (d *dash) loadThread(repo, pr string) thread {
+	out := thread{Repo: repo, PR: pr, Messages: []threadMessage{}}
+	loadJSON(filepath.Join(d.askDir(repo, pr), "thread.json"), &out)
+	if out.Messages == nil {
+		out.Messages = []threadMessage{}
+	}
+	out.Repo, out.PR = repo, pr
+	return out
+}
+
+// writeThread stores the conversation twice: thread.json for the page and
+// thread.md for the agent, which reads markdown with its read tool.
+func (d *dash) writeThread(t thread) error {
+	dir := d.askDir(t.Repo, t.PR)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(thread{Repo: t.Repo, PR: t.PR, Messages: t.Messages}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(filepath.Join(dir, "thread.json"), append(b, '\n')); err != nil {
+		return err
+	}
+	var md strings.Builder
+	md.WriteString("# Conversation about " + t.Repo + "#" + t.PR + "\n")
+	for _, m := range t.Messages {
+		md.WriteString("\n## " + m.Role + " · " + m.At + "\n\n" + m.Text + "\n")
+	}
+	return atomicWrite(filepath.Join(dir, "thread.md"), []byte(md.String()))
+}
+
+func (d *dash) thread(w http.ResponseWriter, r *http.Request) {
+	repo, pr := r.URL.Query().Get("repo"), r.URL.Query().Get("pr")
+	if !repoNameRE.MatchString(repo) || !prNumberRE.MatchString(pr) {
+		writeJSONStatus(w, 400, map[string]string{"error": "repo and pr are required"})
+		return
+	}
+	writeJSON(w, d.loadThread(repo, pr))
+}
+
+// startRun posts a run request to awf and returns the execution id.
+func (d *dash) startRun(workflow string, inputs map[string]string) (string, error) {
+	body, err := json.Marshal(map[string]any{"inputs": inputs})
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	u := d.awf + "/api/workflows/" + url.PathEscape(d.scopeOf(workflow)) + "/" + url.PathEscape(workflow) + "/run"
+	resp, err := client.Post(u, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusAccepted {
+		return "", fmt.Errorf("awf refused the run: %s", strings.TrimSpace(string(raw)))
+	}
+	var out struct {
+		Body struct {
+			ExecutionID string `json:"execution_id"`
+		} `json:"body"`
+	}
+	if json.Unmarshal(raw, &out) != nil || out.Body.ExecutionID == "" {
+		return "", fmt.Errorf("awf accepted the run but named no execution")
+	}
+	return out.Body.ExecutionID, nil
+}
+
+func (d *dash) ask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONStatus(w, 405, map[string]string{"error": "POST only"})
+		return
+	}
+	if !loopbackRequest(r) {
+		writeJSONStatus(w, 403, map[string]string{"error": "loopback only"})
+		return
+	}
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		writeJSONStatus(w, 415, map[string]string{"error": "JSON only"})
+		return
+	}
+	var in struct {
+		Repo     string `json:"repo"`
+		PR       string `json:"pr"`
+		Question string `json:"question"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, int64(askMaxSize))).Decode(&in) != nil {
+		writeJSONStatus(w, 400, map[string]string{"error": "unreadable body"})
+		return
+	}
+	in.Question = strings.TrimSpace(in.Question)
+	if !repoNameRE.MatchString(in.Repo) || !prNumberRE.MatchString(in.PR) || in.Question == "" {
+		writeJSONStatus(w, 422, map[string]string{"error": "repo, pr and question are required"})
+		return
+	}
+	if len(in.Question) > askQuestionTo {
+		writeJSONStatus(w, 413, map[string]string{"error": fmt.Sprintf("question is longer than %d characters", askQuestionTo)})
+		return
+	}
+
+	asksMu.Lock()
+	defer asksMu.Unlock()
+	t := d.loadThread(in.Repo, in.PR)
+	msg := threadMessage{Role: "user", Text: in.Question, At: time.Now().UTC().Format(time.RFC3339)}
+	t.Messages = append(t.Messages, msg)
+	if err := d.writeThread(t); err != nil {
+		writeJSONStatus(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	id, err := d.startRun("ask-pr", map[string]string{"repo": in.Repo, "pr": in.PR, "question": in.Question})
+	if err != nil {
+		// The question never reached awf: keep the thread as it was.
+		t.Messages = t.Messages[:len(t.Messages)-1]
+		d.writeThread(t)
+		writeJSONStatus(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"execution_id": id, "message": msg})
+}
+
+// askAnswer moves the answer.md a run wrote into the thread. It is idempotent:
+// a run id lands in the thread once, so a retried request adds nothing.
+// runCostSince prices one answer: awf records what each agent step cost, and
+// the transcript of this run carries it. Zero means no price is known (a run
+// from an awf without the field, or no agent step), never free.
+func (d *dash) runCostSince(t thread, run string) float64 {
+	if run == "" {
+		return 0
+	}
+	usd, _ := d.runCost(run)
+	return usd
+}
+
+func (d *dash) askAnswer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONStatus(w, 405, map[string]string{"error": "POST only"})
+		return
+	}
+	if !loopbackRequest(r) {
+		writeJSONStatus(w, 403, map[string]string{"error": "loopback only"})
+		return
+	}
+	var in struct {
+		Repo string `json:"repo"`
+		PR   string `json:"pr"`
+		Run  string `json:"run"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
+		writeJSONStatus(w, 400, map[string]string{"error": "unreadable body"})
+		return
+	}
+	if !repoNameRE.MatchString(in.Repo) || !prNumberRE.MatchString(in.PR) || !logID(in.Run) {
+		writeJSONStatus(w, 422, map[string]string{"error": "repo, pr and run are required"})
+		return
+	}
+
+	asksMu.Lock()
+	defer asksMu.Unlock()
+	dir := d.askDir(in.Repo, in.PR)
+	t := d.loadThread(in.Repo, in.PR)
+	for _, m := range t.Messages {
+		if m.RunID == in.Run && m.Role == "assistant" {
+			writeJSON(w, m)
+			return
+		}
+	}
+	text := strings.TrimSpace(readFile(filepath.Join(dir, "answer.md"), 1<<20))
+	if text == "" {
+		writeJSONStatus(w, 404, map[string]string{"error": "this run wrote no answer.md"})
+		return
+	}
+	shown, suggest := parseSuggest(text)
+	msg := threadMessage{Role: "assistant", Text: shown, At: time.Now().UTC().Format(time.RFC3339), RunID: in.Run, Cost: d.runCostSince(t, in.Run), Suggest: suggest}
+	t.Messages = append(t.Messages, msg)
+	if err := d.writeThread(t); err != nil {
+		writeJSONStatus(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	// The next turn starts from a clean file, so a stale answer is never read
+	// twice.
+	os.Remove(filepath.Join(dir, "answer.md"))
+	writeJSON(w, msg)
+}
+
 func (d *dash) repos(w http.ResponseWriter, r *http.Request) {
 	var cfg struct {
 		Repos []ghEntry `yaml:"repos"`
@@ -969,11 +1183,17 @@ func (d *dash) noteIndex(id, workflow, started string) {
 }
 
 func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
-	out := []logIndex{}
+	// Each row carries its price so the history table needs no second request.
+	type row struct {
+		logIndex
+		Cost float64 `json:"cost,omitempty"`
+	}
+	out := []row{}
 	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID != "" {
-			out = append(out, e)
+			usd, _ := d.runCost(e.ID)
+			out = append(out, row{logIndex: e, Cost: usd})
 		}
 	}
 	writeJSON(w, out)
@@ -1024,17 +1244,25 @@ func (d *dash) artifacts(w http.ResponseWriter, r *http.Request) {
 			Author struct {
 				Login string `json:"login"`
 			} `json:"author"`
-			Base string `json:"baseRefName"`
+			Base  string `json:"baseRefName"`
+			State string `json:"state"`
+			URL   string `json:"url"`
 		}
 		loadJSON(filepath.Join(dir, "meta.json"), &meta)
 		diff := readFile(filepath.Join(dir, "diff.patch"), 1<<20)
+		repo := strings.TrimSpace(readFile(filepath.Join(dir, "repo"), 200))
+		pr := prNumber(name)
 		out.Reviews = append(out.Reviews, review{
 			ID:        name,
+			Repo:      repo,
+			PR:        pr,
 			Title:     meta.Title,
 			Author:    meta.Author.Login,
 			Base:      meta.Base,
 			HasReview: exists(filepath.Join(dir, "review.md")),
 			DiffLines: strings.Count(diff, "\n"),
+			State:     meta.State,
+			URL:       reviewURL(meta.URL, repo, pr),
 		})
 	}
 	for _, name := range listDirs(filepath.Join(d.state, "replies")) {
@@ -1046,11 +1274,14 @@ func (d *dash) artifacts(w http.ResponseWriter, r *http.Request) {
 				Login string `json:"login"`
 			} `json:"author"`
 			Branch   string            `json:"headRefName"`
+			State    string            `json:"state"`
 			Comments []json.RawMessage `json:"comments"`
 		}
 		loadJSON(filepath.Join(dir, "pr.json"), &pr)
 		out.Replies = append(out.Replies, reply{
 			ID:       name,
+			Repo:     repoFromURL(pr.URL),
+			PR:       prNumber(name),
 			Title:    pr.Title,
 			URL:      pr.URL,
 			Author:   pr.Author.Login,
@@ -1058,11 +1289,24 @@ func (d *dash) artifacts(w http.ResponseWriter, r *http.Request) {
 			Comments: len(pr.Comments),
 			HasReply: exists(filepath.Join(dir, "reply.md")),
 			Pushed:   strings.TrimSpace(readFile(filepath.Join(dir, "pushed.sha"), 100)),
+			State:    pr.State,
 		})
 	}
 	lines := strings.Split(readFile(filepath.Join(d.state, "awf-gh", "seen.jsonl"), 1<<20), "\n")
 	out.Seen = dedupeSeen(lines)
 	writeJSON(w, out)
+}
+
+// reviewURL prefers what gh reported and rebuilds the link for artifacts
+// written before meta.json carried url.
+func reviewURL(url, repo, pr string) string {
+	if url != "" {
+		return url
+	}
+	if repo == "" || pr == "" {
+		return ""
+	}
+	return "https://github.com/" + repo + "/pull/" + pr
 }
 
 // The watcher appends a line per poll, so keep one entry per PR.

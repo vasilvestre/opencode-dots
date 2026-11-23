@@ -1,6 +1,6 @@
 # workflows/
 
-Four awf state machines. Each file is a whole workflow: inputs, states, terminal
+Five awf state machines. Each file is a whole workflow: inputs, states, terminal
 states. `docs/workflows.md` explains what each one does; this file holds the
 rules for editing them.
 
@@ -10,6 +10,7 @@ rules for editing them.
 | `reply-pr.yaml` | `awf-gh`: review-comment | yes, on owned branches |
 | `tend-repo.yaml` | `bin/tend`, daily | yes, one PR |
 | `fix-issue.yaml` | `awf-gh`: issue-labeled | yes, one branch |
+| `ask-pr.yaml` | the dashboard's Ask button, one per message | no |
 
 ## SHAPE
 

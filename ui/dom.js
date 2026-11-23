@@ -39,3 +39,37 @@ export function mount(el, ...kids) {
 }
 
 export const $ = (sel, root = document) => root.querySelector(sel);
+
+// richText renders one agent answer: bold, code spans and list markers. It
+// stays on text nodes, so no answer ever becomes HTML. Anything else stays as
+// written, which is why the agent is asked for plain prose with little markup.
+const inlineRE = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
+
+function inline(text) {
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(inlineRE)) {
+    if (m.index > last) out.push(document.createTextNode(text.slice(last, m.index)));
+    const tok = m[0];
+    out.push(tok.startsWith("**") ? h("b", {}, tok.slice(2, -2)) : h("code", {}, tok.slice(1, -1)));
+    last = m.index + tok.length;
+  }
+  if (last < text.length) out.push(document.createTextNode(text.slice(last)));
+  return out;
+}
+
+export function richText(text) {
+  const frag = document.createDocumentFragment();
+  const lines = String(text).split("\n");
+  lines.forEach((line, i) => {
+    if (i) frag.appendChild(document.createTextNode("\n"));
+    const li = /^(\s*(?:\d+\.|[-*]))\s+(.*)$/.exec(line);
+    if (li) {
+      frag.appendChild(document.createTextNode(`${li[1]} `));
+      for (const node of inline(li[2])) frag.appendChild(node);
+      return;
+    }
+    for (const node of inline(line)) frag.appendChild(node);
+  });
+  return frag;
+}

@@ -53,3 +53,11 @@ export function putJSON(url, value) {
     body: JSON.stringify(value),
   });
 }
+
+export function postJSON(url, value) {
+  return request(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+}

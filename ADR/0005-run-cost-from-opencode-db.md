@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-11-23
 - Supersedes: none
-- Superseded by: none
+- Superseded by: [0008](0008-run-cost-comes-from-awf.md)
 
 ## Context
 

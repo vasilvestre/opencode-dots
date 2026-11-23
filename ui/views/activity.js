@@ -4,6 +4,7 @@ import { ago, dur, elapsed, eventLine, formatLog, when } from "../format.js";
 import { toast } from "../toast.js";
 import { confirmDialog, openModal } from "../modal.js";
 import { openRunModal, recalledRun } from "../run.js";
+import { openAskModal } from "../ask.js";
 
 const REFRESH_MS = 5000;
 const ARTIFACTS_MS = 15000;
@@ -17,10 +18,13 @@ export function mountActivity(el) {
     runs: [],
     filter: "",
     status: "all",
+    page: 0,
+    reviewsDone: false,
+    repliesDone: false,
     artifacts: { reviews: [], replies: [], seen: [] },
-    sessions: [],
-    costs: new Map(),
   };
+  const PAGE = 10; // history rows per page
+  const PR_LIMIT = 5; // pull request cards shown before folding
   const fileCache = new Map();
   const runCards = new Map(); // execution id -> {card, step, time, stream}
   const logText = new Map();
@@ -34,16 +38,17 @@ export function mountActivity(el) {
   const reviews = h("div", { class: "list" });
   const replies = h("div", { class: "list" });
   const seen = h("div", {});
+  const pager = h("div", { class: "pager" });
 
   const search = h("input", {
     type: "search",
     placeholder: "Filter by workflow",
     "aria-label": "Filter history by workflow",
-    oninput: () => { state.filter = search.value.trim().toLowerCase(); renderHistory(); },
+    oninput: () => { state.filter = search.value.trim().toLowerCase(); state.page = 0; renderHistory(); },
   });
   const status = h("select", {
     "aria-label": "Filter history by status",
-    onchange: () => { state.status = status.value; renderHistory(); },
+    onchange: () => { state.status = status.value; state.page = 0; renderHistory(); },
   },
   ["all", "succeeded", "failed", "running"].map((s) => h("option", { value: s }, s === "all" ? "All statuses" : s)),
   );
@@ -54,6 +59,17 @@ export function mountActivity(el) {
       h("section", {},
         h("div", { class: "section-head" }, h("h2", {}, "Running now"), runsCount),
         runs,
+      ),
+      h("section", {},
+        h("div", { class: "section-head" }, h("h2", {}, "Pull requests"), h("span", { class: "muted" }, "reviews and drafted replies")),
+        h("div", { class: "two-col" },
+          h("div", {}, h("h3", { class: "muted", style: { marginBottom: "8px" } }, "Reviewed"), reviews),
+          h("div", {}, h("h3", { class: "muted", style: { marginBottom: "8px" } }, "Answered"), replies),
+        ),
+        h("div", { class: "card", style: { marginTop: "12px" } },
+          h("div", { class: "card-head" }, h("h3", {}, "Seen by the watcher")),
+          seen,
+        ),
       ),
       h("section", {},
         h("div", { class: "section-head" },
@@ -74,17 +90,7 @@ export function mountActivity(el) {
             historyBody,
           ),
         ),
-      ),
-      h("section", {},
-        h("div", { class: "section-head" }, h("h2", {}, "Pull requests"), h("span", { class: "muted" }, "reviews and drafted replies")),
-        h("div", { class: "two-col" },
-          h("div", {}, h("h3", { class: "muted", style: { marginBottom: "8px" } }, "Reviewed"), reviews),
-          h("div", {}, h("h3", { class: "muted", style: { marginBottom: "8px" } }, "Answered"), replies),
-        ),
-        h("div", { class: "card", style: { marginTop: "12px" } },
-          h("div", { class: "card-head" }, h("h3", {}, "Seen by the watcher")),
-          seen,
-        ),
+        pager,
       ),
     ),
   );
@@ -101,7 +107,6 @@ export function mountActivity(el) {
       state.executions = execRes.body?.executions || [];
       state.runs = state.executions.filter((e) => e.status === "running");
       state.history = attachLogIds(histRes.body?.entries || [], logsRes || []);
-      loadSessions();
       const s = statsRes.body || {};
       state.stats = { total: s.TotalExecutions || 0, failed: s.FailedCount || 0, avg: s.AvgDurationMs || 0 };
       renderKpis();
@@ -113,10 +118,9 @@ export function mountActivity(el) {
     }
   }
 
-  // opencode charges per agent turn; the price lives in its own database.
-  async function runCost(id, from, to) {
-    const q = new URLSearchParams({ id, from });
-    if (to) q.set("to", to);
+  // awf records what each agent step cost; the backend sums it per run.
+  async function runCost(id) {
+    const q = new URLSearchParams({ id });
     try {
       const c = await getJSON(`/api/cost?${q}`);
       return c.available ? c : null;
@@ -129,30 +133,12 @@ export function mountActivity(el) {
     return c.cost >= 0.01 ? `$${c.cost.toFixed(3)}` : `$${c.cost.toFixed(4)}`;
   }
 
-  // One query covers every row on the page; /api/costs returns the sessions in
-  // the window, the page sums them per row.
-  async function loadSessions() {
-    const times = state.history.flatMap((e) => [Date.parse(e.started_at), Date.parse(e.completed_at) || 0])
-      .filter((t) => t > 0);
-    if (!times.length) return;
-    const q = new URLSearchParams({
-      from: new Date(Math.min(...times) - 60000).toISOString(),
-      to: new Date(Math.max(...times) + 120000).toISOString(),
-    });
-    try {
-      const res = await getJSON(`/api/costs?${q}`);
-      state.sessions = res.available ? res.sessions || [] : [];
-    } catch {
-      state.sessions = [];
-    }
-    attributeSessions();
-  }
-
   async function refreshArtifacts() {
     try {
       const data = await getJSON("/api/artifacts");
       state.artifacts = data;
       renderArtifacts();
+      renderKpis();
     } catch {
       // Keep the previous artifacts; the header pill reports the backend.
     }
@@ -163,15 +149,18 @@ export function mountActivity(el) {
   // logs/index.jsonl. Two runs can start in the same second: take each id once.
   function attachLogIds(entries, logs) {
     const byKey = new Map();
-    const add = (workflow, startedAt, id) => {
+    const costs = new Map();
+    const add = (workflow, startedAt, id, cost) => {
       const key = runKey(workflow, startedAt);
       byKey.set(key, [...(byKey.get(key) || []), id]);
+      if (cost) costs.set(id, cost);
     };
-    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id);
-    for (const e of state.executions) add(e.workflow_name, e.started_at, e.execution_id);
+    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id, l.cost);
+    for (const e of state.executions) add(e.workflow_name, e.started_at, e.execution_id, 0);
     return entries.map((e) => {
       const list = byKey.get(runKey(e.workflow_name, e.started_at));
-      return { ...e, logId: list?.length ? list.shift() : undefined };
+      const logId = list?.length ? list.shift() : undefined;
+      return { ...e, logId, cost: (logId && costs.get(logId)) || 0 };
     });
   }
 
@@ -250,10 +239,10 @@ export function mountActivity(el) {
       }
     });
     const updateCost = async () => {
-      const c = await runCost(run.execution_id, run.started_at);
+      const c = await runCost(run.execution_id);
       if (!c?.cost) return;
       costEl.textContent = money(c);
-      costEl.title = `${c.input.toLocaleString()} in · ${c.output.toLocaleString()} out · ${c.cache_read.toLocaleString()} cached`;
+      costEl.title = `${c.steps} agent step${c.steps === 1 ? "" : "s"} so far`;
     };
     updateCost();
     return { card, step, costEl, time, pre, stream, updateCost };
@@ -311,48 +300,8 @@ export function mountActivity(el) {
     }
   }
 
-  // A session usually starts inside the run that launched it. Runs recorded
-  // back to back overlap a little, so when several rows match, the longer run
-  // keeps it: a probe that lasted milliseconds cannot have launched a turn.
-  // Sessions outside every run window fall back to a wider window, because a
-  // step may prepare for a while before the agent starts.
-  function attributeSessions() {
-    const buckets = state.history.map((e) => {
-      const start = Date.parse(e.started_at);
-      const end = e.completed_at ? Date.parse(e.completed_at) : start;
-      return {
-        key: rowKey(e),
-        from: start - 5000,
-        to: end + 5000,
-        looseFrom: start - 60000,
-        looseTo: end + 180000,
-        len: end - start,
-        cost: 0,
-      };
-    });
-    const claim = (s, loose) => {
-      let best = null;
-      for (const b of buckets) {
-        const from = loose ? b.looseFrom : b.from;
-        const to = loose ? b.looseTo : b.to;
-        if (s.at < from || s.at > to) continue;
-        if (!best || b.len > best.len) best = b;
-      }
-      return best;
-    };
-    for (const s of state.sessions) {
-      const best = claim(s, false) || claim(s, true);
-      if (best) best.cost += s.cost;
-    }
-    state.costs = new Map(buckets.map((b) => [b.key, b.cost]));
-  }
-
-  function rowKey(e) {
-    return `${e.workflow_name}|${e.started_at}`;
-  }
-
   function costOf(e) {
-    return state.costs.get(rowKey(e)) || 0;
+    return e.cost || 0;
   }
 
   function costCell(e) {
@@ -360,17 +309,46 @@ export function mountActivity(el) {
     return c ? money({ cost: c }) : h("span", { class: "muted" }, "—");
   }
 
+  // renderPager keeps the newest runs first and lets the table stay compact.
+  function renderPager(total, pages) {
+    if (total <= PAGE) {
+      mount(pager);
+      return;
+    }
+    const from = state.page * PAGE + 1;
+    const to = Math.min(total, (state.page + 1) * PAGE);
+    mount(pager,
+      h("span", { class: "muted" }, `${from}–${to} of ${total}`),
+      h("span", { class: "spacer" }),
+      h("button", {
+        class: "btn ghost sm",
+        disabled: state.page === 0,
+        onclick: () => { state.page = Math.max(0, state.page - 1); renderHistory(); },
+      }, "Newer"),
+      h("span", { class: "muted num" }, `${state.page + 1} / ${pages}`),
+      h("button", {
+        class: "btn ghost sm",
+        disabled: state.page >= pages - 1,
+        onclick: () => { state.page = Math.min(pages - 1, state.page + 1); renderHistory(); },
+      }, "Older"),
+    );
+  }
+
   function renderHistory() {
     const rows = state.history.filter((e) =>
       (!state.filter || (e.workflow_name || "").toLowerCase().includes(state.filter)) &&
       (state.status === "all" || e.status === state.status));
     historyCount.textContent = `${rows.length} of ${state.history.length}`;
-    if (!rows.length) {
+    const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+    state.page = Math.min(state.page, pages - 1);
+    const shown = rows.slice(state.page * PAGE, state.page * PAGE + PAGE);
+    renderPager(rows.length, pages);
+    if (!shown.length) {
       mount(historyBody, h("tr", {}, h("td", { colspan: "7" }, h("div", { class: "empty" },
         state.history.length ? "No run matches the filter." : "No finished run recorded yet."))));
       return;
     }
-    mount(historyBody, rows.map((e) => h("tr", {},
+    mount(historyBody, shown.map((e) => h("tr", {},
       h("td", {}, h("b", {}, e.workflow_name)),
       h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
       h("td", { class: "num muted", title: when(e.started_at) }, ago(e.started_at)),
@@ -448,7 +426,7 @@ export function mountActivity(el) {
     try {
       const raw = await getText(`/api/stream?id=${encodeURIComponent(entry.logId)}`);
       pre.textContent = formatLog(raw) || "The log is empty.";
-      const c = await runCost(entry.logId, entry.started_at, entry.completed_at);
+      const c = await runCost(entry.logId);
       if (c?.cost) modal.querySelector("h2").textContent += ` · ${money(c)}`;
     } catch (err) {
       pre.textContent = `No log on disk for this run (${err.message}). The recorder only keeps runs seen while the dashboard runs.`;
@@ -456,18 +434,53 @@ export function mountActivity(el) {
     return modal;
   }
 
-  function renderArtifacts() {
-    const a = state.artifacts;
-    mount(reviews, a.reviews.length ? a.reviews.map((r) => h("div", { class: "item" },
-      h("div", {}, h("b", {}, r.title || "untitled pull request")),
+  // A pulled request awf-gh already merged or that someone closed keeps its card
+  // on disk; the page folds those away instead of listing them forever. The
+  // state is what reply-pr saw when it last fetched, so a pull request merged
+  // after that fetch stays listed until a run fetches it again.
+  function isDone(state) {
+    return state === "MERGED" || state === "CLOSED";
+  }
+
+  function stateBadge(state) {
+    if (!isDone(state)) return null;
+    return h("span", { class: `badge ${state === "MERGED" ? "completed" : "cancelled"}`, style: { marginLeft: "8px" } }, state.toLowerCase());
+  }
+
+  function reviewCard(r) {
+    return h("div", { class: "item" },
+      h("div", {}, h("b", {}, r.title || "untitled pull request"), stateBadge(r.state)),
       h("div", { class: "meta" },
         `${r.author || "unknown author"}${r.base ? ` → ${r.base}` : ""} · ${r.diff_lines} diff lines · ${r.has_review ? "review written" : "no review yet"}`),
+      r.url ? h("div", { class: "meta" }, h("a", { href: r.url, target: "_blank", rel: "noreferrer" }, "Open on GitHub")) : null,
       r.has_review ? artifactDetails(`reviews/${r.id}/review.md`, "review") : null,
       artifactDetails(`reviews/${r.id}/diff.patch`, "diff"),
-    )) : h("div", { class: "empty" }, "No pull request reviewed yet."));
+      askButton(r),
+    );
+  }
 
-    mount(replies, a.replies.length ? a.replies.map((r) => h("div", { class: "item" },
-      h("div", {}, h("b", {}, r.title || "untitled pull request")),
+  // foldedList keeps the pull requests that still need attention visible and
+  // puts the merged and closed ones behind one button.
+  function foldedList(items, card, emptyText, keys) {
+    const active = items.filter((x) => !isDone(x.state));
+    const done = items.filter((x) => isDone(x.state));
+    return [
+      active.length
+        ? cardList(active, state[keys.open], () => { state[keys.open] = !state[keys.open]; renderArtifacts(); }, card)
+        : h("div", { class: "empty" }, items.length ? "Every pull request here is merged or closed." : emptyText),
+      done.length
+        ? h("button", {
+          class: "btn ghost sm",
+          onclick: () => { state[keys.done] = !state[keys.done]; renderArtifacts(); },
+        }, state[keys.done] ? "Hide merged and closed" : `Show ${done.length} merged or closed`)
+        : null,
+      state[keys.done] ? done.map(card) : null,
+    ];
+  }
+
+  function replyCard(r) {
+    return h("div", { class: "item" },
+      h("div", {}, h("b", {}, r.title || "untitled pull request"), stateBadge(r.state)),
       h("div", { class: "meta" },
         `${r.author || "unknown author"}${r.branch ? ` on ${r.branch}` : ""} · ${r.comments} comment${r.comments === 1 ? "" : "s"}`,
         r.pushed ? ` · pushed ${r.pushed.slice(0, 8)}` : "",
@@ -475,12 +488,46 @@ export function mountActivity(el) {
       r.url ? h("div", { class: "meta" }, h("a", { href: r.url, target: "_blank", rel: "noreferrer" }, "Open on GitHub")) : null,
       r.has_reply ? artifactDetails(`replies/${r.id}/reply.md`, "reply") : null,
       artifactDetails(`replies/${r.id}/diff.patch`, "diff"),
-    )) : h("div", { class: "empty" }, "No reply drafted yet."));
+      askButton(r),
+    );
+  }
+
+  // cardList shows the newest few cards and folds the rest behind a button:
+  // the pull request lists grow without bound and would push History off screen.
+  function cardList(items, open, toggle, render) {
+    const shown = open ? items : items.slice(0, PR_LIMIT);
+    const rest = items.length - shown.length;
+    return [
+      ...shown.map(render),
+      items.length > PR_LIMIT
+        ? h("button", { class: "btn ghost sm", onclick: toggle },
+          rest > 0 ? `Show ${rest} more` : "Show fewer")
+        : null,
+    ];
+  }
+
+  function renderArtifacts() {
+    const a = state.artifacts;
+    mount(reviews, foldedList(a.reviews, reviewCard, "No pull request reviewed yet.", { open: "reviewsOpen", done: "reviewsDone" }));
+    mount(replies, foldedList(a.replies, replyCard, "No reply drafted yet.", { open: "repliesOpen", done: "repliesDone" }));
 
     mount(seen, a.seen.length
       ? h("div", { class: "chips" }, a.seen.slice().reverse().slice(0, 200).map((s) =>
         h("span", { class: "chip" }, `${s.repo} `, h("b", {}, `#${s.pr}`))))
       : h("div", { class: "empty" }, "The watcher has not marked anything as seen."));
+  }
+
+  // askButton opens the conversation for this pull request. The repository is
+  // unknown for artifacts written before workflows/ review-pr started recording
+  // it, so those cards get no button instead of a wrong one.
+  function askButton(item) {
+    if (!item.repo || !item.pr) return null;
+    return h("div", { class: "meta" },
+      h("button", {
+        class: "btn sm",
+        title: `Ask the agent about ${item.repo}#${item.pr}`,
+        onclick: () => openAskModal({ repo: item.repo, pr: item.pr, title: item.title }),
+      }, "Ask"));
   }
 
   function artifactDetails(path, label) {

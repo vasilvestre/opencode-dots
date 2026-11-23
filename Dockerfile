@@ -2,11 +2,11 @@
 
 # awf v0.11.10 cannot preflight opencode v2: it runs `opencode auth list`
 # without --format json and expects an "N credentials" footer that v2 dropped.
-# Build from the commit that parses the JSON form instead.
+# v0.12.0 parses the JSON form and records the cost of every agent step.
 FROM golang:1.24-bookworm AS awf-build
 # The module requires go 1.26; the official image pins GOTOOLCHAIN=local.
 ENV GOTOOLCHAIN=auto
-ARG AWF_REF=d49c6b69f2e4bddc20d2eb2358f79672d4860520
+ARG AWF_REF=v0.12.0
 RUN CGO_ENABLED=0 go install github.com/awf-project/cli/cmd/awf@${AWF_REF}
 
 FROM debian:stable-slim

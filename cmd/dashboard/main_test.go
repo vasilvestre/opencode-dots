@@ -2,15 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The page joins a history row to a log on workflow plus start second, so the
@@ -233,66 +230,77 @@ func TestTranscriptFrame(t *testing.T) {
 }
 
 // Prices come from opencode's own database, read through the sqlite3 binary.
-func TestQueryCost(t *testing.T) {
-	if _, err := exec.LookPath("sqlite3"); err != nil {
-		t.Skip("sqlite3 not installed")
-	}
+
+func TestRunCost(t *testing.T) {
 	dir := t.TempDir()
-	db := filepath.Join(dir, "opencode.db")
-	now := time.Now()
-	sql := `create table session_v2 (id text, directory text, parent_id text, cost real,
-		tokens_input integer, tokens_output integer, tokens_cache_read integer,
-		time_created integer, time_updated integer);
-		insert into session_v2 values
-		('a','` + dir + `',null,0.5,100,10,1000,` + fmt.Sprint(now.UnixMilli()) + `,` + fmt.Sprint(now.UnixMilli()) + `),
-		('b','` + dir + `/child',null,0.25,50,5,0,` + fmt.Sprint(now.UnixMilli()) + `,` + fmt.Sprint(now.UnixMilli()) + `),
-		('c','/elsewhere',null,9,1,1,0,` + fmt.Sprint(now.UnixMilli()) + `,` + fmt.Sprint(now.UnixMilli()) + `);`
-	if out, err := exec.Command("sqlite3", db, sql).CombinedOutput(); err != nil {
-		t.Fatalf("creating the database: %v: %s", err, out)
+	logs := filepath.Join(dir, "state", "logs")
+	transcripts := filepath.Join(dir, "transcripts")
+	for _, d := range []string{logs, transcripts} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := "abc12345-0000-0000-0000-000000000000"
+	write := func(path, body string) {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	step := func(usd string) string {
+		return `{"seq":4,"type":"step.completed","payload":{"name":"say","kind":"agent","cost_usd":` + usd + `}}` + "\n"
 	}
 
-	d := &dash{state: dir}
-	got, err := d.queryCost(db, now.Add(-time.Hour), now.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("queryCost: %v", err)
+	transcript := filepath.Join(transcripts, id+".jsonl")
+	write(transcript, step("0.0025")+step("0.0010"))
+
+	d := &dash{state: filepath.Join(dir, "state"), transcripts: transcripts, costs: map[string]costMemo{}}
+	usd, steps := d.runCost(id)
+	if steps != 2 || usd < 0.0034 || usd > 0.0036 {
+		t.Fatalf("runCost = %v over %d steps", usd, steps)
 	}
-	if got.Cost != 0.75 || got.Sessions != 2 || got.Input != 150 {
-		t.Fatalf("queryCost returned %+v, want the two sessions under the state directory", got)
+
+	write(filepath.Join(logs, id+".jsonl"), step("0.5"))
+	if usd, steps = d.runCost(id); steps != 2 {
+		t.Fatalf("transcript should win, got %d steps", steps)
+	}
+
+	if err := os.Remove(transcript); err != nil {
+		t.Fatal(err)
+	}
+	if usd, steps = d.runCost(id); steps != 1 || usd != 0.5 {
+		t.Fatalf("fallback to the recorder = %v over %d steps", usd, steps)
+	}
+
+	if usd, steps = d.runCost("ffffffff-0000-0000-0000-000000000000"); usd != 0 || steps != 0 {
+		t.Fatalf("missing run = %v over %d steps", usd, steps)
 	}
 }
 
-func TestReplayInputs(t *testing.T) {
-	reply := `1 fetch step.started (running)
-6 - message.user
-   You answer a review comment on my pull request AlteredParadox/pmss-fleet-manager#235.
-   Read /state/replies/pr235/pr.json`
-	got := replayInputs(reply)
-	if got["repo"] != "AlteredParadox/pmss-fleet-manager" || got["pr"] != "235" {
-		t.Fatalf("reply-pr inputs = %v", got)
+func TestParseSuggest(t *testing.T) {
+	in := "Looks mergeable once the checks pass.\n\n" +
+		"SUGGEST: review-pr repo=awf-project/cli pr=447\n" +
+		"SUGGEST: reply-pr repo=\"awf-project/cli\" pr=447\n" +
+		"SUGGEST: ../evil repo=x\n"
+	text, got := parseSuggest(in)
+	if strings.Contains(text, "SUGGEST") {
+		t.Fatalf("suggestion lines left in the text: %q", text)
 	}
-
-	review := `6 - message.user
-   You review pull request vasilvestre/opencode-dots#12.
-   Read /state/reviews/pr12-9f8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b/meta.json`
-	got = replayInputs(review)
-	if got["sha"] != "9f8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b" {
-		t.Fatalf("review-pr sha = %v", got)
+	if !strings.Contains(text, "Looks mergeable") {
+		t.Fatalf("text truncated: %q", text)
 	}
-
-	issue := "You fix one reported defect in awf-project/cli, issue #42."
-	got = replayInputs(issue)
-	if got["repo"] != "awf-project/cli" || got["issue"] != "42" {
-		t.Fatalf("fix-issue inputs = %v", got)
+	if len(got) != 2 {
+		t.Fatalf("got %d suggestions, want 2 (the path-like name is refused): %+v", len(got), got)
 	}
-
-	escaped := `"text":"You answer a review comment on my pull request\nawf-project/cli#447.\nRead"`
-	got = replayInputs(escaped)
-	if got["repo"] != "awf-project/cli" || got["pr"] != "447" {
-		t.Fatalf("escaped prompt inputs = %v", got)
+	if got[0].Workflow != "review-pr" || got[0].Inputs["pr"] != "447" || got[0].Inputs["repo"] != "awf-project/cli" {
+		t.Fatalf("first suggestion = %+v", got[0])
 	}
-
-	if n := len(replayInputs("nothing to see")); n != 0 {
-		t.Fatalf("plain text produced %d inputs", n)
+	if got[1].Inputs["repo"] != "awf-project/cli" {
+		t.Fatalf("quoted value = %+v", got[1].Inputs)
+	}
+	// A plain answer yields no suggestion and keeps its text intact.
+	plain, none := parseSuggest("No.\n")
+	if plain != "No." || len(none) != 0 {
+		t.Fatalf("plain answer = %q %+v", plain, none)
 	}
 }
 
