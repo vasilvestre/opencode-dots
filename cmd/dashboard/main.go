@@ -142,6 +142,7 @@ func main() {
 	mux.HandleFunc("/api/log", d.log)
 	mux.HandleFunc("/api/stream", d.stream)
 	mux.HandleFunc("/api/cost", d.cost)
+	mux.HandleFunc("/api/usage", d.usage)
 	mux.HandleFunc("/api/logs", d.logs)
 	mux.HandleFunc("/api/repos", d.repos)
 	mux.HandleFunc("/api/repos/names", d.repoNames)
@@ -417,6 +418,102 @@ type runCost struct {
 	Available bool    `json:"available"`
 	Cost      float64 `json:"cost"`
 	Steps     int     `json:"steps"`
+}
+
+// usageOne is one pull request, or one repository when the run names no pull
+// request, with the runs that touched it and what each workflow spent.
+type usageOne struct {
+	Key       string      `json:"key"`
+	Repo      string      `json:"repo"`
+	PR        string      `json:"pr,omitempty"`
+	Issue     string      `json:"issue,omitempty"`
+	Cost      float64     `json:"cost"`
+	Runs      int         `json:"runs"`
+	Unpriced  int         `json:"unpriced"`
+	Workflows []usageFlow `json:"workflows"`
+}
+
+type usageFlow struct {
+	Workflow string  `json:"workflow"`
+	Cost     float64 `json:"cost"`
+	Runs     int     `json:"runs"`
+}
+
+// usage adds up the price of every recorded run, grouped by pull request or
+// issue. The grouping comes from the run log, like replay: the inputs are not
+// stored anywhere else. Only runs with a log on disk are counted, so the totals
+// cover what the recorder kept.
+func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
+	type group struct {
+		one  usageOne
+		flow map[string]*usageFlow
+	}
+	groups := map[string]*group{}
+	var total float64
+	var runs, unpriced int
+
+	seen := map[string]bool{}
+	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
+		var e logIndex
+		if json.Unmarshal([]byte(line), &e) != nil || e.ID == "" || seen[e.ID] {
+			continue
+		}
+		seen[e.ID] = true
+		in := replayInputs(d.runText(e.ID))
+		repo, pr, issue := in["repo"], in["pr"], in["issue"]
+		if pr == "" && issue != "" {
+			pr = "issue " + issue
+		}
+		key := repo
+		if repo != "" && pr != "" {
+			key = repo + "#" + pr
+		}
+		if key == "" {
+			key = "(no pull request)"
+		}
+		g, ok := groups[key]
+		if !ok {
+			g = &group{one: usageOne{Key: key, Repo: repo, PR: pr, Issue: issue}, flow: map[string]*usageFlow{}}
+			groups[key] = g
+		}
+		usd, _ := d.runCost(e.ID)
+		g.one.Runs++
+		runs++
+		g.one.Cost += usd
+		total += usd
+		if usd == 0 {
+			g.one.Unpriced++
+			unpriced++
+		}
+		f, ok := g.flow[e.WorkflowName]
+		if !ok {
+			f = &usageFlow{Workflow: e.WorkflowName}
+			g.flow[e.WorkflowName] = f
+		}
+		f.Runs++
+		f.Cost += usd
+	}
+
+	out := []usageOne{}
+	for _, g := range groups {
+		for _, f := range g.flow {
+			g.one.Workflows = append(g.one.Workflows, *f)
+		}
+		sort.Slice(g.one.Workflows, func(i, j int) bool { return g.one.Workflows[i].Cost > g.one.Workflows[j].Cost })
+		out = append(out, g.one)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Cost != out[j].Cost {
+			return out[i].Cost > out[j].Cost
+		}
+		return out[i].Key < out[j].Key
+	})
+	writeJSON(w, map[string]any{
+		"total":    total,
+		"runs":     runs,
+		"unpriced": unpriced,
+		"groups":   out,
+	})
 }
 
 // costMemo keeps the last answer for one run file, keyed by its size and

@@ -14,6 +14,7 @@ for local config files. One Go file, `main.go`, package `main`. The frontend is
 | `/api/log?id=` | `state/logs/<id>.jsonl` |
 | `/api/cost?id=&from=&to=` | what opencode charged for one run |
 | `/api/costs?from=&to=` | every opencode session in a window, for the history table |
+| `/api/usage` | `state/logs/index.jsonl` plus each run's log: what each pull request cost and which workflow spent it |
 | `/api/stream?id=` | tails the run: awf's transcript when present, else `state/logs/<id>.jsonl` |
 | `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run |
 | `/api/repos` | `awf-gh.yaml`, the seen list, and `repos.map` for the Tower check |
@@ -96,6 +97,10 @@ counted once.
   half the events from it. `/api/stream` tails the recorded file instead.
 - awf v0.12.0 records what each agent step cost (`cost_usd`) in the run log, so
   `/api/cost` sums that over the transcript, falling back to the recorder file.
+  `/api/usage` adds it up per pull request, taking the pull request from
+  `replayInputs` over the same log, so a run whose prompt names no pull request
+  counts under "Unattributed runs". That grouping is a guess from the prompt
+  text: it never reads GitHub.
   The sum is memoised by file size and modification time, because the page asks
   on every refresh. `/api/logs` carries the same number per row, so the history
   table needs no second request. A run from an older awf has no price.

@@ -7,6 +7,7 @@ import { mountActivity } from "./views/activity.js";
 import { mountWorkflows } from "./views/workflows.js";
 import { mountConfig } from "./views/config.js";
 import { mountRepos } from "./views/repos.js";
+import { mountCosts } from "./views/costs.js";
 import { mountMemory } from "./views/memory.js";
 
 const VIEWS = {
@@ -14,6 +15,7 @@ const VIEWS = {
   workflows: { mount: (el, arg) => mountWorkflows(el, arg), title: "Workflows" },
   config: { mount: (el, arg) => mountConfig(el, arg), title: "Config" },
   repos: { mount: (el) => mountRepos(el), title: "Repos" },
+  costs: { mount: (el) => mountCosts(el), title: "Cost" },
   memory: { mount: (el) => mountMemory(el), title: "Memory" },
 };
 
@@ -99,8 +101,8 @@ document.addEventListener("keydown", (ev) => {
       ),
     });
   }
-  if (!typing && /^[1-5]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-    const view = ["activity", "workflows", "config", "repos", "memory"][Number(ev.key) - 1];
+  if (!typing && /^[1-6]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    const view = ["activity", "workflows", "config", "repos", "costs", "memory"][Number(ev.key) - 1];
     location.hash = `#${view}`;
   }
 });

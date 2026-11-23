@@ -358,3 +358,60 @@ func TestReposTowerWarning(t *testing.T) {
 		t.Fatalf("tower_ignore = %q with tower disabled, want none", got)
 	}
 }
+
+func TestUsageGroupsByPullRequest(t *testing.T) {
+	dir := t.TempDir()
+	d := &dash{state: dir, awf: "http://127.0.0.1:1", costs: map[string]costMemo{}}
+	if err := os.MkdirAll(filepath.Join(dir, "logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runs := []struct{ id, workflow, prompt, cost string }{
+		{"aaaaaaa1", "review-pr", "Review awf-project/cli#447 now", "0.01"},
+		{"aaaaaaa2", "reply-pr", "Answer awf-project/cli#447 now", ""},
+		{"aaaaaaa3", "review-pr", "Review other/repo#7 now", "0.02"},
+	}
+	var index strings.Builder
+	for _, r := range runs {
+		prompt := `{"kind":"message.user","text":"` + r.prompt + `"}`
+		cost := ""
+		if r.cost != "" {
+			cost = `
+{"kind":"agent","cost_usd":` + r.cost + `}`
+		}
+		body := "{\"seq\":1}\n" + prompt + cost + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "logs", r.id+".jsonl"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		index.WriteString(`{"execution_id":"` + r.id + `","workflow_name":"` + r.workflow + `","started_at":"2026-11-23T10:00:00Z"}` + "\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "logs", "index.jsonl"), []byte(index.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	d.usage(rec, httptest.NewRequest("GET", "/api/usage", nil))
+
+	var got struct {
+		Total    float64    `json:"total"`
+		Runs     int        `json:"runs"`
+		Unpriced int        `json:"unpriced"`
+		Groups   []usageOne `json:"groups"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if got.Runs != 3 || got.Unpriced != 1 || got.Total != 0.03 {
+		t.Fatalf("runs=%d unpriced=%d total=%v", got.Runs, got.Unpriced, got.Total)
+	}
+	if len(got.Groups) != 2 {
+		t.Fatalf("groups=%d, want 2: %s", len(got.Groups), rec.Body.String())
+	}
+	top := got.Groups[0]
+	if top.Key != "other/repo#7" || top.Cost != 0.02 {
+		t.Fatalf("top group = %+v", top)
+	}
+	cli := got.Groups[1]
+	if cli.Key != "awf-project/cli#447" || cli.Runs != 2 || len(cli.Workflows) != 2 {
+		t.Fatalf("cli group = %+v", cli)
+	}
+}

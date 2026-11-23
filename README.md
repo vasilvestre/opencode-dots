@@ -266,6 +266,9 @@ http://127.0.0.1:8099. It shows:
   where it goes on success, on failure and on a branch, plus an editor that
   saves, validates and runs the file without leaving the page
 - a Config tab: `awf-gh.yaml`, `tend.list` and `repos.map` in the same editor
+- a Cost tab: every pull request, issue and repository the runs touched, the
+  total spent on it and which workflow spent what. The grouping comes from the
+  run logs, so it covers the runs the dashboard recorded
 - a Memory tab: per repository, the rules in `state/tend/<owner>/<repo>/lessons.md`
   and the facts in `memory.md`, with the date the last pass covered
 - a Repos tab: every repository in `awf-gh.yaml`, the workflows that watch it,
