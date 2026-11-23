@@ -47,7 +47,8 @@
 
 * { box-sizing: border-box; }
 
-html, body { height: 100%; }
+/* No height on html or body: a fixed 100% makes body its own scroll container
+   in Safari, which breaks the sticky header and the end of a long page. */
 
 body {
   margin: 0;
@@ -109,9 +110,15 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; gap: 20px;
   padding: 0 20px; height: 56px;
+  border-bottom: 1px solid var(--border);
+  isolation: isolate;
+}
+/* The blur sits on a pseudo-element: a backdrop-filter on the sticky element
+   itself stops it sticking in some Safari versions. */
+.top::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
 }
 
 .brand {
