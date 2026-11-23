@@ -30,6 +30,30 @@ states:
       repo={{.inputs.repo}}
       iss={{.inputs.issue}}
       d=${STATE_DIR:-/state}/fix/$repo/issue-$iss
+      mkdir -p "$(dirname "$d")"
+
+      # One run at a time per issue. The fetch below recreates the checkout, so
+      # a second run starting while the first is still working wiped the tree
+      # the first run was about to read, and its push found nothing to send.
+      # A lock held longer than a whole run is stale: take it over.
+      lock="$d.lock"
+      waited=0
+      while [ -d "$lock" ]; do
+        age=$(( $(date +%s) - $(stat -c %Y "$lock") ))
+        if [ "$age" -gt 1200 ]; then
+          echo "taking over a stale lock held for ${age}s"
+          rm -rf "$lock"
+          break
+        fi
+        if [ "$waited" -ge 600 ]; then
+          echo "lock still held after ${waited}s, giving up on this run"
+          exit 1
+        fi
+        sleep 5
+        waited=$((waited + 5))
+      done
+      mkdir "$lock"
+
       rm -rf "$d"
       mkdir -p "$d"
       gh issue view "$iss" --repo "$repo" \
@@ -129,8 +153,14 @@ states:
       iss={{.inputs.issue}}
       d=${STATE_DIR:-/state}/fix/$repo/issue-$iss
       work="$d/work"
+      # Say what was compared: a push step that finds nothing must be readable
+      # after the fact, not a silent `completed`.
+      head=$(git -C "$work" rev-parse --short HEAD)
+      changed=$(git -C "$work" status --porcelain | wc -l)
+      echo "push: work=$work head=$head changed=$changed" | tee "$d/push.log"
+
       if [ -z "$(git -C "$work" status --porcelain)" ]; then
-        echo "no code change for issue #$iss"
+        echo "no code change for issue #$iss" | tee -a "$d/push.log"
         exit 0
       fi
       if [ ! -s "$d/fix.md" ]; then
@@ -164,6 +194,7 @@ states:
       repo={{.inputs.repo}}
       iss={{.inputs.issue}}
       d=${STATE_DIR:-/state}/fix/$repo/issue-$iss
+      rm -rf "$d.lock"
       pr=$(cat "$d/pr-url" 2>/dev/null || true)
       echo "issue #$iss: ${pr:-no pull request}"
       # A run that declines must still say so where I read the issue: the
