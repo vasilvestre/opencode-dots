@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Create and keep ADR/ consistent. `check` is the only guard: numbering, the
+# index row, and the supersede links must agree.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+dir=ADR
+readme=$dir/README.md
+
+die() { echo "adr: $*" >&2; exit 1; }
+
+new() {
+  local slug=${1:-}
+  [ -n "$slug" ] || die "usage: bin/adr new <slug>"
+  [[ $slug =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die "slug: lowercase words joined by -"
+
+  local last n file title
+  last=$(find "$dir" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.md' | sort | tail -1)
+  if [ -n "$last" ]; then
+    n=$((10#$(basename "$last" | cut -c1-4) + 1))
+  else
+    n=1
+  fi
+  n=$(printf '%04d' "$n")
+  file=$dir/$n-$slug.md
+  [ -e "$file" ] && die "$file exists"
+  title=${slug//-/ }
+
+  sed -e "s/^# NNNN\. .*/# $n. $title/" -e "s/^- Date: DATE/- Date: $(date +%F)/" \
+    "$dir/template.md" > "$file"
+
+  local row
+  row="| [$n]($n-$slug.md) | $title | proposed | $(date +%F) |"
+  awk -v row="$row" '
+    /^\| \[/ { print; seen = 1; next }
+    seen && !done { print row; done = 1 }
+    { print }
+    END { if (seen && !done) print row }
+  ' "$readme" > "$readme.tmp"
+  mv "$readme.tmp" "$readme"
+  echo "$file"
+}
+
+check() {
+  local files n prev=0 base status link
+  files=$(find "$dir" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.md' | sort)
+  [ -n "$files" ] || die "no records in $dir"
+
+  for f in $files; do
+    base=$(basename "$f")
+    n=${base%%-*}
+
+    [ $((10#$n)) -eq $((prev + 1)) ] || die "$base: expected number $(printf '%04d' $((prev + 1)))"
+    prev=$((10#$n))
+
+    grep -q "^# $n\. " "$f" || die "$base: title must start with '# $n. '"
+    grep -q "| \[$n\]($base)" "$readme" || die "$base: no row in $readme"
+
+    status=$(sed -n 's/^- Status: //p' "$f")
+    [[ $status =~ ^(proposed|accepted|rejected|deprecated)$ ]] ||
+      [[ $status =~ ^superseded\ by\ [0-9]{4}$ ]] ||
+      die "$base: status '$status'"
+
+    link=$(sed -n 's/^- Superseded by: //p' "$f")
+    if [[ $status == superseded\ by\ * ]]; then
+      [ "superseded by $link" = "$status" ] ||
+        die "$base: status says '$status', header says '$link'"
+      local target
+      target=$(find "$dir" -maxdepth 1 -name "$link-*.md")
+      [ -n "$target" ] || die "$base: superseded by $link, no such record"
+      grep -q "^- Supersedes: $n$" "$target" ||
+        die "$base: $link does not list '$n' in Supersedes"
+    fi
+  done
+
+  echo "adr: ${prev} record(s) ok"
+}
+
+case ${1:-check} in
+  new) shift; new "$@" ;;
+  check) check ;;
+  *) die "usage: bin/adr [new <slug>|check]" ;;
+esac

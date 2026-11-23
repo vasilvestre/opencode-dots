@@ -110,6 +110,18 @@ An issue carrying the `dot` label becomes one pull request, through
 `docs/workflows.md` documents each one: its trigger, its inputs, its steps, and
 a minimal skeleton to write your own.
 
+## Decisions
+
+`ADR/` keeps one record per decision that shaped the stack: what we chose, why,
+and what it costs. [`ADR/README.md`](ADR/README.md) indexes the records and
+states when to write one. An accepted record is never edited; a new one
+supersedes it, and both files name the other.
+
+```bash
+bin/adr new <slug>   # next free number, from ADR/template.md
+make adr             # numbering, index rows and supersede links agree
+```
+
 ## Where the clones live
 
 The review and fix workflows never touch your own checkouts. They fetch the

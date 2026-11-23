@@ -7,5 +7,6 @@ compose.override.yaml
 awf-gh.yaml
 repos.map
 tend.list
+!bin/adr
 !bin/configure
 !bin/tend

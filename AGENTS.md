@@ -14,8 +14,9 @@ the workflows.
 ## STRUCTURE
 
 ```
+ADR/           decision records: index in README.md, one file per decision
 agent/         opencode config mounted into the container: AGENTS.md, agents/assistant.md
-bin/           configure (mode chooser) and tend (daily dispatch); binaries are gitignored
+bin/           configure (mode chooser), tend (daily dispatch), adr (records)
 cmd/dashboard/ Go server for the activity page
 docs/          workflow reference, memory-design rationale
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
@@ -29,6 +30,7 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Task | Location | Notes |
 | --- | --- | --- |
 | Add or change a workflow | `workflows/*.yaml` | see `workflows/AGENTS.md` |
+| Record or change a decision | `ADR/` | `ADR/README.md` holds the index and rules |
 | Understand a workflow's steps | `docs/workflows.md` | trigger, inputs, steps, YAML skeleton |
 | Why memory is split in three | `docs/memory.md` | measurements and citations |
 | Change the dashboard | `cmd/dashboard/main.go` | frontend in `ui/index.html` |
@@ -50,6 +52,8 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
   `WORK_ROOT` and `repos.map`, because a local opencode server resolves host
   paths.
 - Nothing binds a public interface. Ports stay on `127.0.0.1`.
+- An accepted ADR is never rewritten. A new decision supersedes it, and both
+  files name the other.
 
 ## ANTI-PATTERNS
 
@@ -68,7 +72,8 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 make configure   # asks local or image per piece; writes .env, compose.override.yaml
 make build       # compiles awf-gh from AWF_GH_SRC into bin/
 make image       # builds opencode-dots:latest (runs build first)
-make validate    # awf validate on each workflows/*.yaml (syntax only)
+make adr         # bin/adr check: numbering, index and supersede links
+make validate    # adr + awf validate on each workflows/*.yaml (syntax only)
 make check       # image + validate + version smoke test of every binary
 make up          # docker compose up -d
 make logs
