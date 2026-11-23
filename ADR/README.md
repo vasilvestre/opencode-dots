@@ -18,6 +18,7 @@ your mind by writing a new one that supersedes it.
 | [0008](0008-run-cost-comes-from-awf.md) | Run cost comes from awf | accepted | 2026-11-23 |
 | [0009](0009-review-pr-merges-fix-pulls.md) | review-pr merges its own fix-issue pull requests | accepted | 2026-11-23 |
 | [0010](0010-review-fix-loop.md) | review-pr closes its own loop: fix, push, re-review | accepted | 2026-11-23 |
+| [0011](0011-sync-managed-clones.md) | sync managed clones | accepted | 2026-11-23 |
 
 ## When to write one
 

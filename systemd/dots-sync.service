@@ -1,0 +1,8 @@
+[Unit]
+Description=dots-sync: fast-forward managed clones onto origin/main
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+ExecStart=%h/projects/perso/opencode-dots/bin/sync
+TimeoutStartSec=300

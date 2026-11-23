@@ -1,0 +1,11 @@
+# Checkouts bin/sync fast-forwards onto origin/main.
+# One line per repository, slug and absolute host path, no quotes:
+#
+#   owner/repo=/home/you/projects/oss/checkout
+#
+# A checkout is updated only when it is clean, on main, and not mid-merge or
+# mid-rebase. Anything else is skipped and reported. Keep this file out of git:
+# copy it to sync.map, which holds your real paths.
+
+# awf-project/cli=/home/you/projects/oss/cli
+# vasilvestre/opencode-dots=/home/you/projects/perso/opencode-dots

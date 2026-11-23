@@ -52,6 +52,9 @@ logs:
 awf-gh: .env ## one polling pass, for testing by hand
 	$(COMPOSE) --profile jobs run --rm awf-gh
 
+sync: ## fast-forward the managed clones onto origin/main
+	./bin/sync
+
 dashboard: ## serve the activity page on 127.0.0.1:8099
 	go build -o bin/dashboard ./cmd/dashboard
 	./bin/dashboard

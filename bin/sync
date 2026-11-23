@@ -1,0 +1,44 @@
+#!/bin/sh
+# Fast-forward the local clones of the managed repos onto origin/main.
+# It only touches a repo that is clean, on main, and not mid-merge or mid-rebase,
+# so a working tree with your work is never modified. The merge is --ff-only:
+# no history rewrite, and a divergence is left alone. Pass --dry-run to report
+# what would change without merging.
+set -eu
+cd "$(dirname "$0")/.."
+root=$(pwd)
+map=${SYNC_MAP:-$root/sync.map}
+[ -f "$map" ] || { echo "sync: no $map"; exit 0; }
+
+dry=0
+if [ "${1:-}" = "--dry-run" ]; then dry=1; fi
+
+# One run at a time; a second timer tick exits quietly.
+mkdir -p "$root/state"
+exec 9>"$root/state/sync.lock"
+flock -n 9 || { echo "sync: already running"; exit 0; }
+
+while IFS='=' read -r slug path; do
+  case $slug in ''|\#*) continue ;; esac
+  [ -d "$path/.git" ] || continue
+  name=${slug#*/}
+  if [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
+    echo "skip $name: dirty"; continue
+  fi
+  if [ "$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || echo DETACHED)" != main ]; then
+    echo "skip $name: not on main"; continue
+  fi
+  if [ -e "$path/.git/index.lock" ] || [ -e "$path/.git/MERGE_HEAD" ] \
+     || [ -d "$path/.git/rebase-merge" ] || [ -d "$path/.git/rebase-apply" ]; then
+    echo "skip $name: busy"; continue
+  fi
+  git -C "$path" fetch -q origin main 2>/dev/null || { echo "skip $name: fetch failed"; continue; }
+  behind=$(git -C "$path" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+  if [ "$behind" = 0 ]; then echo "ok $name"; continue; fi
+  if [ "$dry" = 1 ]; then echo "would update $name (+$behind)"; continue; fi
+  if git -C "$path" merge --ff-only -q origin/main 2>/dev/null; then
+    echo "updated $name (+$behind)"
+  else
+    echo "skip $name: divergent"
+  fi
+done < "$map"
