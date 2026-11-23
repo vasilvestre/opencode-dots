@@ -101,9 +101,10 @@ states:
          `Closes`, the next step appends it.
       4. Always write
          {{.env.STATE_DIR}}/fix/{{.inputs.repo}}/issue-{{.inputs.issue}}/answer.md:
-         the paragraph you answer with, even when you change nothing. With no
-         pull request it is posted as one comment on the issue, so the reason
-         stays on the record.
+         one paragraph, with the line that proves the defect, the fix you made
+         and the check you ran, even when you change nothing. With no pull
+         request it is posted as one comment on the issue, so the reason stays
+         on the record.
 
       Hard rules:
 
@@ -113,13 +114,6 @@ states:
       - Never touch files outside the checkout, except fix.md and answer.md.
       - A fix that needs more than about forty lines, or a decision I would have
         to make, gets no fix.md: describe the choice in your answer instead.
-
-      Answer in one short paragraph: the line that proves the defect, the fix
-      you made, and the check you ran. Write that same paragraph, and nothing
-      else, to
-      {{.env.STATE_DIR}}/fix/{{.inputs.repo}}/issue-{{.inputs.issue}}/answer.md:
-      when you change no code, it is the only thing I will see, and it is what
-      gets posted on the issue.
     timeout: 1500
     on_success: push
     on_failure: error
