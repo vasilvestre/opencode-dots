@@ -14,6 +14,12 @@ on the host: one image holds `opencode`, `awf`, `gh` and `awf-gh`.
 | `awf` | uses an `awf serve` that you start on the host | starts `awf serve` in a container |
 | `gh` | mounts the host `gh` binary, no version drift | uses the `gh` baked into the image |
 
+Docker mode is experimental and not encouraged. `local` is the supported path:
+the image builds and the binaries answer, but nothing runs it on a schedule,
+tower memory is not available in a container, and the provider credentials path
+is untested. Start with `local` and stay there unless you are changing the
+image.
+
 The gh token always comes from `.env`: a container cannot read your keyring.
 
 `opencode=local` reuses your running server, so the awf container joins the

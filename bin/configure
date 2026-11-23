@@ -75,6 +75,11 @@ if [ "$MODE_AWF" = local ]; then
   MODE_GH=local
 fi
 
+# Say it once, where the choice is made.
+if [ "$MODE_OPENCODE" = docker ] || [ "$MODE_AWF" = docker ] || [ "$MODE_GH" = docker ]; then
+  echo "note: docker mode is experimental and not encouraged; local is the supported path" >&2
+fi
+
 OPENCODE_BIN=
 OPENCODE_URL=
 if [ "$MODE_OPENCODE" = local ]; then
