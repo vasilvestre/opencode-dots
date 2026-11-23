@@ -99,13 +99,18 @@ states:
          line one is the pull request title, the rest is the body. The body
          states the symptom, the cause with `path:line`, and the fix. Do not add
          `Closes`, the next step appends it.
+      4. Always write
+         {{.env.STATE_DIR}}/fix/{{.inputs.repo}}/issue-{{.inputs.issue}}/answer.md:
+         the paragraph you answer with, even when you change nothing. With no
+         pull request it is posted as one comment on the issue, so the reason
+         stays on the record.
 
       Hard rules:
 
       - Never invent code, files or paths. Read before you edit.
       - Leave no trace of your own: no placeholder, no `MARKER`, no TODO, no
         comment that says what you changed.
-      - Never touch files outside the checkout, except fix.md.
+      - Never touch files outside the checkout, except fix.md and answer.md.
       - A fix that needs more than about forty lines, or a decision I would have
         to make, gets no fix.md: describe the choice in your answer instead.
 
@@ -174,6 +179,10 @@ states:
       d=${STATE_DIR:-/state}/fix/$repo/issue-$iss
       pr=$(cat "$d/pr-url" 2>/dev/null || true)
       echo "issue #$iss: ${pr:-no pull request}"
+      if [ -z "$pr" ] && [ -s "$d/answer.md" ]; then
+        gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
+          || echo "issue comment failed"
+      fi
       if [ -n "$pr" ] && [ -n "${DISCORD_WEBHOOK:-}" ]; then
         msg="$repo issue #$iss:
       <$pr>"
