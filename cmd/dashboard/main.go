@@ -143,6 +143,7 @@ func main() {
 	mux.HandleFunc("/api/stream", d.stream)
 	mux.HandleFunc("/api/cost", d.cost)
 	mux.HandleFunc("/api/usage", d.usage)
+	mux.HandleFunc("/api/run", d.runTimeline)
 	mux.HandleFunc("/api/logs", d.logs)
 	mux.HandleFunc("/api/repos", d.repos)
 	mux.HandleFunc("/api/repos/names", d.repoNames)
@@ -516,6 +517,103 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// runStep is one step of a run with what it cost in wall time. Agent steps
+// carry the size of the prompt they were given and of what they answered,
+// which is what tells a slow step from a step that reads too much.
+type runStep struct {
+	Name   string  `json:"name"`
+	Kind   string  `json:"kind"`
+	Status string  `json:"status"`
+	Start  string  `json:"start,omitempty"`
+	MS     int64   `json:"ms"`
+	Cost   float64 `json:"cost,omitempty"`
+	Prompt int     `json:"prompt,omitempty"`
+	Answer int     `json:"answer,omitempty"`
+	Error  string  `json:"error,omitempty"`
+}
+
+// runTimeline reads a run's transcript and reports each step with its
+// duration. awf writes the timestamps, so this is measurement, not an opinion:
+// a step that spends minutes and a step that reads a huge prompt show up as
+// numbers instead of a feeling.
+func (d *dash) runTimeline(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if !logID(id) {
+		writeJSONStatus(w, 400, map[string]string{"error": "bad id"})
+		return
+	}
+	path := d.transcriptPath(id)
+	if path == "" {
+		writeJSONStatus(w, 404, map[string]string{"error": "no transcript for this run"})
+		return
+	}
+	steps := []*runStep{}
+	index := map[string]*runStep{}
+	open := map[string]*runStep{}
+	var started time.Time
+
+	for _, line := range strings.Split(readFile(path, 8<<20), "\n") {
+		if line == "" {
+			continue
+		}
+		var e transcriptEvent
+		if json.Unmarshal([]byte(line), &e) != nil {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, e.Timestamp)
+		if err != nil {
+			continue
+		}
+		if started.IsZero() {
+			started = at
+		}
+		switch e.Type {
+		case "step.started":
+			step := &runStep{Name: e.Payload.Name, Kind: e.Payload.Kind, Start: at.UTC().Format(time.RFC3339), Status: "running"}
+			steps = append(steps, step)
+			index[e.Payload.Name] = step
+			open[e.Payload.Name] = step
+		case "step.completed", "step.failed":
+			if step, ok := open[e.Payload.Name]; ok {
+				step.Status = e.Payload.Status
+				step.Cost = e.Payload.CostUSD
+				step.Error = e.Payload.Error
+				step.MS = at.Sub(mustParse(step.Start)).Milliseconds()
+				delete(open, e.Payload.Name)
+			}
+		case "message.user", "message.assistant":
+			// The message belongs to the step that is open when it arrives.
+			n := 0
+			for _, b := range e.Payload.Blocks {
+				n += len(b.Text)
+			}
+			for _, step := range open {
+				if e.Type == "message.user" {
+					step.Prompt += n
+				} else {
+					step.Answer += n
+				}
+			}
+		}
+	}
+	var total int64
+	for _, step := range steps {
+		total += step.MS
+	}
+	writeJSON(w, map[string]any{
+		"id":       id,
+		"started":  started.UTC().Format(time.RFC3339),
+		"total_ms": total,
+		"steps":    steps,
+	})
+}
+
+// mustParse reads back the RFC3339 timestamp a step started at.
+func mustParse(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
+}
+
 // costMemo keeps the last answer for one run file, keyed by its size and
 // modification time, because the page asks again on every refresh.
 type costMemo struct {
@@ -569,13 +667,16 @@ func (d *dash) runCost(id string) (float64, int) {
 // transcriptEvent is one line of awf's per-run transcript: the same step events
 // as the SSE stream, plus the agent messages the stream omits.
 type transcriptEvent struct {
-	Seq     uint64 `json:"seq"`
-	Type    string `json:"type"`
-	Payload struct {
-		Name   string `json:"name"`
-		Status string `json:"status"`
-		Error  string `json:"error"`
-		Blocks []struct {
+	Seq       uint64 `json:"seq"`
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Payload   struct {
+		Name    string  `json:"name"`
+		Kind    string  `json:"kind"`
+		Status  string  `json:"status"`
+		Error   string  `json:"error"`
+		CostUSD float64 `json:"cost_usd"`
+		Blocks  []struct {
 			Text string `json:"text"`
 		} `json:"blocks"`
 	} `json:"payload"`

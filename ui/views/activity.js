@@ -417,12 +417,48 @@ export function mountActivity(el) {
     });
   }
 
+  // The timeline answers "why did this run take seven minutes": awf stamps
+  // every step, so the split between a slow agent step and a slow command is
+  // measured, not guessed. The raw log stays below it.
+  async function timeline(id) {
+    let t;
+    try {
+      t = await getJSON(`/api/run?id=${encodeURIComponent(id)}`);
+    } catch {
+      return null;
+    }
+    if (!t.steps?.length) return null;
+    const rows = t.steps.map((s) => h("tr", {},
+      h("td", {}, s.name),
+      h("td", { class: "muted" }, s.kind),
+      h("td", { class: "muted" }, s.error ? h("span", { class: "badge failed" }, "error") : s.status),
+      h("td", { class: "num" }, dur(s.ms)),
+      h("td", { class: "num" }, s.cost ? money(s) : "—"),
+      h("td", { class: "num muted" }, s.prompt ? `${s.prompt} → ${s.answer}` : ""),
+    ));
+    return h("div", { class: "table-wrap", style: { marginBottom: "12px" } },
+      h("table", {},
+        h("thead", {}, h("tr", {},
+          h("th", {}, "Step"), h("th", {}, "Kind"), h("th", {}, "Status"),
+          h("th", { class: "num" }, "Time"), h("th", { class: "num" }, "Cost"),
+          h("th", { class: "num", title: "prompt bytes → answer bytes" }, "Prompt"),
+        )),
+        h("tbody", {}, rows),
+      ),
+    );
+  }
+
   async function showLog(entry) {
     const pre = h("pre", { style: { maxHeight: "60vh" } }, "loading…");
+    const slot = h("div", {});
     const modal = openModal({
       title: `${entry.workflow_name} · ${when(entry.started_at)} · ${entry.logId ? entry.logId.slice(0, 8) : "no id"}`,
-      body: pre,
+      body: h("div", {}, slot, pre),
     });
+    if (entry.logId) {
+      const tl = await timeline(entry.logId);
+      if (tl) mount(slot, tl);
+    }
     try {
       const raw = await getText(`/api/stream?id=${encodeURIComponent(entry.logId)}`);
       pre.textContent = formatLog(raw) || "The log is empty.";
