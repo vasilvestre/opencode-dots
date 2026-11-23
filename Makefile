@@ -8,10 +8,13 @@ COMPOSE ?= docker compose
 # local clone is the only source.
 AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
-.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard
+.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard lint
 
 configure: ## choose local or image for opencode, awf and gh; writes .env
 	bin/configure
+
+lint: ## lint the dashboard frontend, report unused code
+	npm run --silent lint
 
 need-configure:
 	@test -f .env -a -f compose.override.yaml || { echo "not configured: run 'make configure'" >&2; exit 1; }

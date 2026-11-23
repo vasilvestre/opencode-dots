@@ -1,0 +1,11 @@
+{
+  "name": "opencode-dots",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "biome lint ui"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2"
+  }
+}

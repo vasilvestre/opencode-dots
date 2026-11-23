@@ -1,4 +1,5 @@
 bin/*
+node_modules/
 # `make dashboard` and `go build ./cmd/dashboard` write the binary here.
 /dashboard
 state/
