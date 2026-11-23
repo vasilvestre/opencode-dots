@@ -121,7 +121,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, active: map[string]bool{}, tried: map[string]bool{}, targets: map[string]map[string]string{}}
 	d.costs = map[string]costMemo{}
 	d.indexed = d.loadIndexed()
 	mux := http.NewServeMux()
@@ -177,6 +177,11 @@ type dash struct {
 	// is reused until the file changes.
 	costMu sync.Mutex
 	costs  map[string]costMemo
+
+	// replayInputs is a regexp pass over up to 4 MB of log, so the target per
+	// run is parsed once and kept: a finished log never changes.
+	targetMu sync.Mutex
+	targets  map[string]map[string]string
 }
 
 // watchRuns records the event stream of every running execution into
@@ -618,6 +623,25 @@ func replayInputs(text string) map[string]string {
 		}
 	}
 	return out
+}
+
+// target returns the target replayInputs found for a run, cached by execution.
+// A run that just started may not name its target yet, so it is parsed again
+// until it does or its log reaches the end.
+func (d *dash) target(id string) map[string]string {
+	d.targetMu.Lock()
+	t, ok := d.targets[id]
+	d.targetMu.Unlock()
+	if ok {
+		return t
+	}
+	t = replayInputs(d.runText(id))
+	if len(t) > 0 || d.recordedTerminal(id) {
+		d.targetMu.Lock()
+		d.targets[id] = t
+		d.targetMu.Unlock()
+	}
+	return t
 }
 
 var (
@@ -1183,17 +1207,22 @@ func (d *dash) noteIndex(id, workflow, started string) {
 }
 
 func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
-	// Each row carries its price so the history table needs no second request.
+	// Each row carries its price and target so the history table needs no
+	// second request.
 	type row struct {
 		logIndex
-		Cost float64 `json:"cost,omitempty"`
+		Cost  float64 `json:"cost,omitempty"`
+		Repo  string  `json:"repo,omitempty"`
+		PR    string  `json:"pr,omitempty"`
+		Issue string  `json:"issue,omitempty"`
 	}
 	out := []row{}
 	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID != "" {
 			usd, _ := d.runCost(e.ID)
-			out = append(out, row{logIndex: e, Cost: usd})
+			t := d.target(e.ID)
+			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"]})
 		}
 	}
 	writeJSON(w, out)
