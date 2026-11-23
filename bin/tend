@@ -5,6 +5,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# --dry-run spends the agent pass but files nothing, pushes nothing, and leaves
+# the cursor alone, so the next real pass replays the same window.
+dry_run=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run=true ;;
+    *) echo "unknown argument: $arg (only --dry-run is accepted)" >&2; exit 2 ;;
+  esac
+done
+
 list=${TEND_LIST:-tend.list}
 awf_api=${AWF_URL:-http://127.0.0.1:2511}
 if [ ! -f "$list" ]; then
@@ -60,11 +70,12 @@ while read -r repo auto rest; do
     fi
   fi
 
-  echo "== $repo (auto_merge=$auto)"
+  echo "== $repo (auto_merge=$auto dry_run=$dry_run)"
 
   # Dispatch through awf serve so the run lands in its history and the
   # dashboard records its log. Running `awf run` directly left no trace.
-  body=$(jq -nc --arg repo "$repo" --arg auto "$auto" '{inputs:{repo:$repo,auto_merge:$auto}}')
+  body=$(jq -nc --arg repo "$repo" --arg auto "$auto" --arg dry "$dry_run" \
+    '{inputs:{repo:$repo,auto_merge:$auto,dry_run:$dry}}')
   if ! resp=$(curl -sf -X POST "$awf_api/api/workflows/local/tend-repo/run" \
       -H 'Content-Type: application/json' -d "$body"); then
     echo "tend: cannot reach awf at $awf_api, is make up running?" >&2

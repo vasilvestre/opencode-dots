@@ -131,6 +131,21 @@ Steps:
 5. `notify` sends one digest and moves the cursor to today. A failed pass keeps
    the old cursor, so tomorrow replays the same window.
 
+### Dry run
+
+`bin/tend --dry-run` runs the whole pass and opens nothing: no issue, no push,
+no Discord message, and the cursor stays where it is, so the next real pass
+replays the same window. The pass records what it would have opened:
+
+- `would-issue.md` holds the issue title and body.
+- `would-pr.md` holds the pull request description.
+- `would-pr.diff` holds the change `patch` would have committed. The worktree
+  is reset, so the next real pass does not commit it by mistake.
+
+The dashboard shows `would-issue.md` and `would-pr.md` in the Memory view. To
+start the same pass from the dashboard, open the Run dialog on `tend-repo` and
+set `dry_run` to `true`.
+
 ### What is worth opening
 
 The pass runs again tomorrow on almost the same code, so an item it opens sits

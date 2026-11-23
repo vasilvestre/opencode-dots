@@ -11,8 +11,14 @@ inputs:
     type: string
     required: true
   - name: auto_merge
-    type: string
+    type: boolean
     required: false
+    description: merge the pull request when review-pr returns merge
+  - name: dry_run
+    type: boolean
+    required: false
+    default: "false"
+    description: show the issue and pull request it would open, without opening them
 
 states:
   initial: survey
@@ -204,8 +210,9 @@ states:
     command: |
       set -eu
       repo={{.inputs.repo}}
+      dry={{.inputs.dry_run}}
       d=${STATE_DIR:-/state}/tend/$repo
-      rm -f "$d/issues-created.txt"
+      rm -f "$d/issues-created.txt" "$d/would-issue.md"
       if [ ! -s "$d/findings.json" ]; then
         echo "no findings"
         exit 0
@@ -213,8 +220,10 @@ states:
       # One issue per pass, and only for a finding that cleared the bar. Every
       # finding that does not is recorded in raised.txt, so a later pass sees
       # the subject as already decided.
-      jq -r '.[] | select((.issue == false) or (.confidence != "high")) | "skipped\t\(.title)"' \
-        "$d/findings.json" >> "$d/raised.txt"
+      if [ "$dry" != "true" ]; then
+        jq -r '.[] | select((.issue == false) or (.confidence != "high")) | "skipped\t\(.title)"' \
+          "$d/findings.json" >> "$d/raised.txt"
+      fi
       jq -c '[.[] | select(.issue != false and .confidence == "high")] | .[0:1][]' \
         "$d/findings.json" | while IFS= read -r item; do
         title=$(printf '%s' "$item" | jq -r .title)
@@ -223,6 +232,11 @@ states:
           '.[] | select((.title | ascii_downcase) == $t)' "$d/issues.json" >/dev/null; then
           echo "already filed: $title"
           printf 'skipped\t%s\n' "$title" >> "$d/raised.txt"
+          continue
+        fi
+        if [ "$dry" = "true" ]; then
+          printf '# %s\n\n%s\n' "$title" "$body" > "$d/would-issue.md"
+          echo "would file: $title"
           continue
         fi
         url=$(gh issue create --repo "$repo" --title "$title" --body "$body" | tail -1)
@@ -238,8 +252,10 @@ states:
     command: |
       set -eu
       repo={{.inputs.repo}}
+      dry={{.inputs.dry_run}}
       d=${STATE_DIR:-/state}/tend/$repo
       work="$d/work"
+      rm -f "$d/would-pr.md" "$d/would-pr.diff"
       if [ -z "$(git -C "$work" status --porcelain)" ]; then
         echo "no code change"
         exit 0
@@ -258,6 +274,16 @@ states:
       if [ ! -s "$d/pr.md" ]; then
         echo "worktree changed without pr.md: discarding"
         git -C "$work" checkout -- .
+        exit 0
+      fi
+      if [ "$dry" = "true" ]; then
+        git -C "$work" --no-pager diff HEAD > "$d/would-pr.diff"
+        cp "$d/pr.md" "$d/would-pr.md"
+        echo "would open a pull request: $(head -1 "$d/pr.md")"
+        # Leave the worktree as it was, or the next real pass would commit
+        # the change the dry run only described.
+        git -C "$work" checkout -- .
+        git -C "$work" clean -fdq
         exit 0
       fi
       title=$(head -1 "$d/pr.md")
@@ -308,6 +334,13 @@ states:
       set -eu
       repo={{.inputs.repo}}
       d=${STATE_DIR:-/state}/tend/$repo
+      # A dry run keeps the cursor where it is: the next real pass replays the
+      # same window instead of skipping what was only described.
+      if [ "{{.inputs.dry_run}}" = "true" ]; then
+        echo "dry run for $repo: nothing filed, nothing pushed, cursor unchanged"
+        cat "$d/would-issue.md" "$d/would-pr.md" 2>/dev/null || true
+        exit 0
+      fi
       # Angle brackets stop Discord from expanding a GitHub link preview.
       issues=$(awk -F'\t' '{ printf "%s <%s>\n", $1, $2 }' "$d/issues-created.txt" 2>/dev/null || true)
       pr=$(cat "$d/pr-url" 2>/dev/null || true)
