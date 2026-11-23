@@ -64,13 +64,26 @@ Steps:
 
 1. `fetch` reads the pull request, its diff and the branch name, then adds a
    detached worktree of the head branch under `$STATE_DIR/replies/pr<N>/work`.
-2. `reply` asks the agent to answer in `reply.md` and to make the requested
-   change in the worktree.
-3. `push` commits and pushes, but only when the head repository belongs to you
+2. `guard` leaves a merged or closed pull request alone: it writes `silent` and
+   nothing else happens. On an open one it counts the rounds already answered
+   (one comment of yours that pushed a commit) and writes `stuck.md` only past
+   a high safety cap, `MAX_REPLY_ROUNDS` (default 10).
+3. `reply` asks the agent to answer in `reply.md` and to make the requested
+   change in the worktree. The agent writes `stuck.md` itself when it is blocked
+   by something it cannot do (a real environment test such as the Home Assistant
+   ingress, credentials or external access it lacks, a decision for a human) or
+   when the thread is a real ping-pong that never converges. A review still
+   making concrete progress is not a ping-pong and gets answered.
+4. `push` commits and pushes, but only when the head repository belongs to you
    and the branch is not `main` or `master`.
-4. `post` comments on the pull request, with the pushed commit when there is
+5. `post` comments on the pull request, with the pushed commit when there is
    one.
-5. `notify` posts to Discord.
+6. `notify` posts to Discord.
+
+When `stuck.md` exists, `push` and `post` do nothing and `notify` posts the
+reason with a link to the pull request, then the run stops: a human takes over.
+When `silent` exists (merged or closed pull request), every step stops without a
+comment and without a Discord message.
 
 The agent never commits and never pushes; the shell steps do that, so the
 identity and the branch guard stay outside the model.

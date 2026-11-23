@@ -51,6 +51,9 @@ services:
       # Workflows read this instead of a hardcoded /state: a local opencode
       # server only sees host paths.
       STATE_DIR: /state
+      # reply-pr runaway-loop cap. The agent decides when to stop; this only
+      # catches an absurd number of pushed rounds.
+      MAX_REPLY_ROUNDS: ${MAX_REPLY_ROUNDS:-10}
       # Keep WORK_ROOT under STATE_DIR unless you also mount it: a local
       # opencode server only reads host paths.
       WORK_ROOT: ${WORK_ROOT:-}
