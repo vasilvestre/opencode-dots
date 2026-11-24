@@ -436,13 +436,16 @@ states:
       rm -rf "$d/work"
       title=$(jq -r '.title // ""' "$d/meta.json")
       url="https://github.com/{{.inputs.repo}}/pull/{{.inputs.pr}}"
+      # decide and push write the stop under $base, the address agent under $d.
+      stuck="$d/stuck.md"
+      [ -s "$stuck" ] || stuck="$base/stuck.md"
       if [ -s "$d/pushed.sha" ]; then
         msg="Correction poussée sur {{.inputs.repo}}#{{.inputs.pr}} : $(cat "$d/pushed.sha")
       $title
       <$url>"
-      elif [ -s "$d/stuck.md" ]; then
+      elif [ -s "$stuck" ]; then
         msg="Arrêt, décision humaine requise sur {{.inputs.repo}}#{{.inputs.pr}} : $title
-      $(cat "$d/stuck.md")
+      $(cat "$stuck")
       <$url>"
       elif [ "$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)" = "merge" ]; then
         msg="Review postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
