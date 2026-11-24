@@ -51,6 +51,8 @@ states:
       # reads what was already tried before spending another pass.
       base=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}
       mkdir -p "$base"
+      # $base outlives the commit, so a stop from an earlier round is not this one.
+      rm -f "$base/stuck.md"
       [ -s "$base/worklog.md" ] && cp "$base/worklog.md" "$d/worklog.md" || true
       gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} \
         --json title,body,url,author,baseRefName,headRefName,headRepository,state \
