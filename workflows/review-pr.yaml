@@ -51,6 +51,8 @@ states:
       # reads what was already tried before spending another pass.
       base=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}
       mkdir -p "$base"
+      # $base outlives the commit, so a stop from an earlier round is not this one.
+      rm -f "$base/stuck.md"
       [ -s "$base/worklog.md" ] && cp "$base/worklog.md" "$d/worklog.md" || true
       gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} \
         --json title,body,url,author,baseRefName,headRefName,headRepository,state \
@@ -436,13 +438,16 @@ states:
       rm -rf "$d/work"
       title=$(jq -r '.title // ""' "$d/meta.json")
       url="https://github.com/{{.inputs.repo}}/pull/{{.inputs.pr}}"
+      # decide and push write the stop under $base, the address agent under $d.
+      stuck="$d/stuck.md"
+      [ -s "$stuck" ] || stuck="$base/stuck.md"
       if [ -s "$d/pushed.sha" ]; then
         msg="Correction poussée sur {{.inputs.repo}}#{{.inputs.pr}} : $(cat "$d/pushed.sha")
       $title
       <$url>"
-      elif [ -s "$d/stuck.md" ]; then
+      elif [ -s "$stuck" ]; then
         msg="Arrêt, décision humaine requise sur {{.inputs.repo}}#{{.inputs.pr}} : $title
-      $(cat "$d/stuck.md")
+      $(cat "$stuck")
       <$url>"
       elif [ "$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)" = "merge" ]; then
         msg="Review postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
