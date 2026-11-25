@@ -13,6 +13,18 @@ rules for editing them.
 | `fix-ci.yaml` | `awf-gh`: checks-failed | yes, on your own PR branch |
 | `ask-pr.yaml` | the dashboard's Ask button, one per message | no |
 
+## HIDDEN WORKFLOWS
+
+- A file named `_<name>.yaml` (name `_<name>`) is called only by another
+  workflow through `type: call_workflow`. Nothing dispatches it: not `awf-gh`,
+  not `bin/tend`, not the Run dialog. The dashboard hides it from the workflow
+  list unless the filter starts with `_`. awf itself does not hide it: this is a
+  convention, ADR 0021.
+- The child writes its result to files under `STATE_DIR`; the caller reads
+  them, so no `outputs` mapping is needed.
+- A role in `internal/models` names the child workflow, so a child with an
+  agent step needs its model input like any other.
+
 ## SHAPE
 
 - File name equals the `name:` field. `version` is quoted.
@@ -28,13 +40,13 @@ rules for editing them.
 - The tracked root `model-presets.yaml` uses version 1. It holds `light` and
   `default` presets plus optional per-role overrides.
 - The fixed mapping assigns `ask-pr/model`, `fix-ci/model`, `reply-pr/model` and
-  `review-pr/address_model` to `light`. It assigns `fix-issue/model`,
+  `review-pr/address_model` to `light`. It assigns `_fix-issue-owned/model`, `_fix-issue-external/model`,
   `tend-repo/model` and `review-pr/review_model` to `default`.
 - An override wins over its assigned preset. The dashboard eagerly projects the
   resolved ID into the workflow input's concrete default. awf keeps reading
   workflow defaults, not the preset file.
 - Migration derives `light` from the current `ask-pr/model` default and `default`
-  from the current `fix-issue/model` default. Every differing role becomes an
+  from the current `_fix-issue-owned/model` default. Every differing role becomes an
   override, so no runtime model changes. The first save creates the preset file.
 - Both preset inputs and every override must be non-empty validated model IDs.
   Reject equal effective `review-pr/review_model` and `address_model` values.

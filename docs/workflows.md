@@ -39,7 +39,7 @@ through `GET /api/models` and `PUT /api/models`. Its role mapping is fixed:
 | Preset | Roles |
 | --- | --- |
 | `light` | `ask-pr/model`, `fix-ci/model`, `reply-pr/model`, `review-pr/address_model` |
-| `default` | `fix-issue/model`, `tend-repo/model`, `review-pr/review_model` |
+| `default` | `_fix-issue-owned/model`, `_fix-issue-external/model`, `tend-repo/model`, `review-pr/review_model` |
 
 | `claude_default` | `review-pr/claude_review_model` |
 | `claude_light` | `review-pr/claude_address_model` |
@@ -57,7 +57,7 @@ input's concrete default. awf keeps reading workflow defaults, not the preset
 file.
 
 On first use, migration derives `light` from the current `ask-pr/model` default
-and `default` from the current `fix-issue/model` default. Every other current
+and `default` from the current `_fix-issue-owned/model` default. Every other current
 value becomes an override, so migration changes no runtime model. The first
 save creates `model-presets.yaml`.
 
@@ -346,20 +346,33 @@ Steps:
    `$STATE_DIR/fix/<owner>/<repo>/issue-<N>/`, adds a worktree of the default
    branch, and copies `lessons.md` and `memory.md` from the last tend pass if
    they exist.
-2. `fix` asks the agent to prove the defect first, quoting `path:line`, then to
-   make the smallest change that fixes it and write `fix.md`: the pull request
-   title, then the body. An issue that is already fixed, or wrong, ends the run
-   with no pull request and no failure. A run on an issue that was already
-   worked reads `worklog.md` and the tower memory record of the earlier run
-   before it starts, and rewrites `worklog.md` at the end.
+2. `route` asks GitHub whether the token can push to the repository and calls
+   one of two hidden workflows. Write access runs `_fix-issue-owned`; anything
+   else, or any doubt (a failed `gh` call), runs `_fix-issue-external`. A
+   leading underscore marks a workflow only another workflow calls: the
+   dashboard hides it from the workflow list unless the filter starts with `_`.
+   Both ask the agent to prove the defect first, quoting `path:line`, to write
+   `answer.md` and `worklog.md` straight away so a run that stops early still
+   leaves a record, then to make the smallest change for what the issue
+   settles and write `fix.md`: the pull request title, then the body. A choice
+   the issue leaves open goes into `answer.md` as a draft ADR instead of code.
+   The checkout must compile and pass the repository's quick checks when the
+   agent stops, or the agent restores it. An issue that is already fixed, or
+   wrong, ends the run with no pull request and no failure. The external one
+   also reads the repository's contributing rules and commit style first. Each
+   has its own `model` input, edited as its own role in the Config view. A run
+   on an issue that was already worked reads `worklog.md` and the tower memory
+   record of the earlier run before it starts.
 3. `push` commits on a `fix/<N>-<date>` branch, pushes it and opens a pull
    request whose body ends with `Closes #N`, so merging closes the issue. On a
    repository the token cannot write to, the branch goes to your fork instead:
    the step reuses `<you>/<repo>` when it is a fork of that repository, creates
    it when it does not exist yet, and refuses a same-named repository that is
    not a fork. The pull request is then opened against the upstream with
-   `--head <you>:<branch>`. A run that changes nothing never creates a fork.
-   See ADR 0020.
+   `--head <you>:<branch>`. A run that changes nothing never creates a fork. An
+   agent that left edits but no `fix.md` fails the run, keeps the worktree and
+   comments `answer.md` on the issue, instead of dropping the edits and ending
+   in success. See ADRs 0020 and 0021.
 4. `notify` posts the pull request URL on Discord when `DISCORD_WEBHOOK` is set.
 
 `fix-issue` never merges. The pull request waits for your review, or for

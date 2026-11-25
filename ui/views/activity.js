@@ -18,6 +18,7 @@ export function mountActivity(el) {
     stats: { total: 0, failed: 0, avg: 0 },
     runs: [],
     targets: new Map(),
+    routing: new Map(),
     filter: "",
     status: "all",
     page: 0,
@@ -109,6 +110,7 @@ export function mountActivity(el) {
       state.executions = execRes.body?.executions || [];
       state.runs = state.executions.filter((e) => e.status === "running");
       state.targets = new Map((logsRes || []).map((l) => [l.execution_id, targetOf(l)]));
+      state.routing = new Map((logsRes || []).filter((l) => l.provider).map((l) => [l.execution_id, { provider: l.provider, route: l.route }]));
       state.history = attachLogIds(histRes.body?.entries || [], logsRes || []);
       const s = statsRes.body || {};
       state.stats = { total: s.TotalExecutions || 0, failed: s.FailedCount || 0, avg: s.AvgDurationMs || 0 };
@@ -177,7 +179,7 @@ export function mountActivity(el) {
       const list = byKey.get(key);
       const logId = list?.length && list.length === wanted.get(key) ? list.shift() : undefined;
       wanted.set(key, wanted.get(key) - 1);
-      return { ...e, logId, rounds: (logId && roundsById.get(logId)) || [], cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "", models: (logId && models.get(logId)) || null };
+      return { ...e, logId, rounds: (logId && roundsById.get(logId)) || [], cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "", models: (logId && models.get(logId)) || null, routing: (logId && state.routing.get(logId)) || null };
     });
   }
 
@@ -229,6 +231,7 @@ export function mountActivity(el) {
       entry.step.textContent = trail || (run.current_step ? stepLabel(run.workflow_name, run.current_step) : "starting");
       entry.step.title = run.current_step ? `current step: ${run.current_step}` : "";
       entry.target.textContent = state.targets.get(run.execution_id) || "";
+      mount(entry.routing, routingChips(state.routing.get(run.execution_id)));
       entry.updateCost();
       entry.time.textContent = elapsed(run.started_at);
       const pre = entry.pre;
@@ -240,6 +243,7 @@ export function mountActivity(el) {
   function createRunCard(run) {
     const step = h("span", { class: "step muted" }, "starting");
     const target = h("span", { class: "muted", title: "target guessed from the run log" }, state.targets.get(run.execution_id) || "");
+    const routing = h("span", { class: "chips" }, routingChips(state.routing.get(run.execution_id)));
     const costEl = h("span", { class: "cost muted num" });
     const time = h("span", { class: "time muted num" });
     const pre = h("pre", { class: "log" }, logText.get(run.execution_id) || "connecting to the stream…");
@@ -247,6 +251,7 @@ export function mountActivity(el) {
       h("div", { class: "row" },
         h("b", {}, run.workflow_name),
         target,
+        routing,
         h("span", { class: "badge running" }, "running"),
         step,
         costEl,
@@ -279,7 +284,7 @@ export function mountActivity(el) {
       costEl.title = `${c.steps} agent step${c.steps === 1 ? "" : "s"} so far`;
     };
     updateCost();
-    return { card, step, steps, target, costEl, time, pre, stream, updateCost };
+    return { card, step, steps, target, routing, costEl, time, pre, stream, updateCost };
   }
 
   // The backend records awf's single event stream, so the page tails that file
@@ -346,11 +351,30 @@ export function mountActivity(el) {
     return c ? money({ cost: c }) : h("span", { class: "muted" }, "—");
   }
 
-  function modelCell(models) {
+  // routingChips names the agent CLI a run used and, for fix-issue, whether the
+  // token could push to the repository ("owned") or the branch went through a
+  // fork ("external"). A run with no recorded state shows nothing.
+  function routingChips(routing) {
+    if (!routing?.provider) return [];
+    const chips = [h("span", { class: `chip provider-${routing.provider}`, title: "agent CLI the steps ran on" }, routing.provider)];
+    if (routing.route) {
+      chips.push(h("span", {
+        class: "chip",
+        title: routing.route === "external" ? "the token cannot push here: worked through a fork" : "the token can push here",
+      }, routing.route));
+    }
+    return chips;
+  }
+
+  function modelCell(models, routing) {
     const pairs = models && Object.entries(models);
-    return h("td", {}, pairs?.length
-      ? h("span", { class: "chips" }, pairs.map(([key, value]) =>
-        h("span", { class: "chip", title: `${key}=${value}` }, `${key.replace(/_model$/, "")}: ${value}`)))
+    const chips = [
+      ...routingChips(routing),
+      ...(pairs || []).map(([key, value]) =>
+        h("span", { class: "chip", title: `${key}=${value}` }, `${key.replace(/_model$/, "")}: ${value}`)),
+    ];
+    return h("td", {}, chips.length
+      ? h("span", { class: "chips" }, chips)
       : h("span", { class: "muted" }, "—"));
   }
 
@@ -400,7 +424,7 @@ export function mountActivity(el) {
       h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
       h("td", { class: "num muted", title: when(e.started_at) }, ago(e.started_at)),
       h("td", { class: "num" }, dur(e.duration_ms)),
-      modelCell(e.models),
+      modelCell(e.models, e.routing),
       h("td", { class: "num" }, costCell(e)),
       h("td", {}, e.logId
         ? h("button", {

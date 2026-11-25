@@ -36,8 +36,11 @@ export function mountWorkflows(el, arg) {
 
   function renderList() {
     const q = search.value.trim().toLowerCase();
+    // A leading underscore marks a workflow only another workflow calls. Hide it
+    // unless the filter itself starts with an underscore.
     const rows = workflows.filter((w) =>
-      !q || w.name.toLowerCase().includes(q) || (w.description || "").toLowerCase().includes(q));
+      (!w.name.startsWith("_") || q.startsWith("_")) &&
+      (!q || w.name.toLowerCase().includes(q) || (w.description || "").toLowerCase().includes(q)));
     const count = el.querySelector("#wf-count");
     if (count) count.textContent = `${rows.length}`;
     if (!rows.length) {

@@ -63,7 +63,8 @@ func (r inputRole) pattern() string {
 var roles = []inputRole{
 	{workflow: "ask-pr", input: "model", state: "ask", preset: "light", provider: "opencode"},
 	{workflow: "fix-ci", input: "model", state: "fix", preset: "light", provider: "opencode"},
-	{workflow: "fix-issue", input: "model", state: "fix", preset: "default", provider: "opencode"},
+	{workflow: "_fix-issue-owned", input: "model", state: "fix", preset: "default", provider: "opencode"},
+	{workflow: "_fix-issue-external", input: "model", state: "fix", preset: "default", provider: "opencode"},
 	{workflow: "reply-pr", input: "model", state: "reply", preset: "light", provider: "opencode"},
 	{workflow: "review-pr", input: "review_model", state: "review", preset: "default", provider: "opencode", pick: "pick_review_model", claudeInput: "claude_review_model"},
 	{workflow: "review-pr", input: "address_model", state: "address", preset: "light", provider: "opencode", pick: "pick_address_model", claudeInput: "claude_address_model"},

@@ -30,7 +30,8 @@ func testModelDefaults() map[string]string {
 	return map[string]string{
 		"ask-pr/model":                   "provider/ask",
 		"fix-ci/model":                   "provider/fix-ci",
-		"fix-issue/model":                "provider/fix-issue",
+		"_fix-issue-owned/model":         "provider/fix-issue",
+		"_fix-issue-external/model":      "provider/fix-issue",
 		"reply-pr/model":                 "provider/reply",
 		"review-pr/review_model":         "provider/review",
 		"review-pr/address_model":        "provider/address",
@@ -62,7 +63,8 @@ func writeModelWorkflows(t *testing.T, root string, overrides map[string]string)
 	}{
 		{"ask-pr.yaml", []testModelInput{{name: "model", state: "ask"}}},
 		{"fix-ci.yaml", []testModelInput{{name: "model", state: "fix"}}},
-		{"fix-issue.yaml", []testModelInput{{name: "model", state: "fix"}}},
+		{"_fix-issue-owned.yaml", []testModelInput{{name: "model", state: "fix"}}},
+		{"_fix-issue-external.yaml", []testModelInput{{name: "model", state: "fix"}}},
 		{"reply-pr.yaml", []testModelInput{{name: "model", state: "reply"}}},
 		{"review-pr.yaml", []testModelInput{
 			{name: "review_model", state: "review", pick: "pick_review_model"},
@@ -249,7 +251,8 @@ func testMatchingModelValues() map[string]string {
 		"fix-ci/model":                   "provider/light",
 		"reply-pr/model":                 "provider/light",
 		"review-pr/address_model":        "provider/light",
-		"fix-issue/model":                "provider/default",
+		"_fix-issue-owned/model":         "provider/default",
+		"_fix-issue-external/model":      "provider/default",
 		"tend-repo/model":                "provider/default",
 		"review-pr/review_model":         "provider/default",
 		"review-pr/claude_review_model":  "sonnet",
@@ -383,9 +386,10 @@ func TestModelsGET(t *testing.T) {
 
 	variables := getModels(t, d).Variables
 	want := []testModelVariable{
+		{Key: "_fix-issue-external/model", Workflow: "_fix-issue-external", Input: "model", Provider: "opencode", Value: "provider/fix-issue", Description: "model for the fix agent", Preset: "default"},
+		{Key: "_fix-issue-owned/model", Workflow: "_fix-issue-owned", Input: "model", Provider: "opencode", Value: "provider/fix-issue", Description: "model for the fix agent", Preset: "default"},
 		{Key: "ask-pr/model", Workflow: "ask-pr", Input: "model", Provider: "opencode", Value: "provider/main", Description: "model for the ask agent", Preset: "light"},
 		{Key: "fix-ci/model", Workflow: "fix-ci", Input: "model", Provider: "opencode", Value: "provider/fix-ci", Description: "model for the fix agent", Preset: "light", Override: testModelString("provider/fix-ci")},
-		{Key: "fix-issue/model", Workflow: "fix-issue", Input: "model", Provider: "opencode", Value: "provider/fix-issue", Description: "model for the fix agent", Preset: "default"},
 		{Key: "reply-pr/model", Workflow: "reply-pr", Input: "model", Provider: "opencode", Value: "provider/reply", Description: "model for the reply agent", Preset: "light", Override: testModelString("provider/reply")},
 		{Key: "review-pr/review_model", Workflow: "review-pr", Input: "review_model", Provider: "opencode", Value: "provider/review#v1", Description: "model for the review agent", Preset: "default", Override: testModelString("provider/review#v1")},
 		{Key: "review-pr/address_model", Workflow: "review-pr", Input: "address_model", Provider: "opencode", Value: "provider/address", Description: "model for the address agent", Preset: "light", Override: testModelString("provider/address")},
@@ -591,7 +595,7 @@ func TestModelsPUT(t *testing.T) {
 	}
 	configuration := snapshot.Configuration()
 	if len(configuration.Overrides) != len(values) {
-		t.Fatalf("legacy PUT overrides = %v, want all seven roles", configuration.Overrides)
+		t.Fatalf("legacy PUT overrides = %v, want every role", configuration.Overrides)
 	}
 	for key, value := range values {
 		override := configuration.Overrides[key]
@@ -600,9 +604,9 @@ func TestModelsPUT(t *testing.T) {
 		}
 	}
 
-	variables := getModelVariables(t, d)
-	if variables[0].Value != "provider/new#fast" || variables[1].Value != "provider/fix-ci" {
-		t.Fatalf("GET after PUT returned %+v", variables)
+	after := currentModelValues(t, d)
+	if after["ask-pr/model"] != "provider/new#fast" || after["fix-ci/model"] != "provider/fix-ci" {
+		t.Fatalf("GET after PUT returned %v", after)
 	}
 }
 
@@ -1070,11 +1074,17 @@ func TestModelsGETInvalidCurrentDefaults(t *testing.T) {
 			if len(variables) != len(testModelDefaults()) {
 				t.Fatalf("got %d variables, want %d: %+v", len(variables), len(testModelDefaults()), variables)
 			}
-			if variables[0].Key != "ask-pr/model" || variables[0].Value != c.wantValue {
-				t.Errorf("first variable = %+v, want ask-pr/model with value %q", variables[0], c.wantValue)
+			var ask testModelVariable
+			for _, variable := range variables {
+				if variable.Key == "ask-pr/model" {
+					ask = variable
+				}
 			}
-			if !strings.Contains(variables[0].Conflict, c.wantConflict) {
-				t.Errorf("conflict = %q, want it to contain %q", variables[0].Conflict, c.wantConflict)
+			if ask.Value != c.wantValue {
+				t.Errorf("ask-pr/model = %+v, want value %q", ask, c.wantValue)
+			}
+			if !strings.Contains(ask.Conflict, c.wantConflict) {
+				t.Errorf("conflict = %q, want it to contain %q", ask.Conflict, c.wantConflict)
 			}
 			if rec := putModelValues(t, d, currentModelValues(t, d)); rec.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("PUT returned %d, want 422: %s", rec.Code, rec.Body)
@@ -1123,20 +1133,21 @@ func TestModelsPUTPropagatesPresets(t *testing.T) {
 	presets := map[string]string{"light": "provider/new-light#fast", "default": "provider/new-default"}
 
 	changes := assertModelChanges(t, putPresetUpdate(t, d, presets, nil), []string{
+		"workflows/_fix-issue-external.yaml",
+		"workflows/_fix-issue-owned.yaml",
 		"workflows/ask-pr.yaml",
 		"workflows/fix-ci.yaml",
-		"workflows/fix-issue.yaml",
 		"workflows/reply-pr.yaml",
 		"workflows/review-pr.yaml",
 		"workflows/tend-repo.yaml",
 		"model-presets.yaml",
 	})
-	for _, change := range changes[:6] {
+	for _, change := range changes[:7] {
 		if change.Backup == "" {
 			t.Fatalf("workflow change has no backup: %+v", change)
 		}
 	}
-	if changes[6].Backup != "" {
+	if changes[7].Backup != "" {
 		t.Fatalf("new preset file has backup %q", changes[6].Backup)
 	}
 

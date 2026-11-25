@@ -351,7 +351,7 @@ See [ADR 0004](ADR/0004-dashboard-edits-local-config.md),
 
 The Config view manages global presets in `model-presets.yaml` (version 1).
 `light` covers `ask-pr/model`, `fix-ci/model`, `reply-pr/model` and
-`review-pr/address_model`. `default` covers `fix-issue/model`, `tend-repo/model`
+`review-pr/address_model`. `default` covers `_fix-issue-owned/model`, `_fix-issue-external/model`, `tend-repo/model`
 and `review-pr/review_model`. A role can set an optional custom override; an
 override wins over its preset.
 
@@ -365,7 +365,7 @@ and `claude_light` (`review-pr/claude_address_model`), with their own syntax.
 
 The dashboard eagerly projects those resolved IDs into workflow input
 defaults. awf still reads concrete workflow defaults. On first use, migration
-derives `light` from `ask-pr/model` and `default` from `fix-issue/model`. Every
+derives `light` from `ask-pr/model` and `default` from `_fix-issue-owned/model`. Every
 other current value becomes an override, so no runtime model changes. The first
 save creates `model-presets.yaml`.
 

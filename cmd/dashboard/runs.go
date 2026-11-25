@@ -422,8 +422,13 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 		Issue  string            `json:"issue,omitempty"`
 		Rounds []string          `json:"rounds,omitempty"`
 		Models map[string]string `json:"models,omitempty"`
+		// Provider is the agent CLI (opencode or claude); Route is the hidden
+		// workflow fix-issue picked (owned or external).
+		Provider string `json:"provider,omitempty"`
+		Route    string `json:"route,omitempty"`
 	}
 	out := []row{}
+	children := d.childStates()
 	roundOwner := map[string]int{}
 	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
@@ -446,7 +451,8 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 				}
 				roundOwner[pr+"-"+sha] = len(out)
 			}
-			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"], Rounds: rounds, Models: d.runModels(e.ID)})
+			info := d.runInfo(e.ID, children)
+			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"], Rounds: rounds, Models: info.Models, Provider: info.Provider, Route: info.Route})
 		}
 	}
 	writeJSON(w, out)

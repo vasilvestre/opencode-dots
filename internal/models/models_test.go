@@ -157,7 +157,12 @@ func TestWorkflowModelInputs(t *testing.T) {
 			agents: map[string]string{"fix": "{{.inputs.model}}"},
 		},
 		{
-			file:   "fix-issue.yaml",
+			file:   "_fix-issue-owned.yaml",
+			inputs: map[string]bool{"model": true},
+			agents: map[string]string{"fix": "{{.inputs.model}}"},
+		},
+		{
+			file:   "_fix-issue-external.yaml",
 			inputs: map[string]bool{"model": true},
 			agents: map[string]string{"fix": "{{.inputs.model}}"},
 		},

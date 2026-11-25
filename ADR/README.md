@@ -28,6 +28,8 @@ your mind by writing a new one that supersedes it.
 | [0018](0018-dashboard-managed-model-presets.md) | The dashboard manages global model presets | superseded by 0019 | 2026-11-25 |
 | [0019](0019-claude-model-presets.md) | Model presets are per provider | accepted | 2026-11-25 |
 | [0020](0020-fix-issue-works-from-a-fork.md) | fix-issue works from a fork when it cannot push upstream | accepted | 2026-11-25 |
+| [0021](0021-fix-issue-routes-to-hidden-workflows.md) | fix-issue routes to hidden workflows | accepted | 2026-11-25 |
+| [0021](0021-fix-issue-routes-to-hidden-workflows.md) | fix issue routes to hidden workflows | proposed | 2026-11-25 |
 
 ## When to write one
 

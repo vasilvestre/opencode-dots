@@ -14,13 +14,14 @@ import (
 	"testing"
 )
 
-var presetWorkflowFiles = []string{"ask-pr.yaml", "fix-ci.yaml", "fix-issue.yaml", "reply-pr.yaml", "review-pr.yaml", "tend-repo.yaml"}
+var presetWorkflowFiles = []string{"_fix-issue-external.yaml", "_fix-issue-owned.yaml", "ask-pr.yaml", "fix-ci.yaml", "reply-pr.yaml", "review-pr.yaml", "tend-repo.yaml"}
 
 func testModelValues() map[string]string {
 	return map[string]string{
 		"ask-pr/model":                   "provider/light",
 		"fix-ci/model":                   "provider/light",
-		"fix-issue/model":                "provider/default",
+		"_fix-issue-owned/model":         "provider/default",
+		"_fix-issue-external/model":      "provider/default",
 		"reply-pr/model":                 "provider/light",
 		"review-pr/review_model":         "provider/review",
 		"review-pr/address_model":        "provider/address",
@@ -34,7 +35,8 @@ func testMatchingValues() map[string]string {
 	return map[string]string{
 		"ask-pr/model":                   "provider/light",
 		"fix-ci/model":                   "provider/light",
-		"fix-issue/model":                "provider/default",
+		"_fix-issue-owned/model":         "provider/default",
+		"_fix-issue-external/model":      "provider/default",
 		"reply-pr/model":                 "provider/light",
 		"review-pr/review_model":         "provider/default",
 		"review-pr/address_model":        "provider/light",
@@ -186,7 +188,8 @@ func TestPresetRoleMappingAndJSONFields(t *testing.T) {
 	wantPresets := map[string]string{
 		"ask-pr/model":                   "light",
 		"fix-ci/model":                   "light",
-		"fix-issue/model":                "default",
+		"_fix-issue-owned/model":         "default",
+		"_fix-issue-external/model":      "default",
 		"reply-pr/model":                 "light",
 		"review-pr/review_model":         "default",
 		"review-pr/address_model":        "light",
@@ -228,9 +231,10 @@ func TestPresetUpdatePropagatesAndWritesWorkflowsFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPlanPaths(t, plan, []string{
+		"workflows/_fix-issue-external.yaml",
+		"workflows/_fix-issue-owned.yaml",
 		"workflows/ask-pr.yaml",
 		"workflows/fix-ci.yaml",
-		"workflows/fix-issue.yaml",
 		"workflows/reply-pr.yaml",
 		"workflows/tend-repo.yaml",
 		presetsFile,
@@ -256,8 +260,8 @@ func TestPresetUpdatePropagatesAndWritesWorkflowsFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved) != 6 {
-		t.Fatalf("saved %d files, want 6", len(saved))
+	if len(saved) != 7 {
+		t.Fatalf("saved %d files, want 7", len(saved))
 	}
 	for i, change := range saved {
 		if change.Backup == "" {
@@ -275,7 +279,8 @@ func TestPresetUpdatePropagatesAndWritesWorkflowsFirst(t *testing.T) {
 	want := map[string]string{
 		"ask-pr/model":                   "provider/new-light",
 		"fix-ci/model":                   "provider/new-light",
-		"fix-issue/model":                "provider/new-default",
+		"_fix-issue-owned/model":         "provider/new-default",
+		"_fix-issue-external/model":      "provider/new-default",
 		"reply-pr/model":                 "provider/new-light",
 		"review-pr/review_model":         "provider/review",
 		"review-pr/address_model":        "provider/address",

@@ -46,7 +46,7 @@ fixed mapping is:
 
 - `light`: `ask-pr/model`, `fix-ci/model`, `reply-pr/model`,
   `review-pr/address_model`.
-- `default`: `fix-issue/model`, `tend-repo/model`, `review-pr/review_model`.
+- `default`: `_fix-issue-owned/model`, `_fix-issue-external/model`, `tend-repo/model`, `review-pr/review_model`.
 - `claude_light`: `review-pr/claude_address_model`.
 - `claude_default`: `review-pr/claude_review_model`.
 
@@ -79,7 +79,7 @@ compatibility path that creates explicit overrides. Only `/api/models` writes
 
 A missing preset file means migration mode. `GET` does not write during
 migration. Derive `light` from the current `ask-pr/model` default and `default`
-from the current `fix-issue/model` default. Make every differing role an
+from the current `_fix-issue-owned/model` default. Make every differing role an
 override, preserving all current runtime models. The first save creates the
 preset file.
 

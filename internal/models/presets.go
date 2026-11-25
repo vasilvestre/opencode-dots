@@ -363,7 +363,7 @@ func migrateConfiguration(snapshot *Snapshot) (*Configuration, error) {
 		Version: presetVersion,
 		Presets: map[string]string{
 			"light":   values["ask-pr/model"],
-			"default": values["fix-issue/model"],
+			"default": values["_fix-issue-owned/model"],
 		},
 		Overrides: map[string]*string{},
 	}
