@@ -23,6 +23,7 @@ your mind by writing a new one that supersedes it.
 | [0013](0013-dashboard-on-the-tailnet.md) | The dashboard answers on the tailnet through tailscale serve | accepted | 2026-11-23 |
 | [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | accepted | 2026-11-24 |
 | [0015](0015-dots-take-delegation.md) | The operator delegates a pull request with /dots take | accepted | 2026-11-25 |
+| [0016](0016-awf-gh-runs-natively.md) | awf-gh can run natively | accepted | 2026-11-25 |
 
 ## When to write one
 

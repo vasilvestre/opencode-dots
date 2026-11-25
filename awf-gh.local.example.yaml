@@ -1,0 +1,20 @@
+# Config for the native awf-gh (bin/configure --awf-gh=local). Same schema as
+# awf-gh.example.yaml; only the paths differ, because nothing runs in a container.
+#
+# Copy to awf-gh.yaml and edit. awf-gh.yaml is gitignored: it names the private
+# repos you watch, and this repository is public.
+#
+# awf_url: awf serve on the host. bin/configure rewrites this line to match.
+awf_url: http://127.0.0.1:2511
+# A host path, not /state: here awf-gh sees the real file system. A leading ~
+# is expanded. Use the same state/ directory the workflows write to.
+state_path: ~/projects/perso/opencode-dots/state/awf-gh/seen.jsonl
+max_per_run: 6
+
+repos:
+  - repo: your-org/your-repo
+    scope: local
+    workflow: review-pr
+    on: [pr-opened, pr-updated, checks-failed]
+    ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+  # More entries (reply-pr, fix-issue, fix-ci): copy them from awf-gh.example.yaml.

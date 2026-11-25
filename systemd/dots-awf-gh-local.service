@@ -1,0 +1,24 @@
+[Unit]
+Description=awf-gh (native): fire awf workflows for open PRs
+
+# Used INSTEAD of dots-awf-gh.service when bin/configure picked awf-gh=local.
+# Switch the same timer over with a drop-in, no copy of the timer needed:
+#
+#   systemctl --user edit dots-awf-gh.timer
+#     [Timer]
+#     Unit=dots-awf-gh-local.service
+#
+# Back to the container: remove that drop-in (systemctl --user revert dots-awf-gh.timer).
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+# The container gets GH_TOKEN from compose; the native process gets it from the
+# same .env. It needs nothing else: the watcher only calls gh and the awf API.
+EnvironmentFile=%h/projects/perso/opencode-dots/.env
+# gh must be on PATH. The user manager's default PATH has /usr/bin and
+# ~/.local/bin; add a line here if gh lives elsewhere.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# awf-gh.yaml here is a host-path config: see awf-gh.local.example.yaml.
+ExecStart=%h/projects/perso/opencode-dots/bin/awf-gh --config %h/projects/perso/opencode-dots/awf-gh.yaml
+TimeoutStartSec=180
