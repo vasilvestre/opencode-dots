@@ -7,7 +7,7 @@ import { navigate } from "./router.js";
 // Shared source editor for workflows and local configs. It writes files
 // through /api/save and never touches git: the repository is the undo.
 // Validation is awf's own endpoint, which re-reads the file from disk.
-export async function createEditor({ path, kind, scope = "global", name }) {
+export async function createEditor({ path, kind, scope = "global", name, onSave, onCursor }) {
   const state = { saved: "", busy: false, dirty: false };
 
   const gutter = h("div", { class: "gutter", "aria-hidden": "true" });
@@ -114,6 +114,7 @@ export async function createEditor({ path, kind, scope = "global", name }) {
       setIssues("ok", "Saved to disk",
         [res.backup ? `Previous content kept as ${res.backup}.` : "New file."]);
       if (!quiet) toast(`Saved ${path}`, { tone: "ok" });
+      onSave?.();
       return true;
     } catch (err) {
       setIssues("bad", err.status === 422 ? "YAML does not parse, nothing written" : "Save failed",
@@ -164,6 +165,14 @@ export async function createEditor({ path, kind, scope = "global", name }) {
     } });
   }
 
+  const cursorLine = () => area.value.slice(0, area.selectionStart).split("\n").length;
+  let lastLine = 0;
+  const reportCursor = () => {
+    const line = cursorLine();
+    if (line !== lastLine) { lastLine = line; onCursor?.(line, area.value); }
+  };
+  area.addEventListener("keyup", reportCursor);
+  area.addEventListener("click", reportCursor);
   area.addEventListener("input", () => { paintGutter(); setDirty(); });
   area.addEventListener("scroll", () => { gutter.scrollTop = area.scrollTop; });
   area.addEventListener("keydown", (ev) => {
@@ -190,6 +199,19 @@ export async function createEditor({ path, kind, scope = "global", name }) {
   return {
     el,
     isDirty: () => state.dirty,
+    text: () => area.value,
+    // Select a 1-based line and scroll it into the upper third of the box.
+    gotoLine(line) {
+      const lines = area.value.split("\n");
+      const idx = Math.max(0, Math.min(lines.length - 1, line - 1));
+      const start = lines.slice(0, idx).reduce((n, l) => n + l.length + 1, 0);
+      lastLine = idx + 1;
+      area.focus({ preventScroll: true });
+      area.setSelectionRange(start, start + lines[idx].length);
+      const lh = parseFloat(getComputedStyle(area).lineHeight) || 19;
+      area.scrollTop = Math.max(0, idx * lh - area.clientHeight / 3);
+      gutter.scrollTop = area.scrollTop;
+    },
     destroy() {
       window.removeEventListener("beforeunload", beforeUnload);
     },

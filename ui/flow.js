@@ -1,86 +1,426 @@
 import { h } from "./dom.js";
+import { stepLabel } from "./steps.js";
 
-// A workflow is a chain, not a grid: you almost always follow OnSuccess from
-// the initial step. The view draws that chain in order and states every edge
-// on its step, so a failure branch never looks like a parallel path.
-export function renderFlow(w) {
+// A workflow drawn as a diagram: one box per step, one arrow per transition,
+// laid out in rows from the initial step downwards. Everything comes from the
+// awf workflow detail; nothing here guesses beyond layout.
+//
+// Edge kinds:
+//   success    OnSuccess, or the implicit next step of a loop body
+//   failure    OnFailure, drawn only when it leads somewhere that is not an
+//              error terminal (those are folded into a red marker on the node)
+//   branch     a Transitions entry: "when <condition> go to <step>"
+//   loop       a loop container entering its body
+//   back       any edge that returns to an earlier step (a retry or next round)
+
+const NODE_W = 184;
+const NODE_H = 46;
+const PITCH_X = 214;
+const PITCH_Y = 76;
+const PAD = 24;
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svg(tag, attrs = {}, ...kids) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null && v !== false) el.setAttribute(k, v);
+  for (const kid of kids) if (kid != null) el.append(kid);
+  return el;
+}
+
+export function renderFlow(w, { onSelect, compact = false } = {}) {
   const steps = w.Steps || {};
-  const names = Object.keys(steps);
-  if (!names.length) return h("div", { class: "empty" }, "This workflow has no steps.");
+  if (!Object.keys(steps).length) return h("div", { class: "empty" }, "This workflow has no steps.");
+  if (!steps[w.Initial]) {
+    return h("div", { class: "empty" }, `The initial step ${w.Initial || ""} is not in Steps, so there is no diagram to draw.`);
+  }
 
-  const spine = followSpine(steps, w.Initial);
-  const rest = names.filter((n) => !spine.includes(n)).sort();
+  const model = buildModel(w, steps);
+  const layout = layoutModel(model, w.Initial);
+  const wfName = w.Name || "";
 
-  return h("div", { class: "stack" },
+  let selected = w.Initial;
+  const detail = h("aside", { class: "flow-detail", "aria-live": "polite" });
+  const canvas = h("div", { class: "flow-canvas" });
+  const root = h("div", { class: compact ? "flow compact" : "flow" }, canvas, detail);
+
+  const diagram = draw(layout, wfName, (name) => select(name));
+  canvas.append(diagram.el);
+
+  function select(name, { silent = false } = {}) {
+    if (!model.nodes.has(name)) return;
+    selected = name;
+    if (!silent) onSelect?.(name);
+    diagram.highlight(name);
+    paintDetail();
+  }
+
+  function paintDetail() {
+    const n = model.nodes.get(selected);
+    detail.replaceChildren(...detailNodes(n, model, wfName, select));
+  }
+
+  select(w.Initial, { silent: true });
+
+  const out = h("div", { class: "stack" },
     h("div", { class: "file-meta" },
-      h("span", {}, `${names.length} step${names.length === 1 ? "" : "s"}`),
-      h("span", {}, `initial: ${w.Initial || "none"}`),
+      h("span", {}, `${model.nodes.size} steps`),
+      h("span", {}, `initial: ${w.Initial}`),
       w.Version ? h("span", {}, `version ${w.Version}`) : null,
     ),
     w.Description ? h("p", { class: "muted" }, w.Description) : null,
-    spine.length
-      ? h("ol", { class: "spine", "aria-label": "Success path" },
-        spine.map((name, i) => h("li", { class: "spine-item" }, stepCard(name, steps[name], {
-          initial: name === w.Initial,
-          index: i + 1,
-          steps,
-        }))))
-      : h("div", { class: "empty" }, `The initial step ${w.Initial || ""} is not in Steps, so there is no chain to draw.`),
-    rest.length
-      ? h("div", { class: "stack", style: { marginTop: "18px" } },
-        h("h3", { class: "muted" }, "Off the success path"),
-        rest.map((name) => stepCard(name, steps[name], { initial: false, steps })),
-      )
-      : null,
+    legend(model),
+    root,
   );
-}
-
-function followSpine(steps, initial) {
-  const seen = new Set();
-  const chain = [];
-  let cur = initial;
-  while (cur && steps[cur] && !seen.has(cur)) {
-    seen.add(cur);
-    chain.push(cur);
-    cur = steps[cur].OnSuccess;
-  }
-  return chain;
-}
-
-function edgesOf(step, steps) {
-  const out = [];
-  if (step.OnSuccess && steps[step.OnSuccess]) out.push({ kind: "success", to: step.OnSuccess });
-  if (step.OnFailure && steps[step.OnFailure]) out.push({ kind: "failure", to: step.OnFailure });
-  for (const b of step.Branches || []) {
-    if (b.Next && steps[b.Next]) out.push({ kind: "branch", to: b.Next, when: b.Condition || b.When || b.Name || "" });
-  }
+  out.selectStep = (name) => select(name, { silent: true });
   return out;
 }
 
-function stepCard(name, step, { initial, index, steps }) {
-  const kind = step.Type || "step";
-  const terminal = kind === "terminal";
-  const edges = edgesOf(step, steps);
-  const summary = step.Agent
-    ? [step.Agent.Provider, step.Agent.Options?.model].filter(Boolean).join(" · ")
-    : step.Description || (step.Command ? "shell command" : "");
+// --- model ------------------------------------------------------------------
 
-  return h("div", {
-    class: ["node", initial ? "initial" : "", terminal ? "terminal" : "", kind === "agent" ? "agent" : ""].filter(Boolean).join(" "),
-  },
-  h("div", { class: "n-head" },
-    index ? h("span", { class: "n-index" }, index) : null,
-    h("span", { class: "n-name" }, name),
-    initial ? h("span", { class: "badge ok" }, "initial") : null,
-    h("span", { class: "n-kind" }, kind),
-  ),
-  summary ? h("div", { class: "n-sub" }, h("code", {}, summary)) : null,
-  edges.length
-    ? h("div", { class: "n-edges" }, edges.map((e) => h("span", { class: `edge ${e.kind}` },
-      e.kind === "success" ? "✓ success" : e.kind === "failure" ? "✗ failure" : `branch ${e.when}`.trim(),
-      " → ",
-      h("b", {}, e.to),
-    )))
-    : h("div", { class: "n-edges" }, h("span", { class: "edge end" }, "ends here")),
+function buildModel(w, steps) {
+  const nodes = new Map();
+  const loopOf = new Map(); // body step -> container name
+  for (const [name, s] of Object.entries(steps)) {
+    for (const b of s.Loop?.Body || []) loopOf.set(b, name);
+  }
+  for (const [name, s] of Object.entries(steps)) {
+    nodes.set(name, { name, step: s, kind: s.Type || "step", loop: loopOf.get(name) || "", out: [], failsTo: [] });
+  }
+
+  const add = (from, kind, to, label = "") => {
+    if (!to || !nodes.has(to) || to === from) return;
+    const n = nodes.get(from);
+    const dup = n.out.find((e) => e.to === to && e.kind === kind);
+    if (dup) {
+      if (label && !dup.label.split(" / ").includes(label)) dup.label = dup.label ? `${dup.label} / ${label}` : label;
+      return;
+    }
+    n.out.push({ kind, to, label });
+  };
+
+  for (const [name, s] of Object.entries(steps)) {
+    const container = loopOf.get(name);
+    if (container) {
+      const body = steps[container].Loop.Body;
+      const next = body[body.indexOf(name) + 1];
+      add(name, "success", s.OnSuccess && s.OnSuccess !== container ? s.OnSuccess : next);
+    } else {
+      add(name, "success", s.OnSuccess);
+    }
+    if (s.Loop) {
+      add(name, "loop", s.Loop.Body?.[0], `each round, up to ${s.Loop.MaxIterations || "?"}`);
+      add(name, "success", s.Loop.OnComplete, "when the loop ends");
+    }
+    for (const t of s.Transitions || []) add(name, "branch", t.Goto, conditionLabel(t.When));
+    for (const b of s.Branches || []) add(name, "branch", b.Next, conditionLabel(b.Condition || b.When || b.Name));
+    add(name, "failure", s.OnFailure);
+  }
+
+  // A terminal reached only through failure edges is noise: fold it.
+  const incoming = new Map();
+  for (const n of nodes.values()) for (const e of n.out) {
+    (incoming.get(e.to) || incoming.set(e.to, []).get(e.to)).push(e.kind);
+  }
+  const folded = new Set();
+  for (const n of nodes.values()) {
+    const kinds = incoming.get(n.name) || [];
+    if (n.kind === "terminal" && kinds.length && kinds.every((k) => k === "failure")) folded.add(n.name);
+  }
+  for (const n of nodes.values()) {
+    n.failsTo = n.out.filter((e) => e.kind === "failure" && folded.has(e.to)).map((e) => e.to);
+    n.out = n.out.filter((e) => !folded.has(e.to));
+  }
+  for (const f of folded) nodes.get(f).folded = true;
+  return { nodes, folded };
+}
+
+function conditionLabel(when) {
+  if (!when) return "";
+  const m = String(when).match(/contains\s+"([^"]+)"/);
+  if (m) return m[1];
+  const s = String(when).replace(/\s+/g, " ").trim();
+  return s.length > 28 ? `${s.slice(0, 27)}…` : s;
+}
+
+// --- layout -----------------------------------------------------------------
+
+function layoutModel(model, initial) {
+  const visible = [...model.nodes.values()].filter((n) => !n.folded);
+  const byName = new Map(visible.map((n) => [n.name, n]));
+
+  // DFS from the initial step: reverse post-order and the edges that return to
+  // a step still on the stack (back edges).
+  const post = [];
+  const seen = new Set();
+  const onStack = new Set();
+  const back = new Set();
+  const dfs = (name) => {
+    seen.add(name);
+    onStack.add(name);
+    for (const e of byName.get(name).out) {
+      if (!byName.has(e.to)) continue;
+      if (onStack.has(e.to)) back.add(`${name}>${e.to}>${e.kind}`);
+      else if (!seen.has(e.to)) dfs(e.to);
+    }
+    onStack.delete(name);
+    post.push(name);
+  };
+  dfs(initial);
+  for (const n of visible) if (!seen.has(n.name)) dfs(n.name);
+  const order = post.reverse();
+
+  const isBack = (from, e) => back.has(`${from}>${e.to}>${e.kind}`);
+  const rank = new Map(order.map((n) => [n, 0]));
+  for (const name of order) {
+    for (const e of byName.get(name).out) {
+      if (!byName.has(e.to) || isBack(name, e)) continue;
+      rank.set(e.to, Math.max(rank.get(e.to), rank.get(name) + 1));
+    }
+  }
+
+  const rows = [];
+  for (const name of order) (rows[rank.get(name)] ||= []).push(name);
+  const preds = new Map();
+  for (const n of visible) for (const e of n.out) {
+    if (byName.has(e.to) && !isBack(n.name, e)) (preds.get(e.to) || preds.set(e.to, []).get(e.to)).push(n.name);
+  }
+
+  const maxCols = Math.max(...rows.map((r) => r?.length || 0));
+  const pos = new Map();
+  const place = () => rows.forEach((row, r) => {
+    row?.forEach((name, i) => pos.set(name, { r, i, n: row.length }));
+  });
+  place();
+  // Barycenter passes: order each row by where its predecessors sit.
+  for (let pass = 0; pass < 3; pass++) {
+    rows.forEach((row) => {
+      if (!row || row.length < 2) return;
+      const bary = (name) => {
+        const ps = preds.get(name) || [];
+        if (!ps.length) return pos.get(name).i;
+        return ps.reduce((a, p) => a + centerX(pos.get(p)), 0) / ps.length;
+      };
+      row.sort((a, b) => bary(a) - bary(b));
+    });
+    place();
+  }
+
+  const backCount = back.size;
+  const width = maxCols * PITCH_X + PAD * 2 + backCount * 14 + 40;
+  const height = rows.length * PITCH_Y + PAD * 2;
+  const coords = new Map();
+  const cx = PAD + (maxCols * PITCH_X) / 2;
+  for (const [name, p] of pos) {
+    coords.set(name, { x: cx + centerX(p) - NODE_W / 2, y: PAD + p.r * PITCH_Y });
+  }
+
+  return { visible, byName, coords, width, height, isBack, maxCols, rows };
+}
+
+function centerX(p) {
+  return (p.i - (p.n - 1) / 2) * PITCH_X;
+}
+
+// --- drawing ----------------------------------------------------------------
+
+function draw(layout, wfName, onSelect) {
+  const { visible, byName, coords, width, height, isBack, maxCols } = layout;
+  const root = svg("svg", {
+    class: "flow-svg",
+    viewBox: `0 0 ${width} ${height}`,
+    width,
+    role: "group",
+    "aria-label": "Workflow diagram",
+  });
+
+  const defs = svg("defs");
+  for (const kind of ["success", "failure", "branch", "loop", "back"]) {
+    defs.append(svg("marker", {
+      id: `arrow-${kind}`, viewBox: "0 0 10 10", refX: "9", refY: "5",
+      markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse",
+    }, svg("path", { d: "M0 0 L10 5 L0 10 z", class: `arrow ${kind}` })));
+  }
+  root.append(defs);
+
+  const edgeLayer = svg("g", { class: "edges" });
+  const nodeLayer = svg("g", { class: "nodes" });
+  root.append(edgeLayer, nodeLayer);
+
+  const railBase = PAD + maxCols * PITCH_X + 6;
+  let rail = 0;
+  const edgeEls = [];
+  for (const n of visible) {
+    const a = coords.get(n.name);
+    for (const e of n.out) {
+      if (!byName.has(e.to)) continue;
+      const b = coords.get(e.to);
+      const backward = isBack(n.name, e) || b.y <= a.y;
+      const skip = !backward && b.y - a.y > PITCH_Y * 1.5;
+      let d;
+      let cls = e.kind;
+      let lx;
+      let ly;
+      if (backward || skip) {
+        if (backward) cls = "back";
+        const x = railBase + 14 * rail++;
+        const sx = a.x + NODE_W;
+        const sy = a.y + NODE_H / 2;
+        const ty = b.y + NODE_H / 2;
+        d = `M${sx} ${sy} H${x} V${ty} H${b.x + NODE_W}`;
+        lx = x;
+        ly = (sy + ty) / 2;
+      } else {
+        const sx = a.x + NODE_W / 2;
+        const sy = a.y + NODE_H;
+        const tx = b.x + NODE_W / 2;
+        const ty = b.y;
+        const mid = (sy + ty) / 2;
+        d = `M${sx} ${sy} C${sx} ${mid} ${tx} ${mid} ${tx} ${ty}`;
+        lx = (sx + tx) / 2;
+        ly = mid;
+      }
+      const path = svg("path", { d, class: `edge-path ${cls}`, "marker-end": `url(#arrow-${cls})` });
+      const g = svg("g", { class: "edge-g", "data-from": n.name, "data-to": e.to }, path);
+      const label = e.kind === "branch" || ((backward || skip) && e.label) ? e.label : "";
+      if (label) {
+        const text = svg("text", { x: lx, y: ly, class: `edge-label ${cls}`, "text-anchor": backward || skip ? "start" : "middle", dy: "0.32em" });
+        text.textContent = label;
+        g.append(text);
+      }
+      edgeLayer.append(g);
+      edgeEls.push(g);
+    }
+  }
+
+  const fullWidth = Math.max(width, railBase + 14 * rail + 90);
+  root.setAttribute("viewBox", `0 0 ${fullWidth} ${height}`);
+  root.setAttribute("width", fullWidth);
+
+  const nodeEls = new Map();
+  for (const n of visible) {
+    const { x, y } = coords.get(n.name);
+    const label = stepLabel(wfName, n.name);
+    const title = label || n.name;
+    const sub = nodeSub(n);
+    const g = svg("g", {
+      class: `fnode ${n.kind}${n.loop ? " in-loop" : ""}`,
+      transform: `translate(${x} ${y})`,
+      tabindex: "0",
+      role: "button",
+      "aria-label": `${title}, ${n.kind} step`,
+    });
+    g.append(svg("rect", { width: NODE_W, height: NODE_H, rx: 9 }));
+    const t = svg("text", { x: 12, y: sub ? 19 : 28, class: "fn-title" });
+    t.textContent = truncate(title, 24);
+    g.append(t);
+    if (sub) {
+      const s = svg("text", { x: 12, y: 35, class: "fn-sub" });
+      s.textContent = truncate(sub, 30);
+      g.append(s);
+    }
+    if (n.failsTo.length) {
+      const dot = svg("circle", { cx: NODE_W - 12, cy: 12, r: 4, class: "fail-dot" });
+      dot.append(svg("title", {}, `On failure: ${n.failsTo.join(", ")}`));
+      g.append(dot);
+    }
+    if (n.kind === "while" || n.kind === "for_each") {
+      const c = svg("text", { x: NODE_W - 12, y: 31, class: "fn-loop", "text-anchor": "end" });
+      c.textContent = "↻";
+      g.append(c);
+    }
+    g.addEventListener("click", () => onSelect(n.name));
+    g.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onSelect(n.name); }
+    });
+    nodeLayer.append(g);
+    nodeEls.set(n.name, g);
+  }
+
+  return {
+    el: root,
+    highlight(name) {
+      for (const [k, g] of nodeEls) g.classList.toggle("selected", k === name);
+      for (const g of edgeEls) {
+        const hot = g.dataset.from === name || g.dataset.to === name;
+        g.classList.toggle("hot", hot);
+        g.classList.toggle("dim", !hot);
+      }
+    },
+  };
+}
+
+function nodeSub(n) {
+  const s = n.step;
+  if (s.Agent) {
+    const model = s.Agent.Options?.model;
+    return model && !String(model).includes("{{") ? `agent · ${model}` : "agent";
+  }
+  if (n.kind === "terminal") return s.Status ? String(s.Status) : "end";
+  if (n.kind === "while" || n.kind === "for_each") return `loop · ${s.Loop?.Body?.length || 0} steps`;
+  return n.loop ? `in ${n.loop}` : "";
+}
+
+function truncate(s, n) {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
+// --- detail panel -------------------------------------------------------------
+
+function detailNodes(n, model, wfName, select) {
+  const s = n.step;
+  const label = stepLabel(wfName, n.name);
+  const edge = (e) => h("li", {},
+    h("span", { class: `edge ${e.kind}` },
+      e.kind === "success" ? "✓ success" : e.kind === "failure" ? "✗ failure" : e.kind === "loop" ? "↻ loop" : `branch${e.label ? ` ${e.label}` : ""}`),
+    " → ",
+    h("button", { class: "link", onclick: () => select(e.to) }, e.to),
+    e.kind !== "branch" && e.label ? h("span", { class: "muted" }, ` ${e.label}`) : null,
+  );
+
+  const kv = [];
+  if (s.Agent?.Provider) kv.push(["agent", s.Agent.Provider]);
+  if (s.Agent?.Options?.model) kv.push(["model", s.Agent.Options.model]);
+  if (n.kind === "command") kv.push(["runs", "shell command"]);
+  if (s.Timeout) kv.push(["timeout", `${s.Timeout}s`]);
+  if (n.loop) kv.push(["inside loop", n.loop]);
+  if (s.Loop) {
+    kv.push(["max rounds", String(s.Loop.MaxIterations || "")]);
+    if (s.Loop.BreakCondition) kv.push(["stops when", conditionLabel(s.Loop.BreakCondition)]);
+    kv.push(["body", (s.Loop.Body || []).join(" → ")]);
+  }
+
+  const code = s.Command || s.Agent?.Prompt || "";
+  return [
+    h("div", { class: "row" },
+      h("h3", {}, label || n.name),
+      h("span", { class: "badge" }, n.kind)),
+    label && label !== n.name ? h("div", { class: "muted mono" }, n.name) : null,
+    s.Description && s.Description !== "null" ? h("p", { class: "muted" }, s.Description) : null,
+    kv.length
+      ? h("dl", { class: "flow-kv" }, kv.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]))
+      : null,
+    n.out.length || n.failsTo.length
+      ? h("div", {},
+        h("h4", {}, "Goes to"),
+        h("ul", { class: "flow-edges" },
+          n.out.map(edge),
+          n.failsTo.map((to) => edge({ kind: "failure", to, label: "(ends the run)" }))))
+      : h("p", { class: "muted" }, "Ends the run here."),
+    code
+      ? h("details", {},
+        h("summary", {}, s.Agent ? "Prompt" : "Command"),
+        h("pre", {}, code.length > 1800 ? `${code.slice(0, 1800)}\n…` : code))
+      : null,
+  ];
+}
+
+function legend() {
+  const item = (cls, text) => h("span", { class: "lg" }, h("i", { class: `lg-line ${cls}` }), text);
+  return h("div", { class: "flow-legend" },
+    item("success", "success"),
+    item("failure", "failure"),
+    item("branch", "condition"),
+    item("back", "returns to an earlier step"),
+    h("span", { class: "lg" }, h("i", { class: "fail-dot-lg" }), "fails to an error end"),
   );
 }

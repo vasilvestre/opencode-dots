@@ -490,3 +490,72 @@ td.actions { text-align: right; white-space: nowrap; }
 .suggest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
 
 .pager { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+
+/* Workflow diagram -------------------------------------------------------- */
+
+.flow { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .flow { grid-template-columns: 1fr; } }
+.flow-canvas {
+  overflow: auto; max-height: 78vh; padding: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.flow-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.flow-detail {
+  position: sticky; top: 76px; display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); max-height: calc(100vh - 100px); overflow: auto;
+}
+.flow-detail h4 { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+.flow-detail pre { max-height: 240px; font-size: 11.5px; }
+.flow-kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; font-size: 12.5px; }
+.flow-kv dt { color: var(--muted); }
+.flow-kv dd { margin: 0; overflow-wrap: anywhere; }
+.flow-edges { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.btn.link, button.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+button.link:hover { text-decoration: underline; }
+
+.flow-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); }
+.lg { display: inline-flex; align-items: center; gap: 6px; }
+.lg-line { width: 22px; height: 0; border-top: 2px solid var(--muted); }
+.lg-line.success { border-color: var(--ok); }
+.lg-line.failure { border-color: var(--err); border-top-style: dashed; }
+.lg-line.branch { border-color: var(--accent); }
+.lg-line.back { border-color: var(--warn); border-top-style: dotted; }
+.fail-dot-lg { width: 8px; height: 8px; border-radius: 50%; background: var(--err); }
+
+.edge-path { fill: none; stroke-width: 1.6; stroke: var(--border-strong); transition: opacity .12s; }
+.edge-path.success { stroke: var(--ok); }
+.edge-path.failure { stroke: var(--err); stroke-dasharray: 5 4; }
+.edge-path.branch, .edge-path.loop { stroke: var(--accent); }
+.edge-path.back { stroke: var(--warn); stroke-dasharray: 2 4; }
+.arrow { fill: var(--border-strong); }
+.arrow.success { fill: var(--ok); }
+.arrow.failure { fill: var(--err); }
+.arrow.branch, .arrow.loop { fill: var(--accent); }
+.arrow.back { fill: var(--warn); }
+.edge-g.dim { opacity: .28; }
+.edge-g.hot .edge-path { stroke-width: 2.4; }
+.edge-label { font: 600 10.5px var(--font); fill: var(--accent); paint-order: stroke; stroke: var(--surface-2); stroke-width: 4px; }
+.edge-label.back { fill: var(--warn); }
+
+.fnode { cursor: pointer; outline: none; }
+.fnode rect { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.2; }
+.fnode.agent rect { fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.fnode.while rect, .fnode.for_each rect { stroke: var(--warn); }
+.fnode.terminal rect { stroke-dasharray: 4 3; }
+.fnode.in-loop rect { stroke: color-mix(in srgb, var(--warn) 55%, var(--border-strong)); }
+.fnode:hover rect, .fnode:focus-visible rect { stroke: var(--accent); }
+.fnode.selected rect { stroke: var(--accent); stroke-width: 2.4; fill: var(--accent-soft); }
+.fn-title { font: 650 13px var(--font); fill: var(--text); }
+.fn-sub { font: 11px var(--mono); fill: var(--muted); }
+.fn-loop { font: 15px var(--font); fill: var(--warn); }
+.fail-dot { fill: var(--err); }
+
+.flow.compact { grid-template-columns: 1fr; }
+.flow.compact .flow-detail { position: static; max-height: none; }
+.flow.compact .flow-canvas { max-height: 52vh; }
+
+.wf-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1200px) { .wf-split { grid-template-columns: 1fr; } }
+.wf-split .code-box { height: min(72vh, 820px); }
