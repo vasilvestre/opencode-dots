@@ -5,7 +5,7 @@ on the host: one image holds `opencode`, `awf`, `gh` and `awf-gh`.
 
 ## Choose what runs where
 
-`make configure` asks three questions and writes `.env` and
+`make configure` asks four questions and writes `.env` and
 `compose.override.yaml`.
 
 | Piece | `local` | `docker` |
@@ -13,12 +13,35 @@ on the host: one image holds `opencode`, `awf`, `gh` and `awf-gh`.
 | `opencode` | attaches to the `opencode serve` already running on your host | starts `opencode serve` in a container |
 | `awf` | uses an `awf serve` that you start on the host | starts `awf serve` in a container |
 | `gh` | mounts the host `gh` binary, no version drift | uses the `gh` baked into the image |
+| `awf-gh` | runs `bin/awf-gh` on the host (needs `make build`) | runs the one-shot container (default) |
 
 Docker mode is experimental and not encouraged. `local` is the supported path:
 the image builds and the binaries answer, but nothing runs it on a schedule,
 tower memory is not available in a container, and the provider credentials path
 is untested. Start with `local` and stay there unless you are changing the
 image.
+
+### Run everything natively
+
+With `opencode`, `awf`, `gh` and `awf-gh` all `local`, the image is never used:
+skip `make image`, `make up` and any rebuild timer. `awf-gh=local`
+forces `gh=local`.
+
+```bash
+make build                                   # bin/awf-gh from $AWF_GH_SRC
+cp awf-gh.local.example.yaml awf-gh.yaml     # host paths, then list your repos
+bin/configure --awf=local --awf-gh=local     # rewrites awf_url and state_path in awf-gh.yaml
+systemctl --user edit dots-awf-gh.timer      # [Timer] Unit=dots-awf-gh-local.service
+```
+
+`systemd/dots-awf-gh-local.service` replaces `dots-awf-gh.service`; the timer
+stays. It names `~/projects/perso/opencode-dots`: for a checkout elsewhere,
+replace that path in the copied unit with `sed -i "s|%h/projects/perso/opencode-dots|$PWD|g"`. `make awf-gh` runs the native binary when `.env` has `DOT_AWFGH=local`.
+
+What `awf-gh` needs at runtime, read from its source: `gh` on `PATH` (`gh pr list`,
+`gh api`, `gh issue list`) with `GH_TOKEN` or a logged-in keyring; HTTP to
+`awf_url`; write access to `state_path` and its `.exec` sidecar (the directory is
+created). No `git`, no `jq`. Flags: `-config`, `-dry-run`, `-seed`, `-forget`.
 
 The gh token always comes from `.env`: a container cannot read your keyring.
 
@@ -188,7 +211,7 @@ systemctl --user enable --now dots-awf-gh.timer
 systemctl --user enable --now dots-dashboard.service
 ```
 
-`dots.service` runs `docker compose up -d` and stays active. `dots-awf.service`
+With `awf-gh=local`, enable the same timer after the drop-in above; do not enable `dots-awf-gh-local.service` itself. `dots.service` runs `docker compose up -d` and stays active. `dots-awf.service`
 runs the local `awf serve` when `bin/configure` picked `awf=local`; skip it for
 `awf=docker`, where the container serves the API. The timer runs one
 `awf-gh` pass every two minutes. `dots-dashboard.service` keeps the page on

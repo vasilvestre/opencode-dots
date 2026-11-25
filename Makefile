@@ -10,7 +10,7 @@ AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
 .PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard lint
 
-configure: ## choose local or image for opencode, awf and gh; writes .env
+configure: ## choose local or image for opencode, awf, gh and awf-gh; writes .env
 	bin/configure
 
 lint: ## lint the dashboard frontend, report unused code
@@ -49,8 +49,10 @@ down:
 logs:
 	$(COMPOSE) logs -f --tail=50
 
-awf-gh: .env ## one polling pass, for testing by hand
-	$(COMPOSE) --profile jobs run --rm awf-gh
+awf-gh: .env ## one polling pass, for testing by hand (native when DOT_AWFGH=local)
+	@if grep -qx 'DOT_AWFGH=local' .env; then \
+	  set -a; . ./.env; set +a; bin/awf-gh --config awf-gh.yaml; \
+	else $(COMPOSE) --profile jobs run --rm awf-gh; fi
 
 sync: ## fast-forward the managed clones onto origin/main
 	./bin/sync
