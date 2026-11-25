@@ -18,6 +18,13 @@ inputs:
   - name: event
     type: string
     required: false
+  - name: model
+    type: string
+    required: false
+    default: opencode-go/deepseek-v4.1-flash
+    description: model for the agent step
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
 
 states:
   initial: fetch
@@ -137,7 +144,7 @@ states:
     provider: opencode
     options:
       # A free default model hits the shared rate limit within minutes.
-      model: opencode-go/deepseek-v4.1-flash
+      model: "{{.inputs.model}}"
     prompt: |
       You answer a review comment on my pull request
       {{.inputs.repo}}#{{.inputs.pr}}.

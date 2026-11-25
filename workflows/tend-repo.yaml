@@ -19,6 +19,13 @@ inputs:
     required: false
     default: "false"
     description: show the issue and pull request it would open, without opening them
+  - name: model
+    type: string
+    required: false
+    default: opencode-go/deepseek-v4.1-flash
+    description: model for the agent step
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
 
 states:
   initial: survey
@@ -97,7 +104,7 @@ states:
     provider: opencode
     options:
       # A free default model hits the shared rate limit within minutes.
-      model: opencode-go/deepseek-v4.1-flash
+      model: "{{.inputs.model}}"
     prompt: |
       You keep one repository honest. It is {{.inputs.repo}}, mostly written by
       AI agents, and you work from what happened since the last pass.

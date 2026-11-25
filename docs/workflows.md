@@ -17,6 +17,36 @@ Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
 that is an absolute host path, because the local opencode server resolves paths
 on the host.
 
+## Model inputs
+
+Every agent step reads its model from a validated workflow input. A model
+identifier is `provider/model`, with an optional `#variant`. The
+`provider: opencode` field selects the awf adapter, not the model provider.
+
+Single-agent workflows (`reply-pr`, `tend-repo`, `fix-issue`, `fix-ci` and
+`ask-pr`) use `model`. `review-pr` uses `review_model` for the reviewer and
+`address_model` for the fixer. Keep their saved defaults different so the
+reviewer does not approve its own work.
+
+The Config view's Model defaults form edits these input defaults through
+`GET /api/models` and `PUT /api/models`. Automatic runs from `awf-gh`, Ask and
+`bin/tend` omit model inputs and use the saved defaults. The Run dialog can
+override a model for one run.
+
+A saved change applies to the next run without restarting awf or OpenCode. A
+running request keeps the model it started with.
+
+Only a dashboard-started run keeps its exact original inputs in browser
+`localStorage`, including a model override. Replay uses that record when
+available. An automatic run has no browser record, so replay may use the current
+saved default instead of the historical model.
+
+Validation checks identifier syntax, not provider availability. An unavailable
+model fails the next agent step.
+
+A `tend-repo` model override changes only its own agent step. It does not replace
+the `review_model` or `address_model` used by the nested `review-pr` run.
+
 ## review-pr
 
 Reviews a pull request and posts one review.
@@ -32,7 +62,8 @@ repos:
 
 Steps:
 
-1. `fetch` writes `meta.json` and `diff.patch` to
+1. `guard` drops the run when the head no longer matches the input sha.
+   `fetch` writes `meta.json` and `diff.patch` to
    `$STATE_DIR/reviews/pr<N>-<sha>/`, then checks out the pull request head in
    `work/` beside them. The reviewer reads the callers, the types and the tests
    with `read`, `glob` and `grep`, so a finding can rest on a file outside the
@@ -40,12 +71,38 @@ Steps:
    `checks.json` and `ci-failed.log`, the last 300 lines of `--log-failed` for
    up to three failed runs. Logs are best effort: a check that is not a GitHub
    Actions run leaves no log, and the review goes on without it.
-2. `review` asks the agent to write `review.md`: a correctness section, then a
-   security section that walks trust boundaries, secrets, privileges, data
-   destruction, dependencies and failure paths. The agent writes `verdict.txt`
-   with `merge` or `hold`; a security finding always means `hold`.
-3. `post` runs `gh pr review --comment --body-file`.
-4. `notify` posts to Discord when `DISCORD_WEBHOOK` is set.
+2. `wait` holds the run while a check is still pending, for up to
+   `CI_WAIT_SECONDS` (default 600). A settled red check is reviewed anyway: the
+   log explains it. A repository with no checks passes at once.
+3. `rework` alternates `review` and `address`, at most three rounds. `review`
+   asks the agent to write `review.md`: a correctness section, then a security
+   section that walks trust boundaries, secrets, privileges, data destruction,
+   dependencies and failure paths. The agent writes `verdict.txt` with `merge`
+   or `hold`; a security finding always means `hold`. `review` uses
+   `review_model` and `address` uses `address_model`. Their saved defaults use
+   different models, and each round starts a fresh session, so the reviewer
+   cannot approve its own work.
+   The reviewer lists each finding the fix round cleared as a `- cleared:` bullet
+   quoting one exact line of the worktree. `verify` checks every quote with
+   `grep -F`; a quote not found becomes `- unverified:`, an open finding.
+   `gate` ends the loop on a review with no open finding, or on the same open
+   findings as the previous round, which writes `stuck.md`. `address` clears the
+   findings in the worktree, rewrites `worklog.md` with `file:line` and the new
+   line for each one, and `rediff` refreshes
+   `diff.patch` so the next round reads the code as the fix left it.
+4. `post` runs `gh pr review --comment --body-file`, once per run.
+   When a fix round left edits on a branch the dot may not push to (not its own
+   `fix/*` branch), `post` keeps them as `fix.patch` and appends them to the
+   comment under "Proposed fix, not pushed", inside a `<details>` diff block cut
+   at 60000 bytes. `fetch` writes `owned` once (`ok` or the reason); `decide`
+   and `post` both read it. `notify` then names `fix.patch`.
+5. `decide` sends a `merge` verdict to `automerge`, a `hold` on my own `fix/*`
+   pull request to `push`, and anything else to `notify`. `push` commits the
+   worktree and pushes it, so the next `pr-updated` starts another run, capped
+   by `MAX_FIX_REVIEW_ATTEMPTS` counted in `reviews/pr<N>/attempts`.
+   `automerge` merges once the verdict is `merge` and the checks are green or
+   absent.
+6. `notify` posts to Discord when `DISCORD_WEBHOOK` is set.
 
 ## reply-pr
 
@@ -353,8 +410,11 @@ GH_TOKEN=$(gh auth token) docker compose run --rm \
     --input repo=owner/repo --input pr=42 --input event=review-comment"
 ```
 
-Replace the workflow name and the inputs to run another one. `awf validate
-<workflow>` checks the file before you spend a run.
+Replace the workflow name and the inputs to run another one. Add
+`--input model=provider/model#variant` to override the saved default for one run.
+For `review-pr`, use `--input review_model=provider/model#variant` and
+`--input address_model=provider/model#variant`. `awf validate <workflow>` checks
+the file before you spend a run.
 
 ## Anatomy of a workflow
 
@@ -368,6 +428,13 @@ inputs:
   - name: repo
     type: string
     required: true
+  - name: model
+    type: string
+    required: false
+    default: opencode-go/deepseek-v4.1-flash
+    description: model for the agent step
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
 states:
   initial: greet
   greet:
@@ -401,7 +468,7 @@ An agent step looks like this:
     type: agent
     provider: opencode
     options:
-      model: opencode-go/deepseek-v4.1-flash
+      model: "{{.inputs.model}}"
     prompt: |
       Read {{.env.STATE_DIR}}/input.md and write the answer to
       {{.env.STATE_DIR}}/answer.md.
@@ -410,8 +477,10 @@ An agent step looks like this:
     on_failure: error
 ```
 
-Set the model explicitly. The free default hits a shared rate limit within
-minutes and every agent step then fails with `provider.free-limit`.
+Every agent step must read a validated model input with a non-empty default.
+Use `provider/model`, with an optional `#variant`. The free default hits a shared
+rate limit within minutes and every agent step then fails with
+`provider.free-limit`.
 
 ## Next:
 

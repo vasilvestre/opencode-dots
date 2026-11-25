@@ -6,6 +6,8 @@ Wants=dots.service
 
 [Service]
 WorkingDirectory=%h/projects/perso/opencode-dots
+# Machine settings (DOTS_ALLOW_HOST). Optional: without it, only loopback writes.
+EnvironmentFile=-%h/projects/perso/opencode-dots/systemd/dots-dashboard.env
 ExecStart=%h/projects/perso/opencode-dots/bin/dashboard
 Restart=always
 RestartSec=5

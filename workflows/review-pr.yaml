@@ -16,6 +16,20 @@ inputs:
   - name: event
     type: string
     required: false
+  - name: review_model
+    type: string
+    required: false
+    default: claude-agent/haiku
+    description: model for the review agent
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
+  - name: address_model
+    type: string
+    required: false
+    default: claude-agent/sonnet
+    description: model for the fix agent
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
 
 states:
   initial: guard
@@ -117,16 +131,85 @@ states:
         echo "failed checks: $(jq -r '[.[] | select(.bucket == "fail") | .name] | join(", ")' "$d/checks.json")"
         wc -l "$d/ci-failed.log"
       fi
+      # The one ownership test. `owned` holds "ok" when I may push to this
+      # branch, else the reason. decide and post both read it, so they agree.
+      me=$(gh api user --jq .login)
+      author=$(jq -r '.author.login' "$d/meta.json")
+      owner=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json" | cut -d/ -f1)
+      branch=$(jq -r '.headRefName' "$d/meta.json")
+      if [ "$author" != "$me" ] || [ "$owner" != "$me" ] \
+        || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+        printf 'not my branch to fix (%s/%s by %s)\n' "$owner" "$branch" "$author" > "$d/owned"
+      else
+        case "$branch" in
+          fix/*) echo ok > "$d/owned" ;;
+          *) printf 'branch %s is not a fix-issue branch\n' "$branch" > "$d/owned" ;;
+        esac
+      fi
     timeout: 300
-    on_success: review
+    on_success: wait
     on_failure: error
 
+  # A commit whose checks still run is not ready to judge: the verdict would
+  # describe a state that is not final, and checks-failed would bring a second
+  # run for the same commit. The wait is bounded. A red check is still an
+  # input: ci-failed.log holds the reason. A repository with no checks has
+  # nothing to wait for.
+  wait:
+    type: step
+    command: |
+      set -eu
+      deadline=$(( $(date +%s) + ${CI_WAIT_SECONDS:-600} ))
+      while :; do
+        body=$(gh pr checks {{.inputs.pr}} --repo {{.inputs.repo}} \
+          --json bucket 2>/dev/null || true)
+        # jq sees an empty stdin as no document and prints nothing while
+        # exiting 0, so an empty answer must become [] before jq reads it.
+        pending=$(printf '%s' "${body:-[]}" \
+          | jq '[.[] | select(.bucket == "pending")] | length' 2>/dev/null || echo 0)
+        pending=${pending:-0}
+        if [ "$pending" = "0" ]; then
+          echo "checks settled"
+          exit 0
+        fi
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+          echo "warning: $pending checks still pending after the wait, reviewing anyway" >&2
+          exit 0
+        fi
+        sleep 15
+      done
+    timeout: 900
+    on_success: rework
+    on_failure: error
+
+  # The review and the fix run inside one awf run, so a round costs one model
+  # pass instead of a push, a poll, a clone and a public comment. Three rounds
+  # at most, and the run as a whole still counts one attempt against
+  # MAX_FIX_REVIEW_ATTEMPTS, so the work spent on a pull request stays bounded.
+  rework:
+    type: while
+    while: 'true'
+    break_when: 'states.gate.Output contains "STOP"'
+    max_iterations: 3
+    body:
+      - review
+      - verify
+      - gate
+      - address
+      - rediff
+    on_complete: post
+    on_failure: error
+
+  # The reviewer starts with no memory of the fix, so it cannot accept its own
+  # work. It reads the worktree the fix left, not only the pushed diff.
   review:
     type: agent
     provider: opencode
     options:
-      # A free default model hits the shared rate limit within minutes.
-      model: opencode-go/deepseek-v4.1-flash
+      # A free default model hits the shared rate limit within minutes. A
+      # different model from the one that fixes, so the review has a second
+      # point of view instead of approving its own output.
+      model: "{{.inputs.review_model}}"
     prompt: |
       You review pull request {{.inputs.repo}}#{{.inputs.pr}}.
 
@@ -151,6 +234,18 @@ states:
       When {{.env.STATE_DIR}}/tend/{{.inputs.repo}}/memory.md exists, read it
       too: what the repository is for, how it is laid out, and the decisions
       already taken.
+
+      When {{.env.STATE_DIR}}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}/worklog.md
+      exists, read it before the diff: it is the previous fix round's account
+      of what it changed. Treat it as a claim to check, not as proof. For each
+      finding it says is cleared, open the file at the place it names and check
+      the change is there. Then list every finding you confirm in the
+      Correctness section as a bullet that starts with `- cleared:`, names the
+      finding and the file and line, and ends with one exact line of the file
+      from the work checkout quoted in backticks. A cleared bullet is the one
+      allowed line that is not a finding. Do not list a finding you did not
+      check, and do not reopen a cleared one over a matter of style. The diff on
+      disk already contains the earlier rounds.
 
       When {{.env.STATE_DIR}}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}/ci-failed.log
       exists, read it before the diff: it holds the log of the checks that
@@ -198,7 +293,68 @@ states:
       auto-merge, so hold on anything you would not merge yourself, and always
       on a security finding.
     timeout: 600
-    on_success: post
+    on_success: rework
+    on_failure: error
+
+  # Checks each `- cleared:` claim against the checkout. A claim whose quoted
+  # line is not in the worktree becomes `- unverified:`, which counts as an open
+  # finding, so the next fix round must address it.
+  verify:
+    type: step
+    command: |
+      set -eu
+      d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
+      [ -s "$d/review.md" ] || exit 0
+      tmp="$d/review.md.new"
+      : > "$tmp"
+      while IFS= read -r line; do
+        case "$line" in
+          "- cleared:"*)
+            quote=$(printf '%s\n' "$line" | sed -n 's/.*`\([^`]*\)`$/\1/p')
+            if [ -n "$quote" ] && grep -rqF -- "$quote" "$d/work" 2>/dev/null; then
+              printf '%s\n' "$line" >> "$tmp"
+            else
+              printf '%s\n' "- unverified:${line#- cleared:}" >> "$tmp"
+              echo "unverified cleared claim:${line#- cleared:}"
+            fi
+            ;;
+          *) printf '%s\n' "$line" >> "$tmp" ;;
+        esac
+      done < "$d/review.md"
+      mv "$tmp" "$d/review.md"
+    timeout: 60
+    on_success: rework
+    on_failure: error
+
+  # The loop's brake. A review with no open finding ends the loop here, before a
+  # model pass is spent fixing nothing. The same open findings as the previous
+  # round means the fix made no progress, which is the stuck case push already
+  # knows. Cleared bullets are left out of both checks.
+  gate:
+    type: step
+    command: |
+      set -eu
+      d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
+      base=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}
+      open=$(grep '^- ' "$d/review.md" | grep -v '^- cleared:' || true)
+      if [ -z "$open" ]; then
+        echo "STOP: review has no open finding"
+        exit 0
+      fi
+      sum=$(printf '%s\n' "$open" | sha256sum | cut -d' ' -f1)
+      if [ -s "$d/round.sha" ] && [ "$sum" = "$(cat "$d/round.sha")" ]; then
+        printf 'The review did not change after a fix round, so the findings left need a human.\n' \
+          > "$base/stuck.md"
+        echo "STOP: no progress"
+        exit 0
+      fi
+      printf '%s\n' "$sum" > "$d/round.sha"
+      echo "FINDINGS"
+    timeout: 60
+    transitions:
+      - when: 'states.gate.Output contains "STOP"'
+        goto: post
+    on_success: rework
     on_failure: error
 
   post:
@@ -212,8 +368,46 @@ states:
         echo "SUPERSEDED: head moved to $head, dropping this review"
         exit 0
       fi
+      body="$d/review.md"
+      # A branch I may not push to can still hold edits from a fix round. They
+      # are never lost: keep them as fix.patch and show them in the comment.
+      if [ "$(head -1 "$d/owned" 2>/dev/null || echo ok)" != ok ] \
+        && [ -d "$d/work" ] && [ -n "$(git -C "$d/work" status --porcelain)" ]; then
+        git -C "$d/work" add -A -N
+        git -C "$d/work" diff HEAD > "$d/fix.patch"
+        if [ -s "$d/fix.patch" ]; then
+          body="$d/comment.md"
+          printf 'A fix round edited code on a branch I may not push to; the proposed patch is kept.\n' \
+            > "${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}/stuck.md"
+          max=60000
+          size=$(wc -c < "$d/fix.patch")
+          head -c "$max" "$d/fix.patch" > "$d/fix.shown"
+          # A fence longer than any backtick run in the patch cannot be closed from inside.
+          run=$(grep -o '`\+' "$d/fix.shown" | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')
+          [ "$run" -ge 3 ] || run=2
+          fence=$(printf '%*s' $((run + 1)) '' | tr ' ' '`')
+          {
+            cat "$d/review.md"
+            printf '\n\n---\n\n'
+            printf '_The review above was written against the proposed fix below, so its line references may differ from the pushed head._\n\n'
+            printf '### Proposed fix, not pushed (this branch is not mine to push to)\n\n'
+            if [ -s "$d/fixmsg.md" ]; then
+              printf 'Commit message:\n\n'
+              sed 's/^/> /' "$d/fixmsg.md"
+              printf '\n'
+            fi
+            printf '<details><summary>Patch (%s bytes)</summary>\n\n%sdiff\n' "$size" "$fence"
+            cat "$d/fix.shown"
+            printf '\n%s\n' "$fence"
+            if [ "$size" -gt "$max" ]; then
+              printf '\n_Truncated at %s of %s bytes. The full patch is %s/fix.patch._\n' "$max" "$size" "$d"
+            fi
+            printf '\n</details>\n'
+          } > "$body"
+        fi
+      fi
       gh pr comment {{.inputs.pr}} --repo {{.inputs.repo}} \
-        --body-file "$d/review.md"
+        --body-file "$body"
     timeout: 120
     transitions:
       - when: 'states.post.Output contains "SUPERSEDED:"'
@@ -232,22 +426,20 @@ states:
       base=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}
       verdict=$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)
       if [ "$verdict" = "merge" ]; then
+        # The last round may have fixed findings the review no longer lists:
+        # a merge here would drop those changes. Push them first.
+        if [ -d "$d/work" ] && [ -n "$(git -C "$d/work" status --porcelain)" ]; then
+          echo "FIX: verdict merge, but the last round left changes to push"
+          exit 0
+        fi
         echo "MERGE: verdict merge"
         exit 0
       fi
-      me=$(gh api user --jq .login)
-      author=$(jq -r '.author.login' "$d/meta.json")
-      owner=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json" | cut -d/ -f1)
-      branch=$(jq -r '.headRefName' "$d/meta.json")
-      if [ "$author" != "$me" ] || [ "$owner" != "$me" ] \
-        || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
-        echo "STUCK: not my branch to fix ($owner/$branch by $author)"
+      owned=$(head -1 "$d/owned" 2>/dev/null || echo "ownership unknown")
+      if [ "$owned" != ok ]; then
+        echo "STUCK: $owned"
         exit 0
       fi
-      case "$branch" in
-        fix/*) ;;
-        *) echo "STUCK: branch $branch is not a fix-issue branch"; exit 0 ;;
-      esac
       jq -e '.body | test("Closes #[0-9]+")' "$d/meta.json" >/dev/null \
         || { echo "STUCK: body has no Closes #N"; exit 0; }
       count=0
@@ -266,7 +458,7 @@ states:
         goto: automerge
       - when: 'states.decide.Output contains "STUCK:"'
         goto: notify
-    on_success: address
+    on_success: push
     on_failure: notify
 
   # The agent that clears the review findings on my own fix-issue branch. It
@@ -275,7 +467,7 @@ states:
     type: agent
     provider: opencode
     options:
-      model: opencode-go/deepseek-v4.1-flash
+      model: "{{.inputs.address_model}}"
     prompt: |
       You clear the review findings on my pull request
       {{.inputs.repo}}#{{.inputs.pr}} so it can merge.
@@ -319,6 +511,8 @@ states:
       5. Always rewrite
          {{.env.STATE_DIR}}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}/worklog.md,
          at most 25 lines: the findings, what you changed, what remains open.
+         For each finding you cleared, one line: the finding, `file:line`, and
+         the exact new line of code in backticks, so the reviewer can check it.
          Rewrite it, do not append.
 
       Hard rules:
@@ -330,7 +524,20 @@ states:
         named above. Never run `gh`, `git`, or any network command. Never
         commit, never push.
     timeout: 1500
-    on_success: push
+    on_success: rework
+    on_failure: error
+
+  # The next round must read the code as the fix left it, not the pull request
+  # as it was pushed.
+  rediff:
+    type: step
+    command: |
+      set -eu
+      d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
+      git -C "$d/work" add -A -N
+      git -C "$d/work" diff HEAD > "$d/diff.patch"
+    timeout: 60
+    on_success: rework
     on_failure: error
 
   # Commit and push the fix, on an owned branch only, then let the next
@@ -416,8 +623,18 @@ states:
       esac
       jq -e '.body | test("Closes #[0-9]+")' "$d/meta.json" >/dev/null \
         || { echo "automerge: body has no Closes #N"; exit 0; }
-      gh pr checks {{.inputs.pr}} --repo {{.inputs.repo}} --watch --interval 15 >/dev/null 2>&1 \
-        || { echo "automerge: checks failed or never completed, leaving the pull request open"; exit 0; }
+      # A repository with no checks never satisfies --watch, so ask first: no
+      # check means nothing to wait for. jq prints nothing on an empty stdin,
+      # hence the [] default.
+      raw=$(gh pr checks {{.inputs.pr}} --repo {{.inputs.repo}} --json bucket 2>/dev/null || true)
+      count=$(printf '%s' "${raw:-[]}" | jq 'length' 2>/dev/null || echo 0)
+      count=${count:-0}
+      if [ "$count" = "0" ]; then
+        echo "automerge: no check to wait for"
+      else
+        gh pr checks {{.inputs.pr}} --repo {{.inputs.repo}} --watch --interval 15 >/dev/null 2>&1 \
+          || { echo "automerge: checks failed or never completed, leaving the pull request open"; exit 0; }
+      fi
       gh pr merge {{.inputs.pr}} --repo {{.inputs.repo}} --squash --delete-branch \
         && echo "automerge: merged #{{.inputs.pr}}"
     timeout: 1500
@@ -449,6 +666,8 @@ states:
         msg="Arrêt, décision humaine requise sur {{.inputs.repo}}#{{.inputs.pr}} : $title
       $(cat "$stuck")
       <$url>"
+        [ -s "$d/fix.patch" ] && msg="$msg
+      Correctif proposé, non poussé : $d/fix.patch"
       elif [ "$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)" = "merge" ]; then
         msg="Review postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
       <$url>"
