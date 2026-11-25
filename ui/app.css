@@ -559,3 +559,22 @@ button.link:hover { text-decoration: underline; }
 .wf-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 1200px) { .wf-split { grid-template-columns: 1fr; } }
 .wf-split .code-box { height: min(72vh, 820px); }
+
+/* Activity status strip --------------------------------------------------- */
+
+.statusbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.stat {
+  display: inline-flex; align-items: baseline; gap: 8px; padding: 6px 14px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  color: var(--text); font: inherit;
+}
+.stat b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 12px; }
+.stat.live { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.stat.live b { color: var(--accent); }
+.stat.bad { border-color: color-mix(in srgb, var(--err) 45%, var(--border)); }
+.stat.bad b { color: var(--err); }
+button.stat { cursor: pointer; }
+button.stat:hover { background: var(--surface-2); }
+.run details { margin-top: 4px; }
+.run summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-bottom: 8px; }

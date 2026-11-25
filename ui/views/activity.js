@@ -22,6 +22,7 @@ export function mountActivity(el) {
     filter: "",
     status: "all",
     page: 0,
+    prTab: "reviewed",
     reviewsDone: false,
     repliesDone: false,
     artifacts: { reviews: [], replies: [], seen: [] },
@@ -33,7 +34,7 @@ export function mountActivity(el) {
   const logText = new Map();
 
   // --- skeleton -----------------------------------------------------------
-  const kpis = h("div", { class: "kpis", "aria-label": "Summary" });
+  const kpis = h("div", { class: "statusbar", "aria-label": "Summary" });
   const runs = h("div", {});
   const runsCount = h("span", { class: "muted" }, "");
   const historyBody = h("tbody", {});
@@ -56,6 +57,45 @@ export function mountActivity(el) {
   ["all", "succeeded", "failed", "running"].map((s) => h("option", { value: s }, s === "all" ? "All statuses" : s)),
   );
 
+  const prPanels = {
+    reviewed: reviews,
+    answered: replies,
+    seen: h("div", { class: "card" }, seen),
+  };
+  const prTabs = h("div", { class: "seg", role: "tablist", "aria-label": "Pull request lists" });
+  const prCount = { reviewed: 0, answered: 0, seen: 0 };
+  function renderPrTabs() {
+    mount(prTabs, [["reviewed", "Reviewed"], ["answered", "Answered"], ["seen", "Seen by the watcher"]].map(([key, label]) =>
+      h("button", {
+        role: "tab",
+        "aria-selected": String(state.prTab === key),
+        onclick: () => { state.prTab = key; renderPrTabs(); },
+      }, `${label} ${prCount[key]}`)));
+    for (const [key, panel] of Object.entries(prPanels)) panel.hidden = state.prTab !== key;
+  }
+
+  const historySection = h("section", { id: "history" },
+    h("div", { class: "section-head" },
+      h("h2", {}, "History"),
+      historyCount,
+      h("span", { class: "spacer" }),
+      search,
+      status,
+      h("button", { class: "btn sm", onclick: () => refresh() }, "Refresh"),
+    ),
+    h("div", { class: "table-wrap" },
+      h("table", {},
+        h("thead", {}, h("tr", {},
+          h("th", {}, "Workflow"), h("th", {}, "Status"), h("th", {}, "Started"),
+          h("th", {}, "Duration"), h("th", {}, "Cost"),
+          h("th", { class: "actions" }, ""),
+        )),
+        historyBody,
+      ),
+    ),
+    pager,
+  );
+
   mount(el,
     h("div", { class: "stack" },
       kpis,
@@ -63,40 +103,19 @@ export function mountActivity(el) {
         h("div", { class: "section-head" }, h("h2", {}, "Running now"), runsCount),
         runs,
       ),
-      h("section", {},
-        h("div", { class: "section-head" }, h("h2", {}, "Pull requests"), h("span", { class: "muted" }, "reviews and drafted replies")),
-        h("div", { class: "two-col" },
-          h("div", {}, h("h3", { class: "muted", style: { marginBottom: "8px" } }, "Reviewed"), reviews),
-          h("div", {}, h("h3", { class: "muted", style: { marginBottom: "8px" } }, "Answered"), replies),
-        ),
-        h("div", { class: "card", style: { marginTop: "12px" } },
-          h("div", { class: "card-head" }, h("h3", {}, "Seen by the watcher")),
-          seen,
-        ),
-      ),
+      historySection,
       h("section", {},
         h("div", { class: "section-head" },
-          h("h2", {}, "History"),
-          historyCount,
+          h("h2", {}, "Pull requests"),
+          h("span", { class: "muted" }, "reviews and drafted replies"),
           h("span", { class: "spacer" }),
-          search,
-          status,
-          h("button", { class: "btn sm", onclick: () => refresh() }, "Refresh"),
+          prTabs,
         ),
-        h("div", { class: "table-wrap" },
-          h("table", {},
-            h("thead", {}, h("tr", {},
-              h("th", {}, "Workflow"), h("th", {}, "Status"), h("th", {}, "Started"),
-              h("th", {}, "Duration"), h("th", {}, "Models"), h("th", {}, "Cost"), h("th", {}, "Run id"),
-              h("th", { class: "actions" }, "Log"),
-            )),
-            historyBody,
-          ),
-        ),
-        pager,
+        reviews, replies, prPanels.seen,
       ),
     ),
   );
+  renderPrTabs();
 
   // --- data ---------------------------------------------------------------
   async function refresh() {
@@ -192,16 +211,30 @@ export function mountActivity(el) {
 
   // --- summary ------------------------------------------------------------
   function renderKpis() {
-    const rows = [
-      ["Live runs", state.runs.length, ""],
-      ["Recorded runs", state.stats.total, ""],
-      ["Failed runs", state.stats.failed, state.stats.failed ? "bad" : ""],
-      ["Avg duration", dur(state.stats.avg), ""],
-      ["PRs reviewed", state.artifacts.reviews.length, ""],
-      ["PRs answered", state.artifacts.replies.length, ""],
-    ];
-    mount(kpis, rows.map(([label, value, tone]) =>
-      h("div", { class: `kpi ${tone}` }, h("b", {}, String(value)), h("span", {}, label))));
+    const failed = state.stats.failed;
+    const stat = (label, value, { tone = "", onclick = null, title = "" } = {}) =>
+      h(onclick ? "button" : "div", { class: `stat ${tone}`, onclick, title },
+        h("b", {}, String(value)), h("span", {}, label));
+    mount(kpis,
+      stat("running", state.runs.length, { tone: state.runs.length ? "live" : "" }),
+      stat("failed", failed, {
+        tone: failed ? "bad" : "",
+        title: failed ? "Show the failed runs in History" : "",
+        onclick: failed ? () => {
+          state.status = "failed";
+          status.value = "failed";
+          state.page = 0;
+          renderHistory();
+          historySection.scrollIntoView({ behavior: "smooth", block: "start" });
+        } : null,
+      }),
+      stat("recorded", state.stats.total),
+      stat("avg duration", dur(state.stats.avg)),
+    );
+    prCount.reviewed = state.artifacts.reviews.length;
+    prCount.answered = state.artifacts.replies.length;
+    prCount.seen = state.artifacts.seen.length;
+    renderPrTabs();
   }
 
   // --- running runs -------------------------------------------------------
@@ -263,7 +296,7 @@ export function mountActivity(el) {
         }, "Cancel"),
       ),
       h("div", { class: "bar", role: "progressbar", "aria-label": "Run in progress" }, h("i")),
-      pre,
+      h("details", {}, h("summary", {}, "Live log"), pre),
     );
     const steps = [];
     const stream = follow(run.execution_id, (text) => {
@@ -366,16 +399,14 @@ export function mountActivity(el) {
     return chips;
   }
 
-  function modelCell(models, routing) {
+  function modelChips(models, routing) {
     const pairs = models && Object.entries(models);
     const chips = [
       ...routingChips(routing),
       ...(pairs || []).map(([key, value]) =>
         h("span", { class: "chip", title: `${key}=${value}` }, `${key.replace(/_model$/, "")}: ${value}`)),
     ];
-    return h("td", {}, chips.length
-      ? h("span", { class: "chips" }, chips)
-      : h("span", { class: "muted" }, "—"));
+    return chips.length ? h("span", { class: "chips" }, chips) : null;
   }
 
   // renderPager keeps the newest runs first and lets the table stay compact.
@@ -413,30 +444,26 @@ export function mountActivity(el) {
     const shown = rows.slice(state.page * PAGE, state.page * PAGE + PAGE);
     renderPager(rows.length, pages);
     if (!shown.length) {
-      mount(historyBody, h("tr", {}, h("td", { colspan: "8" }, h("div", { class: "empty" },
+      mount(historyBody, h("tr", {}, h("td", { colspan: "6" }, h("div", { class: "empty" },
         state.history.length ? "No run matches the filter." : "No finished run recorded yet."))));
       return;
     }
     mount(historyBody, shown.map((e) => h("tr", {},
       h("td", {},
         h("b", {}, e.workflow_name),
-        e.target ? h("span", { class: "muted", title: "target guessed from the run log" }, ` ${e.target}`) : null),
+        e.target ? h("span", { class: "muted", title: "target guessed from the run log" }, ` ${e.target}`) : null,
+        e.routing?.provider ? h("span", { class: "chips", style: { display: "inline-flex", marginLeft: "6px" } }, routingChips(e.routing)) : null),
       h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
       h("td", { class: "num muted", title: when(e.started_at) }, ago(e.started_at)),
       h("td", { class: "num" }, dur(e.duration_ms)),
-      modelCell(e.models, e.routing),
       h("td", { class: "num" }, costCell(e)),
-      h("td", {}, e.logId
-        ? h("button", {
-          class: "btn ghost sm mono",
-          title: `${e.logId} (click to copy)`,
-          onclick: () => copyId(e.logId),
-        }, e.logId.slice(0, 8))
-        : h("span", { class: "muted" }, "—")),
       h("td", { class: "actions" },
-        e.logId
-          ? h("button", { class: "btn sm", onclick: () => showLog(e) }, "Log")
-          : h("span", { class: "muted" }, "—"),
+        h("button", {
+          class: "btn sm",
+          disabled: !e.logId,
+          title: e.logId ? "Steps, timing and log of this run" : "No log recorded for this run",
+          onclick: () => showLog(e),
+        }, "Details"),
         h("button", { class: "btn ghost sm", title: `Run ${e.workflow_name} again`, onclick: () => replay(e) }, "Replay"),
       ),
     )));
@@ -537,7 +564,17 @@ export function mountActivity(el) {
     const rounds = h("div", {});
     const modal = openModal({
       title: `${entry.workflow_name} · ${when(entry.started_at)} · ${entry.logId ? entry.logId.slice(0, 8) : "no id"}`,
-      body: h("div", {}, slot, rounds, pre),
+      body: h("div", {},
+        h("div", { class: "row", style: { marginBottom: "12px" } },
+          h("span", { class: `badge ${entry.status}` }, entry.status),
+          entry.target ? h("span", { class: "muted" }, entry.target) : null,
+          modelChips(entry.models, entry.routing),
+          h("span", { class: "spacer" }),
+          entry.logId
+            ? h("button", { class: "btn ghost sm mono", title: "Copy the run id", onclick: () => copyId(entry.logId) }, entry.logId.slice(0, 8))
+            : null,
+        ),
+        slot, rounds, pre),
     });
     if (entry.rounds?.length) {
       mount(rounds, entry.rounds.flatMap((p) => {
