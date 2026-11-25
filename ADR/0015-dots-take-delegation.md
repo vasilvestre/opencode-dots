@@ -20,7 +20,10 @@ another branch name got a review whose fix round was thrown away, or kept only a
 We let the operator delegate a pull request explicitly. A line that is exactly
 `/dots take` (whitespace trimmed, CRLF accepted) in a comment or in the pull
 request body grants the dot the right to fix and push; `/dots stop` revokes it.
-The last command wins by creation time. Only the authenticated gh user running
+A comment counts only when the command is its whole text: the dot posts with the
+same token, so a review that echoes the line must not delegate. The last command
+wins by creation time, except that a `/dots stop` in the body always wins, since
+gh gives no edit time for the body. Only the authenticated gh user running
 the dot (`gh api user`, the login `decide` already uses) can delegate; the same
 text from anyone else is ignored and `owned` notes "delegation ignored: not
 written by me". No other text is ever read as an instruction.
@@ -39,7 +42,9 @@ Commits are made as whoever runs the dot: `push` takes name and email from
 
 - Merge is not delegated. `automerge` still requires a `fix/*` branch and
   `Closes #N`, so a delegated pull request ends in a human merge.
-- `/dots stop` revokes at the next run; a push already made stays.
+- `/dots stop` revokes at the next run; a push already made stays. It does not
+  stop my own `fix/*` pull request that closes an issue: that rule is older and
+  does not depend on delegation.
 - A comment does not trigger a run. The next `pr-updated`, `checks-failed` or a
   manual run reads the command.
 - The command text is data checked with `jq`; it never reaches a shell.

@@ -140,17 +140,33 @@ states:
       author=$(jq -r '.author.login' "$d/meta.json")
       owner=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json" | cut -d/ -f1)
       branch=$(jq -r '.headRefName' "$d/meta.json")
+      delegation_read=ok
       gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} \
         --json body,createdAt,author,comments > "$d/delegation.json" 2>/dev/null \
-        || echo '{}' > "$d/delegation.json"
-      # A line that is exactly `/dots take` or `/dots stop` counts; anything
-      # else on the line, or any other line, is never read. The last command
-      # written by me wins; the pull request body counts at its creation time.
-      delegation=$(jq -r --arg me "$me" '
-        def cmd: [split("\n")[] | gsub("^\\s+|\\s+$"; "") | select(. == "/dots take" or . == "/dots stop")] | last // empty;
-        [ (select(.author.login == $me) | {t: .createdAt, c: (.body // "" | cmd)}),
-          ((.comments // [])[] | select(.author.login == $me) | {t: .createdAt, c: (.body // "" | cmd)}) ]
-        | map(select(.c != null and .c != "")) | sort_by(.t) | last | .c // empty
+        || { echo '{}' > "$d/delegation.json"; delegation_read=failed; }
+      # In the body, a line that is exactly `/dots take` or `/dots stop` counts.
+      # A comment counts only when it holds nothing else: the dot posts with my
+      # token, so a review that echoes the line must not delegate. The last
+      # command written by me wins. gh gives no edit time for the body, so a `/dots stop`
+      # in my body overrides any take; a body take counts at its creation time.
+      echoed=""
+      for f in "${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-"*/review.md \
+               "${STATE_DIR:-/state}/replies/pr{{.inputs.pr}}/reply.md"; do
+        [ -f "$f" ] || continue
+        t=$(jq -Rrs 'gsub("^\\s+|\\s+$"; "")' "$f" 2>/dev/null || true)
+        case "$t" in
+          "/dots take"|"/dots stop") echoed="$echoed|$t|" ;;
+        esac
+      done
+      delegation=$(jq -r --arg me "$me" --arg echoed "$echoed" '
+        def lines: [split("\n")[] | gsub("^\\s+|\\s+$"; "") | select(. == "/dots take" or . == "/dots stop")];
+        def whole: gsub("^\\s+|\\s+$"; "") as $t | if ($t == "/dots take" or $t == "/dots stop") and ($echoed | contains("|" + $t + "|") | not) then $t else "" end;
+        (if .author.login == $me then (.body // "" | lines | if any(.[]; . == "/dots stop") then "/dots stop" else (last // "") end) else "" end) as $b
+        | if $b == "/dots stop" then $b else
+          [ (select(.author.login == $me) | {t: .createdAt, c: $b}),
+            ((.comments // [])[] | select(.author.login == $me) | {t: .createdAt, c: (.body // "" | whole)}) ]
+          | map(select(.c != "")) | sort_by(.t) | last | .c // empty
+          end
         ' "$d/delegation.json" 2>/dev/null || true)
       others=$(jq -r --arg me "$me" '
         def cmd: [split("\n")[] | gsub("^\\s+|\\s+$"; "") | select(. == "/dots take" or . == "/dots stop")] | length;
@@ -172,6 +188,9 @@ states:
             ;;
           *) printf 'branch %s is not a fix-issue branch\n' "$branch" > "$d/owned" ;;
         esac
+      fi
+      if [ "$delegation_read" = failed ] && [ "$(head -1 "$d/owned")" != ok ]; then
+        printf 'could not read /dots take or /dots stop (gh pr view failed); retry the run\n' > "$d/owned"
       fi
       if [ "${others:-0}" != 0 ] && [ "$delegation" != "/dots take" ]; then
         printf 'delegation ignored: not written by me\n' >> "$d/owned"
@@ -470,6 +489,10 @@ states:
         echo "STUCK: $owned"
         exit 0
       fi
+      if [ "$verdict" != "hold" ]; then
+        echo "STUCK: verdict '${verdict:-missing}' is not hold, nothing to push"
+        exit 0
+      fi
       count=0
       [ -s "$base/attempts" ] && count=$(cat "$base/attempts")
       limit=${MAX_FIX_REVIEW_ATTEMPTS:-3}
@@ -581,6 +604,11 @@ states:
       [ "$head" = "{{.inputs.sha}}" ] || { echo "SUPERSEDED: head moved to $head, no push"; exit 0; }
       if [ -s "$base/stuck.md" ]; then
         echo "stuck, no push: $(cat "$base/stuck.md")"
+        exit 0
+      fi
+      owned=$(head -1 "$d/owned" 2>/dev/null || echo "ownership unknown")
+      if [ "$owned" != ok ]; then
+        echo "not my branch to push, no push: $owned"
         exit 0
       fi
       work="$d/work"
