@@ -33,7 +33,5 @@ printf '%s\n' "$now" > "$stamp"
 # new image up on their own. Containers that stay up (opencode or awf in docker
 # mode) keep the old one until they are recreated.
 if grep -qE '^DOT_(OPENCODE|AWF)=docker' "$root/.env" 2>/dev/null; then
-  docker ps -q --filter ancestor=opencode-dots:latest | grep -q . \
-    && { echo "rebuild: image in use, recreate later"; exit 0; }
   docker compose up -d --remove-orphans
 fi
