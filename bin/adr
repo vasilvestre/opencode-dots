@@ -63,6 +63,25 @@ check() {
       die "$base: status '$status'"
 
     link=$(sed -n 's/^- Superseded by: //p' "$f")
+    # The index row repeats the record's title, status and date: a row that
+    # drifted (a status left at "proposed", a retyped title) misleads the reader.
+    local row rtitle rstatus rdate title date
+    row=$(grep "^| \[$n\]" "$readme")
+    IFS='|' read -r _ _ rtitle rstatus rdate _ <<<"$row"
+    rtitle=$(sed 's/^ *//; s/ *$//' <<<"$rtitle")
+    rstatus=$(sed 's/^ *//; s/ *$//' <<<"$rstatus")
+    rdate=$(sed 's/^ *//; s/ *$//' <<<"$rdate")
+    title=$(sed -n "1s/^# $n\\. //p" "$f")
+    date=$(sed -n 's/^- Date: //p' "$f")
+    [ "$rtitle" = "$title" ] || die "$base: the index says title '$rtitle', the record says '$title'"
+    # A record whose header names its successor is superseded, whatever its
+    # status line still says (the older records kept "accepted").
+    local effective=$status successor
+    successor=$(grep -o '[0-9]\{4\}' <<<"$link" | head -1 || true)
+    [ -n "$successor" ] && effective="superseded by $successor"
+    [ "$rstatus" = "$effective" ] || die "$base: the index says status '$rstatus', the record says '$effective'"
+    [ "$rdate" = "$date" ] || die "$base: the index says date '$rdate', the record says '$date'"
+
     if [[ $status == superseded\ by\ * ]]; then
       [ "superseded by $link" = "$status" ] ||
         die "$base: status says '$status', header says '$link'"

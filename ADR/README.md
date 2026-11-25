@@ -18,7 +18,7 @@ your mind by writing a new one that supersedes it.
 | [0008](0008-run-cost-comes-from-awf.md) | Run cost comes from awf | accepted | 2026-11-23 |
 | [0009](0009-review-pr-merges-fix-pulls.md) | review-pr merges its own fix-issue pull requests | accepted | 2026-11-23 |
 | [0010](0010-review-fix-loop.md) | review-pr closes its own loop: fix, push, re-review | accepted | 2026-11-23 |
-| [0011](0011-sync-managed-clones.md) | sync managed clones | accepted | 2026-11-23 |
+| [0011](0011-sync-managed-clones.md) | Sync managed clones when main moves | accepted | 2026-11-23 |
 | [0012](0012-fix-rule-judges-decisions.md) | The fix rule judges decisions, not line counts | accepted | 2026-11-23 |
 | [0013](0013-dashboard-on-the-tailnet.md) | The dashboard answers on the tailnet through tailscale serve | accepted | 2026-11-23 |
 | [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | superseded by 0018 | 2026-11-24 |
@@ -61,7 +61,7 @@ To supersede, write the new record and set both fields:
 
 ```bash
 bin/adr new drop-docker-mode   # create ADR/0004-drop-docker-mode.md
-bin/adr check                  # index, numbering and supersede links agree
+bin/adr check                  # numbering, one index row per record (title, status, date), supersede links
 ```
 
 `bin/adr check` runs in `make adr` and in `make validate`.
