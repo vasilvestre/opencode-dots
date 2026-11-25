@@ -416,11 +416,12 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 	// second request.
 	type row struct {
 		logIndex
-		Cost   float64  `json:"cost,omitempty"`
-		Repo   string   `json:"repo,omitempty"`
-		PR     string   `json:"pr,omitempty"`
-		Issue  string   `json:"issue,omitempty"`
-		Rounds []string `json:"rounds,omitempty"`
+		Cost   float64           `json:"cost,omitempty"`
+		Repo   string            `json:"repo,omitempty"`
+		PR     string            `json:"pr,omitempty"`
+		Issue  string            `json:"issue,omitempty"`
+		Rounds []string          `json:"rounds,omitempty"`
+		Models map[string]string `json:"models,omitempty"`
 	}
 	out := []row{}
 	roundOwner := map[string]int{}
@@ -445,7 +446,7 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 				}
 				roundOwner[pr+"-"+sha] = len(out)
 			}
-			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"], Rounds: rounds})
+			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"], Rounds: rounds, Models: d.runModels(e.ID)})
 		}
 	}
 	writeJSON(w, out)

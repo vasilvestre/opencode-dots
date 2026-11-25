@@ -20,7 +20,7 @@ disk as ES modules, with no build step.
 | `/api/costs?from=&to=` | every opencode session in a window, for the history table |
 | `/api/usage` | `state/logs/index.jsonl` plus each run's log: what each pull request cost and which workflow spent it |
 | `/api/stream?id=` | tails the run: awf's transcript when present, else `state/logs/<id>.jsonl` |
-| `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run, plus its price, target and archived `rounds` |
+| `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run, plus its price, target, archived `rounds` and model inputs from awf state files |
 | `/api/repos` | `awf-gh.yaml`, the seen list, and `repos.map` for the Tower check |
 | `/api/repos/names` | repository names for the run dialog, from the configs and `state/tend` |
 | `/api/replay?id=` | what a finished run was given: workflow, scope and inputs |
@@ -176,7 +176,8 @@ counted once.
   on every refresh. `/api/logs` carries the same number per row, so the history
   table needs no second request. It also carries the run's `repo` and `pr` or
   `issue`, parsed from the log by `cacheTargets` and kept by log version. A run
-  from an older awf has no price.
+  from an older awf has no price. It also carries `models`, the model inputs
+  read from the run's awf state file when that file exists.
 - awf history ids differ from execution ids, so `state/logs/index.jsonl`
   records workflow and start time for every kept log. The page joins a history
   row to its log on workflow plus start second; `/api/executions` lists running

@@ -189,6 +189,29 @@ func (d *dash) transcriptDirs() []string {
 	return dirs
 }
 
+// runModels reports the model inputs awf recorded for a run. awf writes the
+// inputs a run used to the sibling states/ directory of its transcripts, as
+// <id>.json. Only model inputs are interesting here, and a run without a state
+// file, or with no model inputs, has no models.
+func (d *dash) runModels(id string) map[string]string {
+	for _, dir := range d.transcriptDirs() {
+		var state struct {
+			Inputs map[string]string `json:"inputs"`
+		}
+		loadJSON(filepath.Join(filepath.Dir(dir), "states", id+".json"), &state)
+		out := map[string]string{}
+		for name, model := range state.Inputs {
+			if model != "" && (name == "model" || strings.HasSuffix(name, "_model")) {
+				out[name] = model
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
 // replayRun answers /api/replay: what a finished run was asked to do, so the
 // page can offer the same run again. awf keeps no copy of the inputs, so the
 // values come either from the run log (see replayInputs) or from the page's own
