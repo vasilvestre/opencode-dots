@@ -25,6 +25,7 @@ your mind by writing a new one that supersedes it.
 | [0015](0015-dots-take-delegation.md) | The operator delegates a pull request with /dots take | accepted | 2026-11-25 |
 | [0016](0016-awf-gh-runs-natively.md) | awf-gh can run natively | accepted | 2026-11-25 |
 | [0017](0017-dashboard-edits-completion-notifications.md) | The dashboard edits completion notifications | accepted | 2026-11-25 |
+| [0018](0018-fix-issue-works-from-a-fork.md) | fix-issue works from a fork when it cannot push upstream | accepted | 2026-11-25 |
 
 ## When to write one
 

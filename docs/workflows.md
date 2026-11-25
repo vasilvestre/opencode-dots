@@ -321,7 +321,13 @@ Steps:
    worked reads `worklog.md` and the tower memory record of the earlier run
    before it starts, and rewrites `worklog.md` at the end.
 3. `push` commits on a `fix/<N>-<date>` branch, pushes it and opens a pull
-   request whose body ends with `Closes #N`, so merging closes the issue.
+   request whose body ends with `Closes #N`, so merging closes the issue. On a
+   repository the token cannot write to, the branch goes to your fork instead:
+   the step reuses `<you>/<repo>` when it is a fork of that repository, creates
+   it when it does not exist yet, and refuses a same-named repository that is
+   not a fork. The pull request is then opened against the upstream with
+   `--head <you>:<branch>`. A run that changes nothing never creates a fork.
+   See ADR 0018.
 4. `notify` posts the pull request URL on Discord when `DISCORD_WEBHOOK` is set.
 
 `fix-issue` never merges. The pull request waits for your review, or for
