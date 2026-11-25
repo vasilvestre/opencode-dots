@@ -1,4 +1,4 @@
-# One image, four binaries: nothing lands in ~/.local/bin on pop-os.
+# One image, four binaries: nothing lands in ~/.local/bin on this machine.
 
 # awf v0.11.10 cannot preflight opencode v2: it runs `opencode auth list`
 # without --format json and expects an "N credentials" footer that v2 dropped.
