@@ -1,8 +1,12 @@
 # cmd/dashboard/
 
 The activity page over `state/`, a reverse proxy to the awf API, and the editor
-for local config files. One Go file, `main.go`, package `main`. The frontend is
-`../../ui/`, served from disk as ES modules, with no build step.
+for local config files. One Go package, `main`: `main.go` holds the shared
+types, `main()` and the route wiring; handlers sit in `runs.go`, `cost.go`,
+`timeline.go`, `ask.go`, `repos.go`, `models.go` (HTTP glue only; the logic is in
+`../../internal/models`), `files.go`, `security.go`, `util.go`, with a `*_test.go`
+per file. The frontend is `../../ui/`, served from
+disk as ES modules, with no build step.
 
 ## WHAT IT SERVES
 
@@ -27,7 +31,33 @@ for local config files. One Go file, `main.go`, package `main`. The frontend is
 | `/api/files` | the editable files: `workflows/*.yaml` and the local configs |
 | `/api/source?path=` | one editable file as text |
 | `/api/save` (PUT) | writes one editable file, keeps a `.bak` |
+| `/api/models` (GET) | lists workflow model input variables, saved defaults, and available local model IDs |
+| `/api/models` (PUT) | updates named workflow model input defaults |
 | `/awf/*` | proxied to `AWF_URL`, default `http://127.0.0.1:2511` |
+
+## MODEL DEFAULTS
+
+The Config view's Model defaults form lists variables with `GET /api/models` and
+saves them with `PUT /api/models`. Single-agent workflows use `model`.
+`review-pr` uses `review_model` and `address_model`. A model identifier is
+`provider/model`, with an optional `#variant`. The `provider: opencode` field
+selects the awf adapter, not the model provider. `GET /api/models` also returns
+an `available` array from the local `opencode models` command. The Config view
+offers those IDs in a native datalist and keeps every field free text. A failed
+or timed-out lookup returns an empty array without blocking the form.
+
+Automatic runs from `awf-gh`, Ask and `bin/tend` omit model inputs and use the
+saved defaults. The Run dialog can override a model for one run. A saved change
+applies to the next run without restarting awf or OpenCode. A running request
+keeps the model it started with.
+
+Only a dashboard-started run keeps its exact original inputs in browser
+`localStorage`, including a model override. Replay uses that record when
+available. An automatic run has no browser record, so replay may use the current
+saved default instead of the historical model.
+
+A `tend-repo` model override changes only its own agent step. It does not replace
+the `review_model` or `address_model` used by the nested `review-pr` run.
 
 ## REPLAY
 
@@ -73,15 +103,35 @@ counted once.
 
 - Bind `127.0.0.1` only. The default is `-addr 127.0.0.1:8099`. There is no
   authentication: the loopback bind is the boundary.
-- Writes cover exactly four shapes: `workflows/<name>.yaml` (name matches
-  `[A-Za-z0-9_-]+`), `awf-gh.yaml`, `tend.list`, `repos.map`. `resolveEditable`
-  refuses `..` before cleaning, because `filepath.Clean` would fold it back
-  into a valid name.
-- `saveFile` checks, in order: `PUT`, loopback `Host` and `Origin`, JSON
+- The tailnet reaches the page through `tailscale serve` on
+  the tailnet address of this machine (see `systemd/dots-dashboard.env`), never through a wider bind. See
+  ADR 0013.
+- `/api/save` writes cover exactly four shapes: `workflows/<name>.yaml` (name
+  matches `[A-Za-z0-9_-]+`), `awf-gh.yaml`, `tend.list`, `repos.map`.
+  `resolveEditable` refuses `..` before cleaning, because `filepath.Clean` would
+  fold it back into a valid name.
+- `saveFile` checks, in order: `PUT`, trusted `Host` and `Origin`, JSON
   content type (a cross-site form cannot send it without a preflight), size cap
   (1 MiB), path allowlist, YAML parse. A YAML file that does not parse is
   refused and left untouched, because a broken watcher config stops the next
   polling pass.
+- `PUT /api/models` checks `PUT`, trusted `Host` and `Origin`, JSON content type
+  and a size cap before it updates workflow files. Match exact workflow and
+  input names. Refuse unknown keys and duplicate input names.
+- Refuse a structural conflict instead of overwriting it: the named model input
+  must exist once, be an optional string, have a non-empty scalar default and
+  carry the shared validation pattern. Each agent step must reference the
+  expected model input. The generic YAML editor can break this convention, so
+  the form reports the conflict.
+- Model values must be non-empty and match `provider/model`, with an optional
+  `#variant`. Validation checks identifier syntax, not provider availability.
+  An unavailable model fails the next agent step.
+- Edit only the matched `default` scalar. Preserve every other line and byte;
+  never marshal the whole YAML document.
+- Serialize `/api/models` updates with `/api/save` under the same write lock.
+  Keep a stamped `.bak` and use `atomicWrite`, as `saveFile` does. A save across
+  several workflow files is not one filesystem transaction, so a run that starts
+  during the save can use mixed defaults.
 - The page never runs git. The backup file is the safety net for the private
   files; for tracked files, git is.
 - The only other write is `state/logs/`: the watcher goroutine records a
@@ -119,6 +169,10 @@ counted once.
 - Artifact reads stop at `reviews/` and `replies/`: `state/` also holds git
   clones and must not be walkable.
 - Each handler answers JSON with `Cache-Control: no-store`.
+- A write needs its `Host`, and its `Origin` when present, to be loopback or
+  a name from `-allow-host` (`DOTS_ALLOW_HOST` in the unit). `trustedRequest`
+  makes that test; the list exists only for the tailnet name the proxy
+  forwards.
 - `/api/repos` sets `tower_ignore` ("missing" or "empty") only when the
   opencode config declares a tower MCP server that is not disabled, and the
   repository's checkout in `repos.map` has a `.towerignore` that is absent or
@@ -128,7 +182,8 @@ counted once.
 ## FLAGS
 
 `-addr`, `-state` (default `STATE_DIR`), `-root` (default the repository root;
-holds `workflows/` and the local configs), `-awf` (default `AWF_URL`), `-ui`,
+holds `workflows/` and the local configs), `-allow-host` (default
+`DOTS_ALLOW_HOST`), `-awf` (default `AWF_URL`), `-ui`,
 `-awfgh` (default `awf-gh.yaml`), `-opencode` (default the opencode config under
 `$XDG_CONFIG_HOME`).
 
@@ -137,6 +192,12 @@ holds `workflows/` and the local configs), `-awf` (default `AWF_URL`), `-ui`,
 - `projectRoot` assumes the binary sits in `bin/`. Running `go run` from another
   directory falls back to the working directory.
 - Tests cover the index, `resolveEditable`, the save handler (backup, YAML
-  refusal, origin and path rejection) and the loopback check.
+  refusal, origin and path rejection), and the loopback and trusted-host checks.
+  Model API tests cover GET and PUT validation, bad requests, exact-key changes,
+  structural conflicts, quote, comment and line-ending preservation, backups,
+  unchanged-request idempotence, multi-file preflight, and rollback after a write
+  failure. `TestWorkflowModelInputs` checks all six workflows for optional model
+  inputs with non-empty defaults, the shared validation pattern, and the correct
+  agent references.
 - `state/logs/` only holds runs that happened while the page was up.
   `systemd/dots-dashboard.service` keeps it up for that reason.

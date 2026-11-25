@@ -19,6 +19,9 @@ your mind by writing a new one that supersedes it.
 | [0009](0009-review-pr-merges-fix-pulls.md) | review-pr merges its own fix-issue pull requests | accepted | 2026-11-23 |
 | [0010](0010-review-fix-loop.md) | review-pr closes its own loop: fix, push, re-review | accepted | 2026-11-23 |
 | [0011](0011-sync-managed-clones.md) | sync managed clones | accepted | 2026-11-23 |
+| [0012](0012-fix-rule-judges-decisions.md) | The fix rule judges decisions, not line counts | accepted | 2026-11-23 |
+| [0013](0013-dashboard-on-the-tailnet.md) | The dashboard answers on the tailnet through tailscale serve | accepted | 2026-11-23 |
+| [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | accepted | 2026-11-24 |
 
 ## When to write one
 

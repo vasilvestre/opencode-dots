@@ -18,6 +18,7 @@ ADR/           decision records: index in README.md, one file per decision
 agent/         opencode config mounted into the container: AGENTS.md, agents/assistant.md
 bin/           configure (mode chooser), tend (daily dispatch), adr (records)
 cmd/dashboard/ Go server for the activity page
+internal/      models/: model-defaults logic (parse, validate, rewrite workflow defaults)
 docs/          workflow reference, memory-design rationale
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
 systemd/       user units and timers
@@ -52,7 +53,9 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 - `local` and `docker` must agree on the absolute paths for `STATE_DIR`,
   `WORK_ROOT` and `repos.map`, because a local opencode server resolves host
   paths.
-- Nothing binds a public interface. Ports stay on `127.0.0.1`.
+- Nothing binds a public interface. Ports stay on `127.0.0.1`. The tailnet
+  reaches the dashboard through `tailscale serve`, not through a wider bind
+  (ADR 0013).
 - An accepted ADR is never rewritten. A new decision supersedes it, and both
   files name the other.
 
