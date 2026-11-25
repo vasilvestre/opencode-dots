@@ -582,3 +582,26 @@ button.stat:hover { background: var(--surface-2); }
 .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; cursor: pointer; }
 .field .label { font-size: 12.5px; font-weight: 600; }
 .side h2 { margin-bottom: 2px; }
+
+/* Palette and header extras ----------------------------------------------- */
+
+.palette-input { width: 100%; font-size: 15px; padding: 10px 12px; }
+.palette-list { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; max-height: 50vh; overflow: auto; }
+.palette-item {
+  display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.palette-item[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.palette-item .muted { font-size: 12px; }
+.ext-link { color: var(--muted); font-size: 12.5px; font-weight: 550; }
+.ext-link:hover { color: var(--text); text-decoration: none; }
+#palette-btn kbd { margin-left: 4px; }
+@media (max-width: 760px) { #palette-btn { display: none; } }
+
+/* Selected rows read as "you are here" without borrowing the accent fill that
+   means running or primary elsewhere. */
+.side-item[aria-current="true"] {
+  background: var(--surface-2); border-color: var(--border);
+  box-shadow: inset 3px 0 0 var(--accent);
+}

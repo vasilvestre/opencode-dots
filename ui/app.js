@@ -10,6 +10,7 @@ import { mountRepos } from "./views/repos.js";
 import { mountCosts } from "./views/costs.js";
 import { mountMemory } from "./views/memory.js";
 import { startNotifications } from "./notifications.js";
+import { openPalette } from "./palette.js";
 
 const VIEWS = {
   activity: { mount: (el) => mountActivity(el), title: "Activity" },
@@ -60,6 +61,8 @@ systemDark.addEventListener("change", () => {
   }
 });
 
+$("#palette-btn").addEventListener("click", () => openPalette());
+
 const pill = $("#awf-status");
 const banner = $("#banner");
 let wasDown = false;
@@ -86,14 +89,21 @@ startNotifications();
 
 // --- shortcuts -----------------------------------------------------------
 document.addEventListener("keydown", (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "k") {
+    ev.preventDefault();
+    if (!document.querySelector(".modal-backdrop")) openPalette();
+    return;
+  }
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
   if (ev.key === "?" && !typing) {
     ev.preventDefault();
     openModal({
       title: "Keyboard shortcuts",
       body: h("dl", { class: "kbd-help" },
-        h("dt", {}, h("kbd", {}, "1"), "–", h("kbd", {}, "5")),
+        h("dt", {}, h("kbd", {}, "1"), "–", h("kbd", {}, "6")),
         h("dd", {}, "switch section"),
+        h("dt", {}, h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "K")),
+        h("dd", {}, "go to a section, workflow or file"),
         h("dt", {}, h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "S")),
         h("dd", {}, "save the open file, in the editor"),
         h("dt", {}, h("kbd", {}, "Esc")),
