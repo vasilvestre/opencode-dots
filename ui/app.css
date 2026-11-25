@@ -616,8 +616,19 @@ button.stat:hover { background: var(--surface-2); }
 .repo-table td.saving { opacity: .45; pointer-events: none; }
 .repo-table td.saved { background: var(--ok-soft); }
 .repo-table .cb { position: relative; display: inline-flex; vertical-align: middle; }
-.tuned {
-  position: absolute; left: calc(100% + 3px); top: 50%; transform: translateY(-50%);
-  color: var(--muted); cursor: help; font-size: 11px; line-height: 1; opacity: .7;
+.rules-btn {
+  position: absolute; left: calc(100% + 2px); top: 50%; transform: translateY(-50%);
+  padding: 0 3px; border: 0; background: none; color: var(--muted);
+  font-size: 12px; line-height: 1; cursor: pointer; opacity: 0;
 }
-.tuned:hover { opacity: 1; }
+.repo-table tr:hover .rules-btn, .rules-btn:focus-visible, .rules-btn.custom { opacity: .75; }
+.rules-btn:hover { opacity: 1; color: var(--accent); }
+
+/* Rules dialog ------------------------------------------------------------ */
+
+.rule-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-2); }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); font-size: 12.5px; cursor: pointer; }
+.pill:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.rule-preview { font-size: 12px; }
+.modal select { max-width: 100%; }

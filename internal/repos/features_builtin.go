@@ -55,6 +55,24 @@ func (checkout) Emit(r *Resolved, out *Output) error {
 	return nil
 }
 
+// WatchSchema is what a watcher feature (review, reply, fix_issue, fix_ci)
+// accepts, for a form that edits its rules.
+type WatchSchema struct {
+	Events    []string `json:"events"`
+	DefaultOn []string `json:"default_on"`
+	// Label is true when the feature takes the `label` shorthand (fix_issue).
+	Label bool `json:"label"`
+}
+
+// WatchSchemaOf describes a watcher feature; ok is false for any other key.
+func WatchSchemaOf(key string) (WatchSchema, bool) {
+	w, ok := registry[key].(watch)
+	if !ok {
+		return WatchSchema{}, false
+	}
+	return WatchSchema{Events: slices.Clone(events), DefaultOn: slices.Clone(w.defaultOn), Label: w.label}, true
+}
+
 // --- tend -> tend.list -------------------------------------------------------
 
 type tend struct{ base }

@@ -37,6 +37,18 @@ type featureState struct {
 	// but not recreate its options, so the page asks before dropping them.
 	Custom bool   `json:"custom,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// Rules is what the block says, one object per watcher rule, before any
+	// default is laid under it. Only the watcher features have it.
+	Rules []any `json:"rules,omitempty"`
+	// AutoMerge is tend's only option.
+	AutoMerge *bool `json:"auto_merge,omitempty"`
+}
+
+// watchForm is what the rules dialog needs to know about a watcher feature.
+type watchForm struct {
+	repos.WatchSchema
+	DefaultIgnore []any `json:"default_ignore,omitempty"`
+	DefaultOnly   []any `json:"default_only,omitempty"`
 }
 
 type repoRow struct {
@@ -50,10 +62,11 @@ type repoRow struct {
 }
 
 type reposConfig struct {
-	Repos     []repoRow `json:"repos"`
-	Profiles  []string  `json:"profiles"`
-	Toggles   []string  `json:"toggles"`
-	Providers []string  `json:"providers"`
+	Repos     []repoRow            `json:"repos"`
+	Profiles  []string             `json:"profiles"`
+	Toggles   []string             `json:"toggles"`
+	Providers []string             `json:"providers"`
+	Forms     map[string]watchForm `json:"forms"`
 }
 
 func (d *dash) reposConfigPath() string { return filepath.Join(d.root, repos.SourceFile) }
@@ -108,7 +121,17 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 	if err != nil {
 		return nil, httpError{http.StatusUnprocessableEntity, err.Error()}
 	}
-	cfg := &reposConfig{Repos: []repoRow{}, Profiles: []string{}, Toggles: toggles, Providers: providers}
+	cfg := &reposConfig{Repos: []repoRow{}, Profiles: []string{}, Toggles: toggles, Providers: providers, Forms: map[string]watchForm{}}
+	for _, key := range toggles {
+		if schema, ok := repos.WatchSchemaOf(key); ok {
+			form := watchForm{WatchSchema: schema}
+			if def, ok := doc.Defaults[key].(map[string]any); ok {
+				form.DefaultIgnore, _ = def["ignore_authors"].([]any)
+				form.DefaultOnly, _ = def["only_authors"].([]any)
+			}
+			cfg.Forms[key] = form
+		}
+	}
 	for name := range doc.Profiles {
 		cfg.Profiles = append(cfg.Profiles, name)
 	}
@@ -134,6 +157,14 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 					st.Custom = isCustom(v)
 					st.Detail = flowText(v)
 				}
+				if _, isWatch := cfg.Forms[key]; isWatch {
+					st.Rules = ruleList(rawFeature(doc, entry, key))
+				}
+				if key == "tend" {
+					m, _ := v.(map[string]any)
+					auto, _ := m["auto_merge"].(bool)
+					st.AutoMerge = &auto
+				}
 			}
 			row.Features[key] = st
 		}
@@ -154,6 +185,40 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 		cfg.Repos = append(cfg.Repos, row)
 	}
 	return cfg, nil
+}
+
+// rawFeature is what the repository's block says for a key, else what its first
+// profile that sets it says: the value before defaults are laid under it.
+func rawFeature(doc *repos.Document, entry repos.Entry, key string) any {
+	if v, ok := entry.Config[key]; ok {
+		return v
+	}
+	for _, name := range useNames(entry.Config["use"]) {
+		if v, ok := doc.Profiles[name][key]; ok {
+			return v
+		}
+	}
+	return nil
+}
+
+// ruleList normalises a watcher value to one object per rule: true is an empty
+// rule, a block is one rule, a list holds one per item.
+func ruleList(v any) []any {
+	switch x := v.(type) {
+	case map[string]any:
+		return []any{x}
+	case []any:
+		out := make([]any, 0, len(x))
+		for _, item := range x {
+			if m, ok := item.(map[string]any); ok {
+				out = append(out, m)
+			} else {
+				out = append(out, map[string]any{})
+			}
+		}
+		return out
+	}
+	return []any{map[string]any{}}
 }
 
 func useNames(v any) []string {
@@ -194,10 +259,12 @@ func flowText(v any) string {
 }
 
 type reposPatch struct {
-	Op    string `json:"op"`   // "set" (default), "add", "remove"
-	Repo  string `json:"repo"` // owner/name
-	Key   string `json:"key"`
-	Value any    `json:"value"` // bool for a toggle, string for provider and checkout, null to clear
+	Op   string `json:"op"`   // "set" (default), "add", "remove"
+	Repo string `json:"repo"` // owner/name
+	Key  string `json:"key"`
+	// Feature names the watcher feature a "rules" change is for.
+	Feature string `json:"feature"`
+	Value   any    `json:"value"` // bool for a toggle, string for provider and checkout, null to clear
 }
 
 func (d *dash) patchReposConfig(w http.ResponseWriter, r *http.Request) {
@@ -353,6 +420,10 @@ func setKey(top, block *yaml.Node, p reposPatch) error {
 		} else {
 			deleteKey(block, p.Key)
 		}
+	case p.Key == "rules":
+		return setRules(block, p)
+	case p.Key == "auto_merge":
+		return setAutoMerge(profiles, block, p)
 	case p.Key == "provider":
 		if p.Value == nil || p.Value == "" {
 			deleteKey(block, "provider")
@@ -454,4 +525,156 @@ func deleteKey(m *yaml.Node, key string) bool {
 		}
 	}
 	return false
+}
+
+// ruleKeyOrder is the order a rule's keys are written in.
+var ruleKeyOrder = []string{"on", "label", "only_authors", "ignore_authors", "scope", "labels", "inputs"}
+
+// setRules writes the rules of a watcher feature: `true` for one empty rule, a
+// block for one, a list for several. The feature must be one the table knows.
+func setRules(block *yaml.Node, p reposPatch) error {
+	if _, ok := repos.WatchSchemaOf(p.Feature); !ok {
+		return httpError{http.StatusBadRequest, fmt.Sprintf("%q has no rules to edit", p.Feature)}
+	}
+	list, ok := p.Value.([]any)
+	if !ok || len(list) == 0 {
+		return httpError{http.StatusBadRequest, "rules take a non-empty list"}
+	}
+	items := make([]*yaml.Node, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return httpError{http.StatusBadRequest, "each rule must be an object"}
+		}
+		node, err := ruleNode(m)
+		if err != nil {
+			return err
+		}
+		items = append(items, node)
+	}
+	var value *yaml.Node
+	switch {
+	case len(items) == 1 && len(items[0].Content) == 0:
+		value = boolNode(true)
+	case len(items) == 1:
+		value = items[0]
+	default:
+		value = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, n := range items {
+			if len(n.Content) == 0 {
+				n = boolNode(true)
+			}
+			value.Content = append(value.Content, n)
+		}
+	}
+	putKey(block, p.Feature, value)
+	return nil
+}
+
+func ruleNode(m map[string]any) (*yaml.Node, error) {
+	node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	seen := map[string]bool{}
+	add := func(key string) error {
+		v, ok := m[key]
+		if !ok || v == nil {
+			return nil
+		}
+		seen[key] = true
+		var vn yaml.Node
+		if err := vn.Encode(v); err != nil {
+			return httpError{http.StatusBadRequest, key + ": " + err.Error()}
+		}
+		if vn.Kind == yaml.SequenceNode {
+			vn.Style = yaml.FlowStyle
+		}
+		kn := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+		if key == "on" {
+			kn.Style = yaml.DoubleQuotedStyle // a YAML 1.1 reader takes a bare `on` for a boolean
+		}
+		node.Content = append(node.Content, kn, &vn)
+		return nil
+	}
+	for _, key := range ruleKeyOrder {
+		if err := add(key); err != nil {
+			return nil, err
+		}
+	}
+	var rest []string
+	for key := range m {
+		if !seen[key] {
+			rest = append(rest, key)
+		}
+	}
+	sort.Strings(rest)
+	for _, key := range rest {
+		if err := add(key); err != nil {
+			return nil, err
+		}
+	}
+	return node, nil
+}
+
+// setAutoMerge sets tend's auto_merge, turning `tend: true` into a block.
+func setAutoMerge(profiles, block *yaml.Node, p reposPatch) error {
+	on, ok := p.Value.(bool)
+	if !ok {
+		return httpError{http.StatusBadRequest, "auto_merge takes true or false"}
+	}
+	tend := mapValue(block, "tend")
+	if tend == nil && !profileEnables(profiles, block, "tend") {
+		return httpError{http.StatusConflict, "tend is switched off on this repository: tick Tend first"}
+	}
+	if tend == nil {
+		// Tend comes from a profile: an own block with auto_merge overrides it.
+		tend = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
+		putKey(block, "tend", tend)
+	}
+	if tend.Kind == yaml.ScalarNode && tend.Tag == "!!bool" {
+		if tend.Value == "false" {
+			return httpError{http.StatusConflict, "tend is switched off on this repository"}
+		}
+		tend = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
+		putKey(block, "tend", tend)
+	}
+	if tend.Kind != yaml.MappingNode {
+		return httpError{http.StatusUnprocessableEntity, "tend has a shape the table does not edit"}
+	}
+	if on {
+		putKey(tend, "auto_merge", boolNode(true))
+	} else if profileAutoMerge(profiles, block) {
+		// An inherited auto_merge is only switched off by saying false.
+		putKey(tend, "auto_merge", boolNode(false))
+	} else {
+		deleteKey(tend, "auto_merge")
+		if len(tend.Content) == 0 {
+			*tend = *boolNode(true)
+		}
+	}
+	return nil
+}
+
+// profileAutoMerge reports whether a `use` profile sets tend.auto_merge to true.
+func profileAutoMerge(profiles, block *yaml.Node) bool {
+	for _, name := range profileNames(block) {
+		tend := mapValue(mapValue(profiles, name), "tend")
+		if v := mapValue(tend, "auto_merge"); v != nil && v.Value == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+func profileNames(block *yaml.Node) []string {
+	use := mapValue(block, "use")
+	if use == nil {
+		return nil
+	}
+	if use.Kind == yaml.ScalarNode {
+		return []string{use.Value}
+	}
+	var names []string
+	for _, n := range use.Content {
+		names = append(names, n.Value)
+	}
+	return names
 }

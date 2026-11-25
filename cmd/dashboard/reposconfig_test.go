@@ -139,3 +139,82 @@ func TestPatchRefusesWhatTheTableDoesNotEdit(t *testing.T) {
 		}
 	}
 }
+
+func TestRulesAreReportedAsAList(t *testing.T) {
+	cfg, err := buildReposConfig([]byte(sampleRepos))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Forms["review"].Label || !cfg.Forms["fix_issue"].Label {
+		t.Fatalf("only fix_issue takes a label: %+v", cfg.Forms)
+	}
+	if len(cfg.Forms["review"].DefaultIgnore) != 1 {
+		t.Fatalf("the default ignore list should reach the form: %+v", cfg.Forms["review"])
+	}
+	var managed repoRow
+	for _, r := range cfg.Repos {
+		if r.Name == "acme/managed" {
+			managed = r
+		}
+	}
+	if got := managed.Features["review"].Rules; len(got) != 1 {
+		t.Fatalf("a profile's `true` is one empty rule: %v", got)
+	}
+	if managed.Features["tend"].AutoMerge == nil || !*managed.Features["tend"].AutoMerge {
+		t.Fatalf("tend auto_merge comes from the profile: %+v", managed.Features["tend"])
+	}
+}
+
+func TestSetRulesWritesTheShortestForm(t *testing.T) {
+	one := patch(t, sampleRepos, reposPatch{Repo: "acme/plain", Key: "rules", Feature: "reply", Value: []any{map[string]any{}}})
+	if !strings.Contains(one, "reply: true") {
+		t.Fatalf("one empty rule is `true`:\n%s", one)
+	}
+	two := patch(t, sampleRepos, reposPatch{Repo: "acme/plain", Key: "rules", Feature: "reply", Value: []any{
+		map[string]any{},
+		map[string]any{"on": []any{"command"}, "only_authors": []any{"me"}, "ignore_authors": []any{}},
+	}})
+	for _, want := range []string{`"on": [command]`, "only_authors: [me]", "ignore_authors: []"} {
+		if !strings.Contains(two, want) {
+			t.Fatalf("missing %q:\n%s", want, two)
+		}
+	}
+	if r := rowOf(t, two, "acme/plain").Features["reply"]; len(r.Rules) != 2 {
+		t.Fatalf("two rules expected: %+v", r)
+	}
+}
+
+func TestSetRulesRefusesWhatIsNotARuleFeature(t *testing.T) {
+	for _, p := range []reposPatch{
+		{Repo: "acme/plain", Key: "rules", Feature: "tend", Value: []any{map[string]any{}}},
+		{Repo: "acme/plain", Key: "rules", Feature: "reply", Value: []any{}},
+		{Repo: "acme/plain", Key: "rules", Feature: "reply", Value: "x"},
+	} {
+		if _, err := applyReposPatch([]byte(sampleRepos), p); err == nil {
+			t.Fatalf("%+v should be refused", p)
+		}
+	}
+}
+
+func TestAutoMerge(t *testing.T) {
+	if _, err := applyReposPatch([]byte(sampleRepos), reposPatch{Repo: "acme/plain", Key: "auto_merge", Value: true}); err == nil {
+		t.Fatal("auto_merge must not switch tend on")
+	}
+	withTend := patch(t, patch(t, sampleRepos, reposPatch{Repo: "acme/plain", Key: "tend", Value: true}),
+		reposPatch{Repo: "acme/plain", Key: "auto_merge", Value: true})
+	if a := rowOf(t, withTend, "acme/plain").Features["tend"].AutoMerge; a == nil || !*a {
+		t.Fatalf("auto_merge not set:\n%s", withTend)
+	}
+	off := patch(t, withTend, reposPatch{Repo: "acme/plain", Key: "auto_merge", Value: false})
+	if a := rowOf(t, off, "acme/plain").Features["tend"]; !a.On || (a.AutoMerge != nil && *a.AutoMerge) {
+		t.Fatalf("tend stays on, auto_merge goes off: %+v\n%s", a, off)
+	}
+	// Inherited from a profile: only an explicit false switches it off.
+	inherited := patch(t, sampleRepos, reposPatch{Repo: "acme/managed", Key: "auto_merge", Value: false})
+	if a := rowOf(t, inherited, "acme/managed").Features["tend"].AutoMerge; a == nil || *a {
+		t.Fatalf("the profile's auto_merge must be overridden:\n%s", inherited)
+	}
+	if _, err := applyReposPatch([]byte(sampleRepos), reposPatch{Repo: "acme/plain", Key: "auto_merge", Value: "yes"}); err == nil {
+		t.Fatal("a non boolean auto_merge must be refused")
+	}
+}

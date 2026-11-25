@@ -2,6 +2,7 @@ import { h, mount } from "../dom.js";
 import { getJSON } from "../api.js";
 import { confirmDialog } from "../modal.js";
 import { toast } from "../toast.js";
+import { openRulesDialog, ruleSummary } from "../rules-dialog.js";
 
 const FEATURES = [
   ["review", "Review", "review-pr on pull requests"],
@@ -9,6 +10,7 @@ const FEATURES = [
   ["fix_issue", "Fix issue", "fix-issue on new issues, or on one label"],
   ["fix_ci", "Fix CI", "fix-ci on failed checks of my own pull requests"],
   ["tend", "Tend", "the daily tend pass"],
+  ["auto_merge", "Auto-merge", "tend merges a pull request when review-pr says merge (needs Tend)"],
   ["sync", "Sync", "keep the local checkout fast-forwarded"],
 ];
 
@@ -106,7 +108,7 @@ export function mountRepos(el) {
     if (!on && f.custom) {
       const ok = await confirmDialog({
         title: `Switch off ${labelOf(key)} on ${row.name}?`,
-        message: `It has its own rules (${describe(f.detail)}). They are dropped from repos.yaml; the previous file is kept as a backup.`,
+        message: `It has its own rules: ${summaries(row, key).join(" / ")}. They are dropped from repos.yaml; the previous file is kept as a backup.`,
         confirm: "Switch off",
         danger: true,
       });
@@ -145,15 +147,11 @@ export function mountRepos(el) {
 
   // --- rendering --------------------------------------------------------------
 
-  // describe turns the JSON of a custom value into words for a dialog or tooltip.
-  function describe(detail) {
-    try {
-      const v = JSON.parse(detail);
-      if (Array.isArray(v)) return `${v.length} rules`;
-      return Object.entries(v).map(([k, x]) => `${k}: ${Array.isArray(x) ? x.join(", ") || "none" : x}`).join("; ");
-    } catch {
-      return detail;
-    }
+  // summaries is one line per rule of a feature, in words.
+  function summaries(row, key) {
+    const form = state.cfg.forms[key];
+    const rules = row.features[key].rules || [];
+    return rules.map((r) => ruleSummary(r, form));
   }
 
   function labelOf(key) {
@@ -211,6 +209,7 @@ export function mountRepos(el) {
   }
 
   function featureCell(row, key) {
+    if (key === "auto_merge") return autoMergeCell(row);
     const f = row.features[key];
     const box = h("input", {
       type: "checkbox",
@@ -218,14 +217,51 @@ export function mountRepos(el) {
       "aria-label": `${labelOf(key)} on ${row.name}`,
       title: f.source === "profile" ? `On through the profile ${row.use?.join(", ")}` : "",
     });
-    // The gear sits outside the flow, so a custom cell stays aligned with the others.
-    const wrap = h("span", { class: "cb" }, box,
-      f.on && f.custom
-        ? h("span", { class: "tuned", title: `Custom rules: ${describe(f.detail)}. Edit them in repos.yaml.` }, "⚙")
-        : null);
-    const td = h("td", { class: "cell-check", "data-cell": `${row.name}|${key}` }, wrap);
+    // The rules button sits outside the flow, so a custom cell stays aligned
+    // with the others.
+    const rulesBtn = f.on && state.cfg.forms[key]
+      ? h("button", {
+        class: `rules-btn${f.custom ? " custom" : ""}`,
+        title: f.custom ? `Runs on: ${summaries(row, key).join(" / ")}. Click to edit.` : "Choose when it runs",
+        "aria-label": `Edit when ${labelOf(key)} runs on ${row.name}`,
+        onclick: () => editRules(row, key),
+      }, "⚙")
+      : null;
+    const td = h("td", { class: "cell-check", "data-cell": `${row.name}|${key}` }, h("span", { class: "cb" }, box, rulesBtn));
     box.addEventListener("change", () => toggle(row, key, box.checked, td));
     return td;
+  }
+
+  function autoMergeCell(row) {
+    const tend = row.features.tend;
+    const box = h("input", {
+      type: "checkbox",
+      checked: Boolean(tend.auto_merge),
+      disabled: !tend.on,
+      "aria-label": `Auto-merge on ${row.name}`,
+      title: tend.on ? "Merge when review-pr says merge" : "Tick Tend first",
+    });
+    const td = h("td", { class: "cell-check", "data-cell": `${row.name}|auto_merge` }, h("span", { class: "cb" }, box));
+    box.addEventListener("change", () => save({ repo: row.name, key: "auto_merge", value: box.checked }, { cell: td }));
+    return td;
+  }
+
+  function editRules(row, key) {
+    const f = row.features[key];
+    openRulesDialog({
+      repo: row.name,
+      featureLabel: labelOf(key),
+      form: state.cfg.forms[key],
+      rules: f.rules || [],
+      onSave: async (rules) => {
+        if (JSON.stringify(rules) === JSON.stringify(f.rules)) return; // nothing changed
+        const res = await patch({ repo: row.name, key: "rules", feature: key, value: rules });
+        state.cfg = res.config;
+        render();
+        flash({ repo: row.name, key });
+        toast(`Saved the rules of ${labelOf(key)} on ${row.name}.`, { tone: "ok" });
+      },
+    });
   }
 
   function providerSelect(row) {
@@ -238,7 +274,9 @@ export function mountRepos(el) {
   }
 
   function detailRow(row, rule) {
-    const own = rule?.entries || [];
+    const watched = FEATURES.map(([key]) => key)
+      .filter((key) => state.cfg.forms[key] && row.features[key]?.on)
+      .map((key) => [key, summaries(row, key)]);
     return h("tr", { class: "detail" },
       h("td", { colspan: String(FEATURES.length + 4) },
         h("div", { class: "stack", style: { gap: "10px" } },
@@ -252,14 +290,13 @@ export function mountRepos(el) {
             rule.tower_ignore === "missing"
               ? "Tower indexes this repository and .towerignore is missing. Run tower init, then list what it must skip."
               : "Tower indexes this repository and .towerignore holds no pattern. Add the paths and files Tower must skip.") : null,
-          own.length ? h("div", { class: "stack", style: { gap: "6px" } },
-            h("h3", { class: "muted" }, "Watcher rules"),
-            own.map((e) => h("div", { class: "row", style: { fontSize: "12.5px" } },
-              h("b", {}, e.workflow),
-              h("span", { class: "muted" }, `on ${(e.on || []).join(", ")}`),
-              e.ignore_authors?.length ? h("span", { class: "muted" }, `· skips ${e.ignore_authors.length} authors`) : null,
-              e.only_authors?.length ? h("span", { class: "muted" }, `· only ${e.only_authors.join(", ")}`) : null,
-            ))) : h("div", { class: "muted" }, "No watcher rule: this repository only takes part in tend or sync."),
+          watched.length ? h("div", { class: "stack", style: { gap: "6px" } },
+            h("h3", { class: "muted" }, "When the watcher acts"),
+            watched.map(([key, lines]) => h("div", { class: "row", style: { fontSize: "12.5px", alignItems: "baseline" } },
+              h("b", { style: { minWidth: "70px" } }, labelOf(key)),
+              h("span", { class: "muted" }, lines.join("  +  ")),
+              h("button", { class: "btn ghost sm", onclick: () => editRules(row, key) }, "Edit")),
+            )) : h("div", { class: "muted" }, "No watcher rule: this repository only takes part in tend or sync."),
           rule?.seen.length ? h("div", { class: "chips" },
             rule.seen.slice().reverse().map((pr) => h("a", {
               class: "chip",
