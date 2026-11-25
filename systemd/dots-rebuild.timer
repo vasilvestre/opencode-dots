@@ -1,9 +1,0 @@
-[Unit]
-Description=Check every 15 minutes whether the image needs a rebuild
-
-[Timer]
-OnBootSec=10min
-OnUnitActiveSec=15min
-
-[Install]
-WantedBy=timers.target
