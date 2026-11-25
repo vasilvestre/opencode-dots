@@ -86,7 +86,7 @@ export function mountActivity(el) {
           h("table", {},
             h("thead", {}, h("tr", {},
               h("th", {}, "Workflow"), h("th", {}, "Status"), h("th", {}, "Started"),
-              h("th", {}, "Duration"), h("th", {}, "Cost"), h("th", {}, "Run id"),
+              h("th", {}, "Duration"), h("th", {}, "Models"), h("th", {}, "Cost"), h("th", {}, "Run id"),
               h("th", { class: "actions" }, "Log"),
             )),
             historyBody,
@@ -154,6 +154,7 @@ export function mountActivity(el) {
     const byKey = new Map();
     const costs = new Map();
     const roundsById = new Map();
+    const models = new Map();
     const wanted = new Map();
     for (const e of entries) {
       const key = runKey(e.workflow_name, e.started_at);
@@ -166,14 +167,17 @@ export function mountActivity(el) {
       if (cost) costs.set(id, cost);
       if (rounds?.length) roundsById.set(id, rounds);
     };
-    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id, l.cost, l.rounds);
+    for (const l of logs) {
+      add(l.workflow_name, l.started_at, l.execution_id, l.cost, l.rounds);
+      if (l.models) models.set(l.execution_id, l.models);
+    }
     for (const e of state.executions) add(e.workflow_name, e.started_at, e.execution_id, 0);
     return entries.map((e) => {
       const key = runKey(e.workflow_name, e.started_at);
       const list = byKey.get(key);
       const logId = list?.length && list.length === wanted.get(key) ? list.shift() : undefined;
       wanted.set(key, wanted.get(key) - 1);
-      return { ...e, logId, rounds: (logId && roundsById.get(logId)) || [], cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "" };
+      return { ...e, logId, rounds: (logId && roundsById.get(logId)) || [], cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "", models: (logId && models.get(logId)) || null };
     });
   }
 
@@ -342,6 +346,14 @@ export function mountActivity(el) {
     return c ? money({ cost: c }) : h("span", { class: "muted" }, "—");
   }
 
+  function modelCell(models) {
+    const pairs = models && Object.entries(models);
+    return h("td", {}, pairs?.length
+      ? h("span", { class: "chips" }, pairs.map(([key, value]) =>
+        h("span", { class: "chip", title: `${key}=${value}` }, `${key.replace(/_model$/, "")}: ${value}`)))
+      : h("span", { class: "muted" }, "—"));
+  }
+
   // renderPager keeps the newest runs first and lets the table stay compact.
   function renderPager(total, pages) {
     if (total <= PAGE) {
@@ -377,7 +389,7 @@ export function mountActivity(el) {
     const shown = rows.slice(state.page * PAGE, state.page * PAGE + PAGE);
     renderPager(rows.length, pages);
     if (!shown.length) {
-      mount(historyBody, h("tr", {}, h("td", { colspan: "7" }, h("div", { class: "empty" },
+      mount(historyBody, h("tr", {}, h("td", { colspan: "8" }, h("div", { class: "empty" },
         state.history.length ? "No run matches the filter." : "No finished run recorded yet."))));
       return;
     }
@@ -388,6 +400,7 @@ export function mountActivity(el) {
       h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
       h("td", { class: "num muted", title: when(e.started_at) }, ago(e.started_at)),
       h("td", { class: "num" }, dur(e.duration_ms)),
+      modelCell(e.models),
       h("td", { class: "num" }, costCell(e)),
       h("td", {}, e.logId
         ? h("button", {

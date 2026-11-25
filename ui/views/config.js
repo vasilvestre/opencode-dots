@@ -4,6 +4,7 @@ import { toast } from "../toast.js";
 import { createEditor } from "../editor.js";
 import { bytes, when } from "../format.js";
 import { navigate } from "../router.js";
+import { desktopState, isDesktopEnabled, requestDesktopPermission, setDesktopEnabled } from "../notifications.js";
 
 const KIND_LABEL = {
   watcher: "watcher rules: which repository, which workflow, which events",
@@ -20,6 +21,8 @@ export function mountConfig(el, arg) {
   let modelSaving = false;
   let modelConflicts = false;
   let modelInputs = [];
+  let notifLoading = true;
+  let notifSaving = false;
   const listEl = h("div", {});
   const modelsEl = h("div", { class: "list", style: { marginTop: "14px" } },
     h("div", { class: "empty" }, "Loading model defaults…"));
@@ -28,6 +31,27 @@ export function mountConfig(el, arg) {
     disabled: true,
     onclick: saveModels,
   }, "Save");
+  const webhookInput = h("input", {
+    id: "notif-webhook",
+    class: "mono",
+    type: "text",
+    maxLength: 500,
+    autocomplete: "off",
+    placeholder: "https://discord.com/api/webhooks/...",
+    style: { width: "100%" },
+  });
+  const enabledInput = h("input", { id: "notif-enabled", type: "checkbox" });
+  const saveNotifBtn = h("button", {
+    class: "btn primary",
+    disabled: true,
+    onclick: saveNotifications,
+  }, "Save");
+  const desktopStateEl = h("span", { class: "muted" }, desktopState());
+  const desktopBtn = h("button", {
+    class: "btn",
+    style: { marginLeft: "8px" },
+    onclick: toggleDesktop,
+  }, desktopLabel());
 
   mount(el, h("div", { class: "stack" },
     h("div", { class: "row between" },
@@ -46,6 +70,27 @@ export function mountConfig(el, arg) {
         "Use ", h("code", {}, "provider/model#variant"), ", for example ", h("code", {}, "local/helper#fast"),
         ". Changes apply to the next workflow run. Runs already in progress keep their current model."),
       modelsEl,
+    ),
+    h("div", { class: "card" },
+      h("div", { class: "row between" },
+        h("h2", {}, "Notifications"),
+        saveNotifBtn,
+      ),
+      h("p", { class: "muted", style: { marginTop: "6px" } },
+        "The dashboard sends a Discord message when a run finishes. The browser only saves the URL here."),
+      h("div", { class: "field" },
+        h("label", { for: "notif-webhook" }, "Discord webhook URL"),
+        webhookInput,
+      ),
+      h("div", { class: "field" },
+        h("label", { for: "notif-enabled" }, "Enabled"),
+        enabledInput,
+      ),
+      h("div", { class: "field" },
+        h("span", {}, "Desktop notifications: "),
+        desktopStateEl,
+        desktopBtn,
+      ),
     ),
     listEl,
     h("div", { id: "config-editor" }),
@@ -130,6 +175,90 @@ export function mountConfig(el, arg) {
     }
   }
 
+  function updateNotifSave() {
+    saveNotifBtn.disabled = notifLoading || notifSaving;
+  }
+
+  async function loadNotifications() {
+    notifLoading = true;
+    updateNotifSave();
+    try {
+      const res = await getJSON("/api/notifications");
+      if (destroyed) return;
+      const discord = res?.discord || {};
+      webhookInput.value = discord.webhook || "";
+      enabledInput.checked = Boolean(discord.enabled);
+    } catch (err) {
+      if (destroyed) return;
+      toast(`Cannot load notification settings (${err.body?.error || err.message}).`, { tone: "err", timeout: 8000 });
+    } finally {
+      notifLoading = false;
+      if (!destroyed) updateNotifSave();
+    }
+  }
+
+  async function saveNotifications() {
+    if (notifLoading || notifSaving) return;
+    notifSaving = true;
+    updateNotifSave();
+    webhookInput.disabled = true;
+    enabledInput.disabled = true;
+    try {
+      await putJSON("/api/notifications", {
+        discord: { enabled: enabledInput.checked, webhook: webhookInput.value },
+      });
+      if (!destroyed) toast("Saved notification settings.", { tone: "ok" });
+    } catch (err) {
+      if (!destroyed) toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
+    } finally {
+      notifSaving = false;
+      if (!destroyed) {
+        webhookInput.disabled = false;
+        enabledInput.disabled = false;
+        updateNotifSave();
+      }
+    }
+  }
+
+  function desktopLabel() {
+    return isDesktopEnabled() ? "Disable desktop notifications" : "Enable desktop notifications";
+  }
+
+  function updateDesktop() {
+    desktopStateEl.textContent = desktopState();
+    desktopBtn.textContent = desktopLabel();
+  }
+
+  async function toggleDesktop() {
+    if (isDesktopEnabled()) {
+      setDesktopEnabled(false);
+      updateDesktop();
+      toast("Desktop notifications disabled.", { tone: "ok" });
+      return;
+    }
+    if (desktopState() === "unsupported") {
+      toast("This browser does not support desktop notifications.", { tone: "err" });
+      return;
+    }
+    let permission;
+    try {
+      permission = await requestDesktopPermission();
+    } catch (err) {
+      toast(`Cannot request notification permission: ${err.message}`, { tone: "err" });
+      return;
+    }
+    if (destroyed) return;
+    setDesktopEnabled(permission === "granted");
+    updateDesktop();
+    if (permission === "granted") {
+      toast("Desktop notifications enabled.", { tone: "ok" });
+    } else if (permission === "denied") {
+      toast("Notification permission denied. Allow it in your browser settings.", { tone: "err" });
+    } else {
+      toast("Notification permission was not granted.", { tone: "info" });
+    }
+  }
+
   async function load() {
     let files;
     try {
@@ -185,6 +314,7 @@ export function mountConfig(el, arg) {
   }
 
   loadModels();
+  loadNotifications();
   load();
 
   return {

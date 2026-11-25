@@ -9,6 +9,7 @@ import { mountConfig } from "./views/config.js";
 import { mountRepos } from "./views/repos.js";
 import { mountCosts } from "./views/costs.js";
 import { mountMemory } from "./views/memory.js";
+import { startNotifications } from "./notifications.js";
 
 const VIEWS = {
   activity: { mount: (el) => mountActivity(el), title: "Activity" },
@@ -81,6 +82,7 @@ async function ping() {
 }
 ping();
 setInterval(ping, 10000);
+startNotifications();
 
 // --- shortcuts -----------------------------------------------------------
 document.addEventListener("keydown", (ev) => {

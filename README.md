@@ -78,6 +78,25 @@ a line in the logs.
 Create the webhook in the target channel: channel settings, Integrations,
 Webhooks, New Webhook, Copy Webhook URL.
 
+The dashboard sends a separate notice when any recorded run finishes with
+`workflow.completed` or `workflow.failed`. It posts the workflow name and that
+state once per execution. Open the Config view to set the webhook and enable
+these notices. The page saves the setting in `notifications.json` at the
+repository root, which is private and gitignored. Start from
+`notifications.example.json`:
+
+```bash
+cp notifications.example.json notifications.json
+```
+
+Set `webhook` to a Discord channel URL of the form
+`https://discord.com/api/webhooks/<id>/<token>` and set `enabled` to `true`,
+either in the file or on the Config page. A save takes effect on the next
+finished run without a restart. A dead webhook or a slow network only writes a
+line to the dashboard log. This setting is separate from `DISCORD_WEBHOOK`: the
+workflow `notify` steps keep using the environment variable. There is no test
+button; saving the config does not send a message.
+
 ## Tend: learn from what shipped
 
 `reply-pr` and `review-pr` react. `tend-repo` looks back. Once a day,
@@ -297,7 +316,7 @@ It shows:
   where it goes on success, on failure and on a branch, plus an editor that
   saves, validates and runs the file without leaving the page
 - a Config tab: `awf-gh.yaml`, `tend.list` and `repos.map` in the same editor,
-  plus a Model defaults form for workflow inputs
+  plus a model defaults form, the Discord webhook and the desktop notification switch
 - a Cost tab: every pull request, issue and repository the runs touched, the
   total spent on it and which workflow spent what. The grouping comes from the
   run logs, so it covers the runs the dashboard recorded
@@ -309,19 +328,19 @@ It shows:
   or lists no pattern.
 
 The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
-running (`make up`). It binds loopback only. It writes three things:
+running (`make up`). It binds loopback only. It writes four things:
 `state/logs/` (awf forgets an execution's events once the run leaves its
 session registry, so the dashboard records them while it runs and deletes files
-older than 30 days), `state/asks/` (the Ask conversation), and the four local
+older than 30 days), `state/asks/` (the Ask conversation), and the five local
 config files you edit from the page.
-`/api/save` accepts `workflows/*.yaml`, `awf-gh.yaml`, `tend.list` and
-`repos.map`; the previous content stays as a stamped `.bak` beside the file.
-The Model defaults form uses `GET /api/models` to list model inputs and
+`/api/save` accepts `workflows/*.yaml`, `awf-gh.yaml`, `tend.list`, `repos.map`
+and `notifications.json`; the previous content stays as a stamped `.bak` beside
+the file. The Model defaults form uses `GET /api/models` to list model inputs and
 `PUT /api/models` to update them. It changes only named workflow input defaults
 and uses the same backups and atomic writes. The page never commits: read the
 diff and commit yourself. See
-[ADR 0004](ADR/0004-dashboard-edits-local-config.md) and
-[ADR 0014](ADR/0014-dashboard-editable-model-defaults.md).
+[ADR 0014](ADR/0014-dashboard-editable-model-defaults.md) and
+[ADR 0017](ADR/0017-dashboard-edits-completion-notifications.md).
 
 Single-agent workflows use the `model` input. `review-pr` uses `review_model`
 and `address_model`. A model identifier is `provider/model`, with an optional

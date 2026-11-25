@@ -2,8 +2,8 @@
 // runs, PR review and reply artifacts, and the watcher's seen list.
 //
 // It also proxies /awf/* to the awf API so the page stays same-origin and needs
-// no CORS. It binds 127.0.0.1 only. Writes are limited to state/logs/ and the
-// four local config files (see /api/save and ADR 0004).
+// no CORS. It binds 127.0.0.1 only. Writes are limited to state/logs/ and local
+// config files (see /api/save and /api/notifications).
 package main
 
 import (
@@ -114,7 +114,8 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
+	d.discordPost = postDiscord
 	for _, h := range strings.Split(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			d.allow[h] = true
@@ -153,6 +154,7 @@ func main() {
 	mux.HandleFunc("/api/memory", d.tendMemory)
 	mux.HandleFunc("/api/files", d.files)
 	mux.HandleFunc("/api/models", d.models)
+	mux.HandleFunc("/api/notifications", d.notifications)
 	mux.HandleFunc("/api/source", d.source)
 	mux.HandleFunc("/api/save", d.saveFile)
 	mux.Handle("/awf/", http.StripPrefix("/awf", proxy))
@@ -173,9 +175,11 @@ type dash struct {
 	allow        map[string]bool // extra hosts allowed to write, see -allow-host
 	editMu       sync.Mutex
 	modelCatalog func(context.Context) []string
+	discordPost  func(webhook, message string) error
 	mu           sync.Mutex
 	active       map[string]bool
 	tried        map[string]bool
+	notified     map[string]bool // one completion message per execution id
 	indexed      map[string]bool
 
 	// The page asks for a price on every refresh; the last answer per run file

@@ -1,9 +1,9 @@
 # 0004. The dashboard edits local config files
 
-- Status: accepted
+- Status: superseded by 0017
 - Date: 2026-11-23
 - Supersedes: none
-- Superseded by: none
+- Superseded by: 0017
 
 ## Context
 

@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -21,5 +23,35 @@ func TestTranscriptFrame(t *testing.T) {
 	}
 	if _, ok := transcriptFrame("not json"); ok {
 		t.Fatal("transcriptFrame accepted a broken line")
+	}
+}
+
+// Model inputs come from awf's state file, next to the transcript directory.
+func TestRunModels(t *testing.T) {
+	dir := t.TempDir()
+	transcripts := filepath.Join(dir, "awf", "transcripts")
+	states := filepath.Join(dir, "awf", "states")
+	for _, d := range []string{transcripts, states} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := "abc12345-0000-0000-0000-000000000000"
+	body := `{"inputs":{"review_model":"opencode/claude-sonnet-4-5","address_model":"opencode/gpt-5","pr":"447"}}`
+	if err := os.WriteFile(filepath.Join(states, id+".json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &dash{transcripts: transcripts}
+	got := d.runModels(id)
+	if len(got) != 2 || got["review_model"] != "opencode/claude-sonnet-4-5" || got["address_model"] != "opencode/gpt-5" {
+		t.Fatalf("runModels = %v", got)
+	}
+	if _, ok := got["pr"]; ok {
+		t.Fatalf("runModels kept a non-model input: %v", got)
+	}
+
+	if missing := d.runModels("ffffffff-0000-0000-0000-000000000000"); missing != nil {
+		t.Fatalf("missing state = %v, want nil", missing)
 	}
 }

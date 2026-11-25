@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 // state/logs. awf forgets events once the execution leaves its session
 // registry, so a recording has to start while the run is still running.
 func (d *dash) watchRuns() {
+	d.seedNotified()
 	lastPrune := time.Time{}
 	for {
 		d.recordRuns()
@@ -26,6 +28,22 @@ func (d *dash) watchRuns() {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// seedNotified marks the logs already on disk as announced. Without it a
+// restart would send one message per recent run to the webhook.
+func (d *dash) seedNotified() {
+	entries, _ := os.ReadDir(filepath.Join(d.state, "logs"))
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == "index.jsonl" || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		seen[strings.TrimSuffix(e.Name(), ".jsonl")] = true
+	}
+	d.mu.Lock()
+	d.notified = seen
+	d.mu.Unlock()
 }
 
 // pruneLogs mirrors the 30 day retention awf keeps for its own history.
@@ -62,6 +80,11 @@ func (d *dash) pruneLogs() {
 	os.WriteFile(filepath.Join(dir, "index.jsonl"), []byte(keep.String()), 0o644)
 	d.mu.Lock()
 	d.indexed = indexed
+	for id := range d.notified {
+		if !live[id+".jsonl"] {
+			delete(d.notified, id)
+		}
+	}
 	d.mu.Unlock()
 
 	d.targetMu.Lock()
@@ -101,6 +124,7 @@ func (d *dash) recordRuns() {
 		}
 		if exists(filepath.Join(d.state, "logs", e.ID+".jsonl")) {
 			d.noteIndex(e.ID, e.WorkflowName, e.StartedAt)
+			d.notifyTerminal(e.ID, e.WorkflowName)
 			continue
 		}
 		d.mu.Lock()
@@ -244,14 +268,70 @@ func (d *dash) stream(w http.ResponseWriter, r *http.Request) {
 
 // recordedTerminal reports whether the recorder already saw the end of the run.
 func (d *dash) recordedTerminal(id string) bool {
+	return strings.Contains(d.logTail(id), `"kind":"workflow.`)
+}
+
+// logTail reads the end of the recorder's file: terminal events are written
+// last, and a run log can grow beyond the page's read limit.
+func (d *dash) logTail(id string) string {
 	b, err := os.ReadFile(filepath.Join(d.state, "logs", id+".jsonl"))
 	if err != nil {
-		return false
+		return ""
 	}
 	if len(b) > 4096 {
 		b = b[len(b)-4096:]
 	}
-	return strings.Contains(string(b), `"kind":"workflow.`)
+	return string(b)
+}
+
+// terminalStatus returns the terminal state the recorder saw for an execution.
+func (d *dash) terminalStatus(id string) string {
+	tail := d.logTail(id)
+	for _, status := range []string{"completed", "failed"} {
+		if strings.Contains(tail, `"kind":"workflow.`+status+`"`) {
+			return status
+		}
+	}
+	return ""
+}
+
+// notifyTerminal sends one Discord message for a finished run. It reads the
+// config on every call and never stops the recorder: a failed post is a log
+// line, and each execution id is considered once per process.
+func (d *dash) notifyTerminal(id, workflow string) {
+	d.mu.Lock()
+	if d.notified == nil {
+		d.notified = map[string]bool{}
+	}
+	seen := d.notified[id]
+	d.mu.Unlock()
+	if seen {
+		return
+	}
+
+	status := d.terminalStatus(id)
+	if status == "" {
+		return
+	}
+	d.mu.Lock()
+	if d.notified[id] {
+		d.mu.Unlock()
+		return
+	}
+	d.notified[id] = true
+	d.mu.Unlock()
+
+	cfg := readNotificationConfig(d.root)
+	if !cfg.Discord.Enabled || cfg.Discord.Webhook == "" {
+		return
+	}
+	post := d.discordPost
+	if post == nil {
+		post = postDiscord
+	}
+	if err := post(cfg.Discord.Webhook, fmt.Sprintf("dots: %s %s", workflow, status)); err != nil {
+		log.Printf("notify %s: %v", id, err)
+	}
 }
 
 // logID keeps the id from reaching the filesystem as a path.
@@ -336,11 +416,12 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 	// second request.
 	type row struct {
 		logIndex
-		Cost   float64  `json:"cost,omitempty"`
-		Repo   string   `json:"repo,omitempty"`
-		PR     string   `json:"pr,omitempty"`
-		Issue  string   `json:"issue,omitempty"`
-		Rounds []string `json:"rounds,omitempty"`
+		Cost   float64           `json:"cost,omitempty"`
+		Repo   string            `json:"repo,omitempty"`
+		PR     string            `json:"pr,omitempty"`
+		Issue  string            `json:"issue,omitempty"`
+		Rounds []string          `json:"rounds,omitempty"`
+		Models map[string]string `json:"models,omitempty"`
 	}
 	out := []row{}
 	roundOwner := map[string]int{}
@@ -365,7 +446,7 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 				}
 				roundOwner[pr+"-"+sha] = len(out)
 			}
-			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"], Rounds: rounds})
+			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"], Rounds: rounds, Models: d.runModels(e.ID)})
 		}
 	}
 	writeJSON(w, out)
