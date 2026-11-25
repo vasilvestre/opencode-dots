@@ -4,8 +4,8 @@ The activity page over `state/`, a reverse proxy to the awf API, and the editor
 for local config files. One Go package, `main`: `main.go` holds the shared
 types, `main()` and the route wiring; handlers sit in `runs.go`, `cost.go`,
 `timeline.go`, `ask.go`, `repos.go`, `models.go` (HTTP glue only; the logic is in
-`../../internal/models`), `files.go`, `security.go`, `util.go`, with a `*_test.go`
-per file. The frontend is `../../ui/`, served from
+`../../internal/models`), `notifications.go`, `files.go`, `security.go`,
+`util.go`, with a `*_test.go` per file. The frontend is `../../ui/`, served from
 disk as ES modules, with no build step.
 
 ## WHAT IT SERVES
@@ -33,6 +33,8 @@ disk as ES modules, with no build step.
 | `/api/save` (PUT) | writes one editable file, keeps a `.bak` |
 | `/api/models` (GET) | lists workflow model input variables, saved defaults, and available local model IDs |
 | `/api/models` (PUT) | updates named workflow model input defaults |
+| `/api/notifications` (GET) | reads the Discord webhook setting from `notifications.json`, or the disabled defaults |
+| `/api/notifications` (PUT) | saves the Discord webhook setting under the same write lock and keeps a `.bak` |
 | `/awf/*` | proxied to `AWF_URL`, default `http://127.0.0.1:2511` |
 
 ## MODEL DEFAULTS
@@ -132,6 +134,25 @@ counted once.
   Keep a stamped `.bak` and use `atomicWrite`, as `saveFile` does. A save across
   several workflow files is not one filesystem transaction, so a run that starts
   during the save can use mixed defaults.
+- The Config view also edits the private `notifications.json` at the repository
+  root through `GET` and `PUT /api/notifications`. Its only shape is
+  `{"discord":{"enabled":boolean,"webhook":string}}`. GET returns the saved
+  config, or `enabled: false` with an empty webhook when the file is absent.
+- `/api/notifications` uses the same boundary as `/api/models`: trusted `Host`
+  and `Origin`, JSON content type on PUT, a 16 KiB cap, one JSON object, and no
+  unknown keys. A webhook is empty or a Discord URL of at most 512 characters.
+- Writes to `notifications.json` take `editMu`, keep a stamped `.bak`, and use
+  `atomicWrite`. The recorder reads the file at send time, so a Config save
+  changes the next notice without a restart.
+- The recorder sends one Discord notice per execution id when its log has
+  `workflow.completed` or `workflow.failed`. The message names the workflow and
+  that state. `notified` under `d.mu` deduplicates per run; `seedNotified()` marks
+  the logs already on disk at startup so a restart sends no repeat, and
+  `pruneLogs()` drops ids whose log has gone. A post has a five second timeout;
+  a failure is logged and recording continues. The injectable `discordPost`
+  field defaults to `postDiscord`.
+- This is separate from `DISCORD_WEBHOOK` and the workflow `notify` steps. Do
+  not add a webhook test endpoint: saving the config sends nothing.
 - The page never runs git. The backup file is the safety net for the private
   files; for tracked files, git is.
 - The only other write is `state/logs/`: the watcher goroutine records a
@@ -200,6 +221,8 @@ holds `workflows/` and the local configs), `-allow-host` (default
   unchanged-request idempotence, multi-file preflight, and rollback after a write
   failure. `TestWorkflowModelInputs` checks all six workflows for optional model
   inputs with non-empty defaults, the shared validation pattern, and the correct
-  agent references.
+  agent references. Notification tests cover defaults, validation, origin and
+  size rejection, backups, one notice per execution, and the Discord payload
+  through an injected post function.
 - `state/logs/` only holds runs that happened while the page was up.
   `systemd/dots-dashboard.service` keeps it up for that reason.

@@ -11,7 +11,7 @@ your mind by writing a new one that supersedes it.
 | [0001](0001-memory-split-in-three.md) | Split agent memory into three stores | accepted | 2026-11-23 |
 | [0002](0002-shell-steps-own-side-effects.md) | The agent never writes to a remote; shell steps do | accepted | 2026-11-23 |
 | [0003](0003-private-config-not-in-git.md) | Private names never enter git | accepted | 2026-11-23 |
-| [0004](0004-dashboard-edits-local-config.md) | The dashboard edits local config files | accepted | 2026-11-23 |
+| [0004](0004-dashboard-edits-local-config.md) | The dashboard edits local config files | superseded by 0016 | 2026-11-23 |
 | [0005](0005-run-cost-from-opencode-db.md) | Run cost comes from opencode's database | superseded by 0008 | 2026-11-23 |
 | [0006](0006-per-pull-request-memory.md) | Memory of one pull request across runs | accepted | 2026-11-23 |
 | [0007](0007-ask-the-agent-about-a-pull-request.md) | Ask the agent about a pull request from the dashboard | accepted | 2026-11-23 |
@@ -24,6 +24,7 @@ your mind by writing a new one that supersedes it.
 | [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | accepted | 2026-11-24 |
 | [0015](0015-dots-take-delegation.md) | The operator delegates a pull request with /dots take | accepted | 2026-11-25 |
 | [0016](0016-awf-gh-runs-natively.md) | awf-gh can run natively | accepted | 2026-11-25 |
+| [0017](0017-dashboard-edits-completion-notifications.md) | The dashboard edits completion notifications | accepted | 2026-11-25 |
 
 ## When to write one
 
