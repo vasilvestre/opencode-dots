@@ -90,18 +90,32 @@ Steps:
    findings in the worktree, rewrites `worklog.md` with `file:line` and the new
    line for each one, and `rediff` refreshes
    `diff.patch` so the next round reads the code as the fix left it.
-4. `post` runs `gh pr review --comment --body-file`, once per run.
+4. `post` runs `gh pr comment --body-file`, once per run.
    When a fix round left edits on a branch the dot may not push to (not its own
    `fix/*` branch), `post` keeps them as `fix.patch` and appends them to the
    comment under "Proposed fix, not pushed", inside a `<details>` diff block cut
    at 60000 bytes. `fetch` writes `owned` once (`ok` or the reason); `decide`
    and `post` both read it. `notify` then names `fix.patch`.
-5. `decide` sends a `merge` verdict to `automerge`, a `hold` on my own `fix/*`
-   pull request to `push`, and anything else to `notify`. `push` commits the
+5. `decide` sends a `merge` verdict to `automerge`, a `hold` on a pull request
+   `owned` marks `ok` (my own `fix/*` or a delegated one) to `push`, and anything else to `notify`. `push` commits the
    worktree and pushes it, so the next `pr-updated` starts another run, capped
    by `MAX_FIX_REVIEW_ATTEMPTS` counted in `reviews/pr<N>/attempts`.
    `automerge` merges once the verdict is `merge` and the checks are green or
    absent.
+   Delegation: a line that is exactly `/dots take` in a comment or the body, written
+   by me (the gh user running the dot), lets the dot fix and push my own pull
+   request on any branch except `main`/`master`; `/dots stop` revokes. A comment
+   counts only when the command is its whole text, because the dot posts with my
+   token. The last command wins, except that a `/dots stop` in the body always
+   wins (gh gives no edit time for the body, so a body `/dots take` is dated at
+   creation; to re-take after a stop, delete the `/dots stop` line from the body
+   first, then comment `/dots take`). Never on a fork or a `tend/`
+   branch. `/dots stop` does not block my own
+   `fix/*` pull request that closes an issue. `fetch` reads it and sets `owned`;
+   others' commands are ignored.
+   Merge is not delegated: `automerge` still needs a `fix/*` branch with
+   `Closes #N`. A comment starts no run; the next event or a manual run reads it.
+   Commits use the identity of `gh api user`. See ADR 0015.
 6. `notify` posts to Discord when `DISCORD_WEBHOOK` is set.
 
 ## reply-pr

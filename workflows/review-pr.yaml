@@ -133,18 +133,77 @@ states:
       fi
       # The one ownership test. `owned` holds "ok" when I may push to this
       # branch, else the reason. decide and post both read it, so they agree.
+      # Two ways to be ok: my own fix-issue branch (fix/*, Closes #N), or a
+      # pull request of mine that I delegated with a `/dots take` line. Only
+      # my own login can delegate; text from anyone else is data and is ignored.
       me=$(gh api user --jq .login)
       author=$(jq -r '.author.login' "$d/meta.json")
       owner=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json" | cut -d/ -f1)
       branch=$(jq -r '.headRefName' "$d/meta.json")
+      delegation_read=ok
+      gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} \
+        --json body,createdAt,author,comments > "$d/delegation.json" 2>/dev/null \
+        || { echo '{}' > "$d/delegation.json"; delegation_read=failed; }
+      # In the body, a line that is exactly `/dots take` or `/dots stop` counts.
+      # A comment counts only when it holds nothing else: the dot posts with my
+      # token, so a review that echoes the line must not delegate. The last
+      # command written by me wins. gh gives no edit time for the body, so a `/dots stop`
+      # in my body overrides any take; a body take counts at its creation time.
+      echoed=""
+      for f in "${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-"*/review.md \
+               "${STATE_DIR:-/state}/replies/pr{{.inputs.pr}}/reply.md"; do
+        [ -f "$f" ] || continue
+        t=$(jq -Rrs 'gsub("^\\s+|\\s+$"; "")' "$f" 2>/dev/null || true)
+        case "$t" in
+          "/dots take"|"/dots stop") echoed="$echoed|$t|" ;;
+        esac
+      done
+      delegation=$(jq -r --arg me "$me" --arg echoed "$echoed" '
+        def lines: [split("\n")[] | gsub("^\\s+|\\s+$"; "") | select(. == "/dots take" or . == "/dots stop")];
+        def whole: gsub("^\\s+|\\s+$"; "") as $t | if ($t == "/dots take" or $t == "/dots stop") and ($echoed | contains("|" + $t + "|") | not) then $t else "" end;
+        (if .author.login == $me then (.body // "" | lines | if any(.[]; . == "/dots stop") then "/dots stop" else (last // "") end) else "" end) as $b
+        | if $b == "/dots stop" then $b else
+          [ (select(.author.login == $me) | {t: .createdAt, c: $b}),
+            ((.comments // [])[] | select(.author.login == $me) | {t: .createdAt, c: (.body // "" | whole)}) ]
+          | map(select(.c != "")) | sort_by(.t) | last | .c // empty
+          end
+        ' "$d/delegation.json" 2>/dev/null) || delegation_read=failed
+      others=$(jq -r --arg me "$me" '
+        def cmd: [split("\n")[] | gsub("^\\s+|\\s+$"; "") | select(. == "/dots take" or . == "/dots stop")] | length;
+        [(.comments // [])[] | select(.author.login != $me) | (.body // "" | cmd)] | add // 0
+        ' "$d/delegation.json" 2>/dev/null) || delegation_read=failed
+      headrepo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
       if [ "$author" != "$me" ] || [ "$owner" != "$me" ] \
         || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
         printf 'not my branch to fix (%s/%s by %s)\n' "$owner" "$branch" "$author" > "$d/owned"
+      elif [ "$delegation" = "/dots take" ] && [ "$headrepo" = "{{.inputs.repo}}" ] \
+        && [ "${branch#tend/}" = "$branch" ]; then
+        echo ok > "$d/owned"
       else
         case "$branch" in
-          fix/*) echo ok > "$d/owned" ;;
-          *) printf 'branch %s is not a fix-issue branch\n' "$branch" > "$d/owned" ;;
+          fix/*)
+            if jq -e '.body | test("Closes #[0-9]+")' "$d/meta.json" >/dev/null; then
+              echo ok > "$d/owned"
+            else
+              printf 'body has no Closes #N\n' > "$d/owned"
+            fi
+            ;;
+          *)
+            if [ "$delegation" = "/dots take" ] && [ "$headrepo" != "{{.inputs.repo}}" ]; then
+              printf 'delegation refused: head repository %s is a fork\n' "$headrepo" > "$d/owned"
+            elif [ "$delegation" = "/dots take" ] && [ "${branch#tend/}" != "$branch" ]; then
+              printf 'delegation refused: tend/ branches are not delegable\n' > "$d/owned"
+            else
+              printf 'branch %s is not a fix-issue branch\n' "$branch" > "$d/owned"
+            fi
+            ;;
         esac
+      fi
+      if [ "$delegation_read" = failed ] && [ "$(head -1 "$d/owned")" != ok ]; then
+        printf 'could not read /dots take or /dots stop (gh pr view or jq failed); retry the run\n' > "$d/owned"
+      fi
+      if [ "${others:-0}" != 0 ] && [ "$delegation" != "/dots take" ]; then
+        printf 'delegation ignored: not written by me\n' >> "$d/owned"
       fi
     timeout: 300
     on_success: wait
@@ -310,7 +369,8 @@ states:
       while IFS= read -r line; do
         case "$line" in
           "- cleared:"*)
-            quote=$(printf '%s\n' "$line" | sed -n 's/.*`\([^`]*\)`$/\1/p')
+            quote=$(printf '%s\n' "$line" | sed -n 's/^[^`]*`[^`]*`: `\(.*\)`$/\1/p')
+            [ -n "$quote" ] || quote=$(printf '%s\n' "$line" | sed -n 's/.*`\([^`]*\)`$/\1/p')
             if [ -n "$quote" ] && grep -rqF -- "$quote" "$d/work" 2>/dev/null; then
               printf '%s\n' "$line" >> "$tmp"
             else
@@ -416,7 +476,7 @@ states:
     on_failure: error
 
   # A merge verdict goes straight to the merge step. A hold on my own fix-issue
-  # pull request becomes another fix round, capped per pull request, so the loop
+  # or delegated pull request becomes another fix round, capped per pull request, so the loop
   # ends in a merge or in a human notice. Anything else is left alone.
   decide:
     type: step
@@ -440,8 +500,10 @@ states:
         echo "STUCK: $owned"
         exit 0
       fi
-      jq -e '.body | test("Closes #[0-9]+")' "$d/meta.json" >/dev/null \
-        || { echo "STUCK: body has no Closes #N"; exit 0; }
+      if [ "$verdict" != "hold" ]; then
+        echo "STUCK: verdict '${verdict:-missing}' is not hold, nothing to push"
+        exit 0
+      fi
       count=0
       [ -s "$base/attempts" ] && count=$(cat "$base/attempts")
       limit=${MAX_FIX_REVIEW_ATTEMPTS:-3}
@@ -553,6 +615,11 @@ states:
       [ "$head" = "{{.inputs.sha}}" ] || { echo "SUPERSEDED: head moved to $head, no push"; exit 0; }
       if [ -s "$base/stuck.md" ]; then
         echo "stuck, no push: $(cat "$base/stuck.md")"
+        exit 0
+      fi
+      owned=$(head -1 "$d/owned" 2>/dev/null || echo "ownership unknown")
+      if [ "$owned" != ok ]; then
+        echo "not my branch to push, no push: $owned"
         exit 0
       fi
       work="$d/work"
