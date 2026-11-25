@@ -615,4 +615,9 @@ button.stat:hover { background: var(--surface-2); }
 .repo-table td[data-cell] { transition: background .5s; }
 .repo-table td.saving { opacity: .45; pointer-events: none; }
 .repo-table td.saved { background: var(--ok-soft); }
-.tuned { margin-left: 4px; color: var(--muted); cursor: help; font-size: 12px; }
+.repo-table .cb { position: relative; display: inline-flex; vertical-align: middle; }
+.tuned {
+  position: absolute; left: calc(100% + 3px); top: 50%; transform: translateY(-50%);
+  color: var(--muted); cursor: help; font-size: 11px; line-height: 1; opacity: .7;
+}
+.tuned:hover { opacity: 1; }

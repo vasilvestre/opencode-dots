@@ -218,11 +218,13 @@ export function mountRepos(el) {
       "aria-label": `${labelOf(key)} on ${row.name}`,
       title: f.source === "profile" ? `On through the profile ${row.use?.join(", ")}` : "",
     });
-    const td = h("td", { class: "cell-check", "data-cell": `${row.name}|${key}` }, box);
+    // The gear sits outside the flow, so a custom cell stays aligned with the others.
+    const wrap = h("span", { class: "cb" }, box,
+      f.on && f.custom
+        ? h("span", { class: "tuned", title: `Custom rules: ${describe(f.detail)}. Edit them in repos.yaml.` }, "⚙")
+        : null);
+    const td = h("td", { class: "cell-check", "data-cell": `${row.name}|${key}` }, wrap);
     box.addEventListener("change", () => toggle(row, key, box.checked, td));
-    if (f.on && f.custom) {
-      td.append(h("span", { class: "tuned", title: `Custom rules: ${describe(f.detail)}. Edit them in repos.yaml.` }, "⚙"));
-    }
     return td;
   }
 
