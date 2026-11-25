@@ -29,7 +29,10 @@ your mind by writing a new one that supersedes it.
 | [0019](0019-claude-model-presets.md) | Model presets are per provider | accepted | 2026-11-25 |
 | [0020](0020-fix-issue-works-from-a-fork.md) | fix-issue works from a fork when it cannot push upstream | accepted | 2026-11-25 |
 | [0021](0021-fix-issue-routes-to-hidden-workflows.md) | fix-issue routes to hidden workflows | accepted | 2026-11-25 |
+| [0022](0022-repos-yaml-is-the-source-of-truth.md) | repos.yaml is the source of truth for the repository list | accepted | 2026-11-25 |
 | [0021](0021-fix-issue-routes-to-hidden-workflows.md) | fix issue routes to hidden workflows | proposed | 2026-11-25 |
+| [0022](0022-repos-yaml-is-the-source-of-truth.md) | repos.yaml is the source of truth for the repository list | accepted | 2026-11-25 |
+| [0022](0022-repos-yaml-is-the-source-of-truth.md) | repos yaml is the source of truth | proposed | 2026-11-25 |
 
 ## When to write one
 

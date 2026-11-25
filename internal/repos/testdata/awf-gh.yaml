@@ -1,0 +1,18 @@
+# A hand written watcher config in the shapes the real one uses: anchors,
+# scope, a command rule, a labeled issue rule, per-rule inputs.
+awf_url: http://127.0.0.1:2511
+state_path: /state/awf-gh/seen.jsonl
+max_per_run: 6
+x-bots: &bots ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+repos:
+  - { repo: acme/app, workflow: review-pr, on: [pr-opened, pr-updated, checks-failed], ignore_authors: *bots }
+  - { repo: acme/app, workflow: review-pr, on: [command], only_authors: ["me"] }
+  - { repo: acme/app, workflow: fix-issue, on: [issue-labeled], labels: ["dot"], scope: local, ignore_authors: *bots }
+  - { repo: acme/lib, workflow: review-pr, on: [pr-opened, pr-updated, checks-failed], ignore_authors: *bots, inputs: { provider: claude } }
+  - { repo: acme/lib, workflow: fix-issue, on: [issue-opened], ignore_authors: *bots }
+  - { repo: acme/tool, workflow: review-pr, on: [pr-opened, pr-updated, checks-failed], only_authors: ["me"] }
+  - { repo: acme/tool, workflow: fix-issue, on: [issue-opened], ignore_authors: *bots }
+  - { repo: upstream/cli, scope: local, workflow: reply-pr, on: [review-comment], only_authors: ["me"] }
+  - { repo: upstream/cli, scope: local, workflow: fix-ci, on: [checks-failed], only_authors: ["me"] }
+  - { repo: upstream/cli, workflow: review-pr, on: [pr-opened], ignore_authors: *bots, inputs: { provider: claude, depth: "3" } }
+  - { repo: upstream/other, scope: local, workflow: reply-pr, on: [review-comment], only_authors: ["me"] }

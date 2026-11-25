@@ -1,0 +1,3 @@
+# owner/repo=/absolute/path
+acme/app=/home/me/src/app
+only/mapped=/home/me/src/mapped

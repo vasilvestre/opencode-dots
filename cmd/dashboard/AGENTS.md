@@ -143,10 +143,18 @@ counted once.
 - The tailnet reaches the page through `tailscale serve` on
   the tailnet address of this machine (see `systemd/dots-dashboard.env`), never through a wider bind. See
   ADR 0013.
-- `/api/save` writes cover exactly four shapes: `workflows/<name>.yaml` (name
-  matches `[A-Za-z0-9_-]+`), `awf-gh.yaml`, `tend.list`, `repos.map`.
-  `resolveEditable` refuses `..` before cleaning, because `filepath.Clean` would
-  fold it back into a valid name.
+- `/api/save` writes cover `workflows/<name>.yaml` (name matches
+  `[A-Za-z0-9_-]+`), `repos.yaml`, and the four files generated from it
+  (`awf-gh.yaml`, `tend.list`, `repos.map`, `sync.map`). `resolveEditable`
+  refuses `..` before cleaning, because `filepath.Clean` would fold it back into
+  a valid name.
+- `repos.yaml` is validated by `repos.Build` before it is written: a file that
+  would not generate is refused with 422 and the disk keeps the last good one.
+  After the write, the generated files are rewritten (only the ones whose
+  content changed) and the response lists them under `generated`. A hand edit of
+  a generated file is refused with 409 while `repos.yaml` exists, because the
+  next save of `repos.yaml` would overwrite it; before the migration it is
+  allowed as it always was. `/api/files` flags them `generated`. ADR 0022.
 - `saveFile` checks, in order: `PUT`, trusted `Host` and `Origin`, JSON
   content type (a cross-site form cannot send it without a preflight), size cap
   (1 MiB), path allowlist, YAML parse. A YAML file that does not parse is

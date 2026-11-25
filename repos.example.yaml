@@ -1,0 +1,61 @@
+# Every repository the dot works on, and what it does on each. This is the one
+# file to edit: awf-gh.yaml, tend.list, repos.map and sync.map are generated
+# from it by `make repos`, and the dashboard regenerates them when it saves this
+# file. Copy it to repos.yaml (gitignored: this repository is public, the names
+# are not). `bin/repos features` lists every key a repository accepts.
+version: 1
+
+# Watcher settings. awf_url and state_path are left out on purpose:
+# `make configure` writes the ones that fit local or docker mode.
+settings:
+  max_per_run: 6
+
+# Values every enabled feature inherits. A default never switches a feature on:
+# `review:` below only gives the repositories that enable review their
+# ignore_authors. A plain value (provider) applies to every repository.
+defaults:
+  review:
+    ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+  reply:
+    only_authors: ["your-login"]
+  fix_issue:
+    ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+  # provider: opencode          # opencode (default) or claude, for every repository
+
+# A named bundle of keys. A repository lists the ones it wants under `use`.
+profiles:
+  managed:
+    tend: {auto_merge: true}
+    review: true
+    fix_issue: true
+
+repos:
+  # A repository the dot maintains end to end: review each pull request, turn
+  # every new issue into a pull request, tend it daily and keep a clone in sync.
+  your-org/your-repo:
+    use: [managed]
+    checkout: /home/you/projects/your-repo   # workflows reuse it instead of cloning
+    sync: true                               # bin/sync fast-forwards that checkout
+
+  # Another repository, reviewed by Claude Code instead of opencode (set
+  # DOT_CLAUDE with `make configure` first). A false switches a profile key off.
+  your-org/claude-routed:
+    use: [managed]
+    provider: claude
+    fix_issue: false
+
+  # Upstream, where I am not a maintainer: answer the maintainers on my own pull
+  # requests and fix my red checks. No review: I do not post as a reviewer there.
+  upstream-org/upstream-repo:
+    reply: true
+    fix_ci:
+      only_authors: ["your-login"]
+
+  # One feature several times: the review runs on pull requests, and `/dots take`
+  # from me only runs it on demand. A list holds one block per rule.
+  your-org/delegated:
+    review:
+      - true
+      - {on: [command], only_authors: ["your-login"], ignore_authors: []}
+    # Only the issues that carry a label:
+    fix_issue: {label: dot}

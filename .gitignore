@@ -6,11 +6,16 @@ state/
 .tower/
 .env
 compose.override.yaml
-# Local awf-gh config: names the private repos we watch, this repo is public.
+# repos.yaml is the one local list of repositories (copy repos.example.yaml); the
+# files below are generated from it by `make repos`. This repo is public, the
+# names are not.
+repos.yaml
 awf-gh.yaml
 repos.map
 sync.map
 tend.list
+# The round trip fixtures of internal/repos carry the same names, with fake repos.
+!internal/repos/testdata/*
 !bin/adr
 !bin/configure
 !bin/sync

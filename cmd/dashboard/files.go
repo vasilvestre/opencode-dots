@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"opencode-dots/internal/repos"
 )
 
 func (d *dash) file(w http.ResponseWriter, r *http.Request) {
@@ -44,20 +46,40 @@ const maxEditSize = 1 << 20
 
 var workflowFileRE = regexp.MustCompile(`^[A-Za-z0-9_-]+\.yaml$`)
 
-// localFiles are the configs that live in the repository root.
-var localFiles = []struct{ Path, Label, Kind string }{
-	{"awf-gh.yaml", "awf-gh.yaml", "watcher"},
-	{"tend.list", "tend.list", "list"},
-	{"repos.map", "repos.map", "map"},
+// localFiles are the configs that live in the repository root. repos.yaml is the
+// one to edit; the others are generated from it (see internal/repos) and stay
+// readable here, but a save of one is refused while repos.yaml exists.
+var localFiles = []struct {
+	Path, Label, Kind string
+	Generated         bool
+}{
+	{"repos.yaml", "repos.yaml", "repos", false},
+	{"awf-gh.yaml", "awf-gh.yaml", "watcher", true},
+	{"tend.list", "tend.list", "list", true},
+	{"repos.map", "repos.map", "map", true},
+	{"sync.map", "sync.map", "map", true},
+}
+
+// generatedFile says the file is written by `bin/repos` from repos.yaml, so a
+// hand edit would be overwritten at the next save of repos.yaml.
+func generatedFile(rel string) bool {
+	for _, f := range localFiles {
+		if f.Path == rel {
+			return f.Generated
+		}
+	}
+	return false
 }
 
 type editableFile struct {
-	Path    string `json:"path"`
-	Label   string `json:"label"`
-	Kind    string `json:"kind"`
-	Exists  bool   `json:"exists"`
-	Size    int64  `json:"size"`
-	ModTime string `json:"mod_time"`
+	Path  string `json:"path"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
+	// Generated marks a file written from repos.yaml: read it, edit repos.yaml.
+	Generated bool   `json:"generated,omitempty"`
+	Exists    bool   `json:"exists"`
+	Size      int64  `json:"size"`
+	ModTime   string `json:"mod_time"`
 }
 
 // resolveEditable maps a page-supplied path to an absolute path inside the
@@ -93,7 +115,7 @@ func (d *dash) files(w http.ResponseWriter, r *http.Request) {
 		out = append(out, editableFile{Path: rel, Label: strings.TrimSuffix(name, ".yaml"), Kind: "workflow"})
 	}
 	for _, f := range localFiles {
-		out = append(out, editableFile{Path: f.Path, Label: f.Label, Kind: f.Kind})
+		out = append(out, editableFile{Path: f.Path, Label: f.Label, Kind: f.Kind, Generated: f.Generated})
 	}
 	for i := range out {
 		abs, _ := d.resolveEditable(out[i].Path)
@@ -148,6 +170,23 @@ func (d *dash) saveFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "refused path", http.StatusForbidden)
 		return
 	}
+	rel := strings.TrimPrefix(filepath.Clean(req.Path), "./")
+	if generatedFile(rel) {
+		if _, err := os.Stat(filepath.Join(d.root, repos.SourceFile)); err == nil {
+			writeJSONStatus(w, http.StatusConflict, map[string]string{"error": rel + " is generated from repos.yaml: edit repos.yaml and save it"})
+			return
+		}
+	}
+	// repos.yaml must generate before it is written: a typo in a feature key or
+	// an unknown event would otherwise stop the next polling pass.
+	var generated map[string][]byte
+	if rel == repos.SourceFile {
+		var err error
+		if generated, err = repos.Build([]byte(req.Content), d.root, repos.Settings{}); err != nil {
+			writeJSONStatus(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 	// Refuse YAML that does not parse: a broken watcher config or workflow
 	// would stop the next polling pass, and the page cannot tell the user when
 	// awf-gh runs. The edit stays in the textarea; nothing hits the disk.
@@ -169,7 +208,18 @@ func (d *dash) saveFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"path": req.Path, "bytes": len(req.Content), "backup": backup})
+	resp := map[string]any{"path": req.Path, "bytes": len(req.Content), "backup": backup}
+	if generated != nil {
+		// The source is saved; the files the other tools read follow it. They
+		// are rewritten only when their content changed, and never half written.
+		changed, err := repos.Write(d.root, generated)
+		if err != nil {
+			http.Error(w, "repos.yaml saved but "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resp["generated"] = changed
+	}
+	writeJSON(w, resp)
 }
 
 // backupFile copies the previous content beside the original, stamped, and

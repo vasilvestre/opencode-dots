@@ -18,7 +18,8 @@ ADR/           decision records: index in README.md, one file per decision
 agent/         opencode config mounted into the container: AGENTS.md, agents/assistant.md
 bin/           configure (mode chooser), tend (daily dispatch), adr (records)
 cmd/dashboard/ Go server for the activity page
-internal/      models/: model preset and default logic (parse, validate, project)
+cmd/repos/     CLI that generates awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
+internal/      models/: model preset and default logic; repos/: the repository list and its features
 model-presets.yaml  global model presets projected into workflow defaults
 docs/          workflow reference, memory-design rationale
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
@@ -41,15 +42,18 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Bot instructions | `agent/AGENTS.md` | mounted config, not documentation |
 | Dashboard edits a config file | `/api/save` in `main.go` | allowlist and backups, see ADR 0004 |
 | Manage global model presets | `model-presets.yaml`, Config Model defaults | eager projection, see ADR 0018 and `cmd/dashboard/AGENTS.md` |
-| Watcher config example | `awf-gh.example.yaml` | real `awf-gh.yaml` is gitignored |
+| Which repositories, and what the dot does on each | `repos.yaml` (copy `repos.example.yaml`) | source of truth, see ADR 0022 and `internal/repos/AGENTS.md` |
+| Add a key a repository accepts | `internal/repos/features_*.go` | one feature = one file, `bin/repos features` lists them |
 
 ## CONVENTIONS
 
 - Every run artifact goes under `STATE_DIR`.
 - The `bin/` scripts use `set -euo pipefail` and locate the repo with
   `cd "$(dirname "$0")/.."`.
-- Private names never enter git. `awf-gh.yaml`, `repos.map`, `tend.list` are
-  gitignored; only their `.example` files are tracked.
+- Private names never enter git. `repos.yaml` is the one local list of
+  repositories; `awf-gh.yaml`, `tend.list`, `repos.map` and `sync.map` are
+  generated from it (`make repos`), gitignored and never edited by hand. Only
+  `repos.example.yaml` is tracked.
 - The dashboard projects `model-presets.yaml` into workflow input defaults.
   Edit presets through the Config view, not by hand.
 - `DOT_OPENCODE`, `DOT_AWF`, `DOT_GH`, `DOT_AWFGH`, `DOT_CLAUDE` are mode
@@ -91,8 +95,9 @@ make up          # docker compose up -d
 make logs
 make down
 make awf-gh      # one polling pass, for testing by hand
+make repos       # regenerate awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
-bin/tend         # one tend-repo run per line of tend.list
+bin/tend         # one tend-repo run per repository with tend enabled (tend.list)
 ```
 
 Systemd install:
