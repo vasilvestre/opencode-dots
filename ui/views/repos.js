@@ -16,7 +16,10 @@ export function mountRepos(el) {
 
   mount(el, h("div", { class: "stack" },
     h("div", { class: "row between" },
-      h("div", {}, h("h1", {}, "Repositories"), h("p", { class: "muted" }, "From awf-gh.yaml. The section is private and stays out of git.")),
+      h("div", {}, h("h1", {}, "Repositories"), h("p", { class: "muted" },
+        "What the watcher does on each repository, generated from ",
+        h("a", { href: "#config/repos.yaml" }, "repos.yaml"),
+        ". The list is private and stays out of git.")),
       h("div", { class: "row" }, search),
     ),
     h("div", { class: "section-head" }, count),
@@ -27,7 +30,7 @@ export function mountRepos(el) {
     const rows = state.repos.filter((r) => !state.filter || r.repo.toLowerCase().includes(state.filter));
     count.textContent = `${rows.length} of ${state.repos.length} repositories`;
     if (!rows.length) {
-      mount(list, h("div", { class: "empty" }, state.repos.length ? "Nothing matches." : "No repository in awf-gh.yaml."));
+      mount(list, h("div", { class: "empty" }, state.repos.length ? "Nothing matches." : "No repository in repos.yaml."));
       return;
     }
     mount(list, rows.map((r) => h("div", { class: "item" },
