@@ -5,6 +5,7 @@ import { toast } from "../toast.js";
 import { confirmDialog, openModal } from "../modal.js";
 import { openRunModal, recalledRun } from "../run.js";
 import { openAskModal } from "../ask.js";
+import { stepLabel, trailText } from "../steps.js";
 
 const REFRESH_MS = 5000;
 const ARTIFACTS_MS = 15000;
@@ -152,17 +153,27 @@ export function mountActivity(el) {
   function attachLogIds(entries, logs) {
     const byKey = new Map();
     const costs = new Map();
-    const add = (workflow, startedAt, id, cost) => {
+    const roundsById = new Map();
+    const wanted = new Map();
+    for (const e of entries) {
+      const key = runKey(e.workflow_name, e.started_at);
+      wanted.set(key, (wanted.get(key) || 0) + 1);
+    }
+    const add = (workflow, startedAt, id, cost, rounds) => {
       const key = runKey(workflow, startedAt);
-      byKey.set(key, [...(byKey.get(key) || []), id]);
+      const ids = byKey.get(key) || [];
+      if (!ids.includes(id)) byKey.set(key, [...ids, id]);
       if (cost) costs.set(id, cost);
+      if (rounds?.length) roundsById.set(id, rounds);
     };
-    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id, l.cost);
+    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id, l.cost, l.rounds);
     for (const e of state.executions) add(e.workflow_name, e.started_at, e.execution_id, 0);
     return entries.map((e) => {
-      const list = byKey.get(runKey(e.workflow_name, e.started_at));
-      const logId = list?.length ? list.shift() : undefined;
-      return { ...e, logId, cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "" };
+      const key = runKey(e.workflow_name, e.started_at);
+      const list = byKey.get(key);
+      const logId = list?.length && list.length === wanted.get(key) ? list.shift() : undefined;
+      wanted.set(key, wanted.get(key) - 1);
+      return { ...e, logId, rounds: (logId && roundsById.get(logId)) || [], cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "" };
     });
   }
 
@@ -210,7 +221,9 @@ export function mountActivity(el) {
         runCards.set(run.execution_id, entry);
         runs.appendChild(entry.card);
       }
-      entry.step.textContent = run.current_step || "starting";
+      const trail = trailText(run.workflow_name, entry.steps);
+      entry.step.textContent = trail || (run.current_step ? stepLabel(run.workflow_name, run.current_step) : "starting");
+      entry.step.title = run.current_step ? `current step: ${run.current_step}` : "";
       entry.target.textContent = state.targets.get(run.execution_id) || "";
       entry.updateCost();
       entry.time.textContent = elapsed(run.started_at);
@@ -243,12 +256,17 @@ export function mountActivity(el) {
       h("div", { class: "bar", role: "progressbar", "aria-label": "Run in progress" }, h("i")),
       pre,
     );
+    const steps = [];
     const stream = follow(run.execution_id, (text) => {
       logText.set(run.execution_id, text);
       if (pre.isConnected) {
         pre.textContent = text;
         pre.scrollTop = pre.scrollHeight;
       }
+    }, (name) => {
+      if (name === null) steps.length = 0;
+      else steps.push(name);
+      step.textContent = trailText(run.workflow_name, steps);
     });
     const updateCost = async () => {
       const c = await runCost(run.execution_id);
@@ -257,20 +275,23 @@ export function mountActivity(el) {
       costEl.title = `${c.steps} agent step${c.steps === 1 ? "" : "s"} so far`;
     };
     updateCost();
-    return { card, step, target, costEl, time, pre, stream, updateCost };
+    return { card, step, steps, target, costEl, time, pre, stream, updateCost };
   }
 
   // The backend records awf's single event stream, so the page tails that file
   // instead of opening awf's stream: a second reader would steal events from the
   // recorder. Tailing also replays the steps that ran before the page opened.
-  function follow(id, paint) {
+  function follow(id, paint, onStep) {
     let text = logText.get(id) || "";
     let poll = null;
     const es = new EventSource(`/api/stream?id=${encodeURIComponent(id)}`);
+    // A reconnect replays the run from its first event: start the trail over.
+    es.onopen = () => onStep?.(null);
     es.onmessage = (ev) => {
       let data;
       try { data = JSON.parse(ev.data); } catch { return; }
       const kind = data.kind || "event";
+      if (kind === "step.started" && data.step) onStep?.(data.step);
       text = trimLines(`${text + eventLine({ ...data, kind })}\n`, MAX_LOG_LINES);
       paint(text);
       if (kind === "workflow.completed" || kind === "workflow.failed") {
@@ -465,10 +486,17 @@ export function mountActivity(el) {
   async function showLog(entry) {
     const pre = h("pre", { style: { maxHeight: "60vh" } }, "loading…");
     const slot = h("div", {});
+    const rounds = h("div", {});
     const modal = openModal({
       title: `${entry.workflow_name} · ${when(entry.started_at)} · ${entry.logId ? entry.logId.slice(0, 8) : "no id"}`,
-      body: h("div", {}, slot, pre),
+      body: h("div", {}, slot, rounds, pre),
     });
+    if (entry.rounds?.length) {
+      mount(rounds, entry.rounds.flatMap((p) => {
+        const n = /diff\.round(\d+)\.patch$/.exec(p)?.[1];
+        return n ? [artifactDetails(p, `diff round ${n}`)] : [];
+      }));
+    }
     if (entry.logId) {
       const tl = await timeline(entry.logId);
       if (tl) mount(slot, tl);

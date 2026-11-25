@@ -20,7 +20,7 @@ disk as ES modules, with no build step.
 | `/api/costs?from=&to=` | every opencode session in a window, for the history table |
 | `/api/usage` | `state/logs/index.jsonl` plus each run's log: what each pull request cost and which workflow spent it |
 | `/api/stream?id=` | tails the run: awf's transcript when present, else `state/logs/<id>.jsonl` |
-| `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run, plus its price and target |
+| `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run, plus its price, target and archived `rounds` |
 | `/api/repos` | `awf-gh.yaml`, the seen list, and `repos.map` for the Tower check |
 | `/api/repos/names` | repository names for the run dialog, from the configs and `state/tend` |
 | `/api/replay?id=` | what a finished run was given: workflow, scope and inputs |

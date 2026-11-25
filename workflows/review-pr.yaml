@@ -413,6 +413,7 @@ states:
         OPEN) ;;
         *) echo "warning: pull request state unknown ('$state'), continuing" >&2 ;;
       esac
+      cp "$d/diff.patch" "$d/diff.round{{.loop.Index1}}.patch"
       open=$(grep '^- ' "$d/review.md" | grep -v '^- cleared:' || true)
       if [ -z "$open" ]; then
         echo "STOP: review has no open finding"
