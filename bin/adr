@@ -53,7 +53,9 @@ check() {
     prev=$((10#$n))
 
     grep -q "^# $n\. " "$f" || die "$base: title must start with '# $n. '"
-    grep -q "| \[$n\]($base)" "$readme" || die "$base: no row in $readme"
+    rows=$(grep -c "^| \[$n\]" "$readme" || true)
+    [ "$rows" -eq 1 ] || die "$base: $rows rows in $readme, want exactly one"
+    grep -q "^| \[$n\]($base)" "$readme" || die "$base: the row in $readme does not link to $base"
 
     status=$(sed -n 's/^- Status: //p' "$f")
     [[ $status =~ ^(proposed|accepted|rejected|deprecated)$ ]] ||
