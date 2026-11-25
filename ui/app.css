@@ -602,3 +602,17 @@ button.stat:hover { background: var(--surface-2); }
   background: var(--surface-2); border-color: var(--border);
   box-shadow: inset 3px 0 0 var(--accent);
 }
+
+/* Repositories table ------------------------------------------------------ */
+
+.repo-table th.cell-check, .repo-table td.cell-check { text-align: center; }
+.repo-table td { vertical-align: middle; }
+.repo-table input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; accent-color: var(--accent); }
+.repo-table select.provider { padding: 3px 6px; font-size: 12.5px; }
+.repo-table tr.open > td { border-bottom-color: transparent; background: var(--surface-2); }
+.repo-table tr.detail td { background: var(--surface-2); padding: 4px 16px 16px; }
+.repo-table tbody tr.detail:hover { background: var(--surface-2); }
+.repo-table td[data-cell] { transition: background .5s; }
+.repo-table td.saving { opacity: .45; pointer-events: none; }
+.repo-table td.saved { background: var(--ok-soft); }
+.tuned { margin-left: 4px; color: var(--muted); cursor: help; font-size: 12px; }

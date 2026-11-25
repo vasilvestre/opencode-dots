@@ -347,10 +347,14 @@ It shows:
   run logs, so it covers the runs the dashboard recorded
 - a Memory tab: per repository, the rules in `state/tend/<owner>/<repo>/lessons.md`
   and the facts in `memory.md`, with the date the last pass covered
-- a Repos tab: every repository in `awf-gh.yaml`, the workflows that watch it,
-  their triggers and author filters, and the PRs the watcher already saw. A
-  warning marks the repositories Tower indexes whose `.towerignore` is missing
-  or lists no pattern.
+- a Repos tab: one row per repository in `repos.yaml`, with a checkbox for
+  review, reply, fix issue, fix CI, tend and sync and a select for the agent CLI.
+  A click edits `repos.yaml` at once (comments are kept, the previous file is
+  stamped as a backup) and the watcher files are regenerated; a change the
+  generator refuses is not written. The row's details show the watcher rules, the
+  PRs already seen and a warning when Tower indexes a repository whose
+  `.towerignore` is missing or lists no pattern. Custom rules (a block or a list)
+  show a gear and stay editable in the YAML editor.
 
 The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
 running (`make up`). It binds loopback only. It writes `state/logs/` (awf
