@@ -117,10 +117,15 @@ systemctl --user enable --now dots-tend.timer   # optional, daily
   that path is missing.
 - `make check` proves the image and the binaries answer. It does not run a
   workflow.
-- There are no tests and no CI. `make validate` only parses the YAML.
+- CI (`.github/workflows/ci.yml`, on pull requests and pushes to main) runs
+  `go vet`, `go test`, `bin/adr check` and `deslop-please`, which is installed
+  unpinned, so a new release can flag code that passed before. Run all four
+  before pushing. The Go tests cover `cmd/dashboard`, `internal/models` and
+  `internal/repos`; the workflows have no test. `make validate` only parses the
+  YAML.
 - `state/` and `.tower/` are runtime output. Never treat them as source or
   document what they contain.
 - `make up` and `make awf-gh` require `.env` and `compose.override.yaml` from
   `make configure`.
-- `bin/awf-gh` and `bin/dashboard` are build artifacts, gitignored. Their source
-  is the sibling repo and `cmd/dashboard`.
+- `bin/awf-gh`, `bin/dashboard` and `bin/repos` are build artifacts, gitignored.
+  Their source is the sibling repo, `cmd/dashboard` and `cmd/repos`.
