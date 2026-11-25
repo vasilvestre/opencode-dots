@@ -41,7 +41,14 @@ states:
     type: step
     command: |
       set -eu
-      head=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json headRefOid --jq .headRefOid)
+      pr=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json state,headRefOid)
+      state=$(printf '%s' "$pr" | jq -r .state)
+      head=$(printf '%s' "$pr" | jq -r .headRefOid)
+      # A squash merge keeps the head sha, so the sha check alone misses it.
+      if [ "$state" = "MERGED" ] || [ "$state" = "CLOSED" ]; then
+        echo "CLOSED: pull request is $state, nothing to review"
+        exit 0
+      fi
       if [ "$head" != "{{.inputs.sha}}" ]; then
         echo "SUPERSEDED: head $head is not {{.inputs.sha}}, this run is stale"
         exit 0
@@ -50,6 +57,8 @@ states:
     timeout: 60
     transitions:
       - when: 'states.guard.Output contains "SUPERSEDED:"'
+        goto: done
+      - when: 'states.guard.Output contains "CLOSED:"'
         goto: done
     on_success: fetch
     on_failure: error
@@ -396,6 +405,14 @@ states:
       set -eu
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
       base=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}
+      # A pull request merged or closed mid-loop ends the loop. An unknown
+      # state (gh failed) is treated as open.
+      state=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json state --jq .state 2>/dev/null || echo UNKNOWN)
+      case "$state" in
+        MERGED|CLOSED) echo "STOP: pull request is $state"; exit 0 ;;
+        OPEN) ;;
+        *) echo "warning: pull request state unknown ('$state'), continuing" >&2 ;;
+      esac
       open=$(grep '^- ' "$d/review.md" | grep -v '^- cleared:' || true)
       if [ -z "$open" ]; then
         echo "STOP: review has no open finding"
@@ -428,6 +445,10 @@ states:
         echo "SUPERSEDED: head moved to $head, dropping this review"
         exit 0
       fi
+      state=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json state --jq .state 2>/dev/null || echo UNKNOWN)
+      case "$state" in
+        MERGED|CLOSED) echo "SUPERSEDED: pull request is $state, not publishing"; exit 0 ;;
+      esac
       body="$d/review.md"
       # A branch I may not push to can still hold edits from a fix round. They
       # are never lost: keep them as fix.patch and show them in the comment.
@@ -678,6 +699,10 @@ states:
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
       head=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json headRefOid --jq .headRefOid)
       [ "$head" = "{{.inputs.sha}}" ] || { echo "SUPERSEDED: head moved to $head, no merge"; exit 0; }
+      state=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json state --jq .state 2>/dev/null || echo UNKNOWN)
+      case "$state" in
+        MERGED|CLOSED) echo "SUPERSEDED: pull request is $state, no merge"; exit 0 ;;
+      esac
       verdict=$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)
       if [ "$verdict" != "merge" ]; then
         echo "automerge: verdict '$verdict', not merging"
@@ -705,6 +730,9 @@ states:
       gh pr merge {{.inputs.pr}} --repo {{.inputs.repo}} --squash --delete-branch \
         && echo "automerge: merged #{{.inputs.pr}}"
     timeout: 1500
+    transitions:
+      - when: 'states.automerge.Output contains "SUPERSEDED:"'
+        goto: done
     on_success: notify
     on_failure: notify
 

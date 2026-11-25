@@ -62,7 +62,12 @@ repos:
 
 Steps:
 
-1. `guard` drops the run when the head no longer matches the input sha.
+1. `guard` drops the run when the head no longer matches the input sha, or
+   when the pull request is already merged or closed (a squash merge keeps the
+   sha). `gate`, `post` and `automerge` repeat the state check, so a pull
+   request merged mid-run ends the loop and publishes nothing. Only the
+   literal states `MERGED` and `CLOSED` stop a run; a failed `gh` call counts
+   as open.
    `fetch` writes `meta.json` and `diff.patch` to
    `$STATE_DIR/reviews/pr<N>-<sha>/`, then checks out the pull request head in
    `work/` beside them. The reviewer reads the callers, the types and the tests
