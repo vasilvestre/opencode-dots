@@ -221,8 +221,8 @@ if [ "$MODE_AWFGH" = local ]; then STATE_PATH=$ROOT/state/awf-gh/seen.jsonl; fi
 if [ -f "$ROOT/repos.yaml" ]; then
   # repos.yaml is the source: regenerate the watcher config with the values that
   # fit this mode instead of patching the generated file.
-  command -v go >/dev/null || die "repos.yaml needs go to generate awf-gh.yaml (make repos)"
-  (cd "$ROOT" && go run ./cmd/repos generate -awf-url "$AWF_URL" -state-path "$STATE_PATH")
+  [ -x "$ROOT/bin/repos" ] || die "repos.yaml needs bin/repos to generate awf-gh.yaml: run 'make repos' once, then configure again"
+  (cd "$ROOT" && bin/repos generate -awf-url "$AWF_URL" -state-path "$STATE_PATH")
 elif [ -f "$ROOT/awf-gh.yaml" ]; then
   sed -i -e "s|^awf_url:.*|awf_url: $AWF_URL|" \
     -e "s|^state_path:.*|state_path: $STATE_PATH|" "$ROOT/awf-gh.yaml"

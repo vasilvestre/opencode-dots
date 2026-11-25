@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // FileSync is the file bin/sync reads: the clones it fast-forwards onto main.
@@ -23,7 +24,10 @@ func (syncFeature) Doc() string {
 func (syncFeature) Check(v any) error {
 	switch x := v.(type) {
 	case string:
-		if !strings.HasPrefix(x, "/") || strings.ContainsAny(x, "\n\r=") {
+		if strings.ContainsFunc(x, unicode.IsControl) {
+			return fmt.Errorf("%q contains a control character; remove it", x)
+		}
+		if !strings.HasPrefix(x, "/") || strings.ContainsAny(x, "=") {
 			return fmt.Errorf("%q is not an absolute path", x)
 		}
 	case map[string]any:

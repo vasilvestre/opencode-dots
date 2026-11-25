@@ -12,6 +12,9 @@ const FEATURES = [
   ["sync", "Sync", "keep the local checkout fast-forwarded"],
 ];
 
+// ghPath encodes each segment of owner/name before it goes into a URL.
+const ghPath = (name) => name.split("/").map(encodeURIComponent).join("/");
+
 // One row per repository, one checkbox per thing the dot does on it. A click
 // edits repos.yaml at once (comments are kept, a backup is stamped) and the
 // generated files follow. The rules, the pull requests already seen and the
@@ -238,7 +241,7 @@ export function mountRepos(el) {
       h("td", { colspan: String(FEATURES.length + 4) },
         h("div", { class: "stack", style: { gap: "10px" } },
           h("div", { class: "row" },
-            h("a", { href: `https://github.com/${row.name}`, target: "_blank", rel: "noreferrer" }, "Open on GitHub"),
+            h("a", { href: `https://github.com/${ghPath(row.name)}`, target: "_blank", rel: "noreferrer" }, "Open on GitHub"),
             row.checkout ? h("span", { class: "muted mono" }, `checkout ${row.checkout}`) : h("span", { class: "muted" }, "no local checkout"),
             h("span", { class: "spacer" }),
             h("button", { class: "btn danger sm", onclick: () => removeRepo(row) }, "Remove repository"),
@@ -258,7 +261,7 @@ export function mountRepos(el) {
           rule?.seen.length ? h("div", { class: "chips" },
             rule.seen.slice().reverse().map((pr) => h("a", {
               class: "chip",
-              href: `https://github.com/${row.name}/pull/${pr}`,
+              href: `https://github.com/${ghPath(row.name)}/pull/${encodeURIComponent(pr)}`,
               target: "_blank",
               rel: "noreferrer",
             }, `#${pr}`))) : null,

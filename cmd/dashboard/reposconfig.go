@@ -255,7 +255,9 @@ func (d *dash) patchReposConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	changed, err := repos.Write(d.root, generated)
 	if err != nil {
-		http.Error(w, "repos.yaml saved but "+err.Error(), http.StatusInternalServerError)
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{
+			"error": "repos.yaml saved, generated files not refreshed (already rewritten: [" + strings.Join(changed, " ") + "]); change it again to finish: " + err.Error(),
+		})
 		return
 	}
 	cfg, err := buildReposConfig(next)
