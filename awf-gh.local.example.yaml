@@ -8,7 +8,7 @@
 awf_url: http://127.0.0.1:2511
 # A host path, not /state: here awf-gh sees the real file system. A leading ~
 # is expanded. Use the same state/ directory the workflows write to.
-state_path: ~/projects/perso/opencode-dots/state/awf-gh/seen.jsonl
+state_path: ~/path/to/opencode-dots/state/awf-gh/seen.jsonl
 max_per_run: 6
 
 repos:

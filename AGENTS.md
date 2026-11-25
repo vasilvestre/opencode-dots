@@ -49,7 +49,8 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 - Private names never enter git. `awf-gh.yaml`, `repos.map`, `tend.list` are
   gitignored; only their `.example` files are tracked.
 - `DOT_OPENCODE`, `DOT_AWF`, `DOT_GH`, `DOT_AWFGH` are mode selectors written by
-  `bin/configure`. Only the Makefile (`make awf-gh`) reads `DOT_AWFGH`.
+  `bin/configure`, which also reads them back to keep the previous answer. Besides
+  it, only the Makefile (`make awf-gh`) reads `DOT_AWFGH`.
 - `local` and `docker` must agree on the absolute paths for `STATE_DIR`,
   `WORK_ROOT` and `repos.map`, because a local opencode server resolves host
   paths.

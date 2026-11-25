@@ -130,7 +130,7 @@ if [ "$MODE_AWF" = docker ]; then PROFILES=awf-docker; fi
 if [ "$MODE_OPENCODE" = docker ]; then PROFILES=${PROFILES:+$PROFILES,}opencode-docker; fi
 
 AWF_URL=http://awf:2511
-if [ "$MODE_OPENCODE" = local ] || [ "$MODE_AWF" = local ]; then
+if [ "$MODE_OPENCODE" = local ] || [ "$MODE_AWF" = local ] || [ "$MODE_AWFGH" = local ]; then
   AWF_URL=http://127.0.0.1:2511
 fi
 
@@ -187,9 +187,13 @@ mkdir -p "$ROOT/state"
   fi
 } > "$ROOT/compose.override.yaml"
 
-# awf-gh reads awf_url from its own config, which names private repos.
+# awf-gh reads awf_url and state_path from its own config, which names private
+# repos. The native binary sees host paths; the container sees /state.
+STATE_PATH=/state/awf-gh/seen.jsonl
+if [ "$MODE_AWFGH" = local ]; then STATE_PATH=$ROOT/state/awf-gh/seen.jsonl; fi
 if [ -f "$ROOT/awf-gh.yaml" ]; then
-  sed -i "s|^awf_url:.*|awf_url: $AWF_URL|" "$ROOT/awf-gh.yaml"
+  sed -i -e "s|^awf_url:.*|awf_url: $AWF_URL|" \
+    -e "s|^state_path:.*|state_path: $STATE_PATH|" "$ROOT/awf-gh.yaml"
 fi
 
 echo "opencode: $MODE_OPENCODE${OPENCODE_URL:+ ($OPENCODE_URL)}"

@@ -24,7 +24,7 @@ image.
 ### Run everything natively
 
 With `opencode`, `awf`, `gh` and `awf-gh` all `local`, the image is never used:
-skip `make image`, `make up`, `bin/rebuild` and any rebuild timer. `awf-gh=local`
+skip `make image`, `make up` and any rebuild timer. `awf-gh=local`
 forces `gh=local`.
 
 ```bash
