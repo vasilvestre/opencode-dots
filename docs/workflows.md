@@ -102,6 +102,13 @@ Steps:
    by `MAX_FIX_REVIEW_ATTEMPTS` counted in `reviews/pr<N>/attempts`.
    `automerge` merges once the verdict is `merge` and the checks are green or
    absent.
+   Delegation: a line that is exactly `/dots take` in a comment or the body, written
+   by me (the gh user running the dot), lets the dot fix and push my own pull
+   request on any branch except `main`/`master`; `/dots stop` revokes. The last
+   command wins. `fetch` reads it and sets `owned`; others' commands are ignored.
+   Merge is not delegated: `automerge` still needs a `fix/*` branch with
+   `Closes #N`. A comment starts no run; the next event or a manual run reads it.
+   Commits use the identity of `gh api user`. See ADR 0015.
 6. `notify` posts to Discord when `DISCORD_WEBHOOK` is set.
 
 ## reply-pr

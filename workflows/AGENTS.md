@@ -99,6 +99,11 @@ rules for editing them.
   Edits left on a branch I may not push to are never dropped: `post` writes
   `fix.patch` and embeds it in the comment. `fetch` computes ownership once in
   `owned`; `decide` and `post` read it, never recompute it.
+- Delegation: `fetch` also reads exact `/dots take` / `/dots stop` lines (comments
+  or body) written by `me`, last one wins, and sets `owned` to `ok` for my own
+  non-main pull request. `decide` no longer checks `fix/*` or `Closes #N`; `fetch`
+  does. `automerge` is unchanged: not delegated. Never pass comment text to a
+  shell; use jq. ADR 0015.
 - `reply-pr`: `only_authors` in `awf-gh.yaml` keeps other people's PRs out.
 
 ## DO NOT
