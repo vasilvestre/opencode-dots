@@ -199,7 +199,7 @@ repos:
 	}
 	want := map[string]string{
 		"a/claude review-pr":   "claude",
-		"a/claude reply-pr":    "", // reply-pr declares no provider input
+		"a/claude reply-pr":    "",
 		"a/opencode review-pr": "",
 		"a/explicit review-pr": "opencode",
 	}
@@ -462,6 +462,27 @@ func TestImportRefusesAWorkflowNoFeatureHandles(t *testing.T) {
 	}
 	if _, err := Import(dir); err == nil || !strings.Contains(err.Error(), `no feature handles workflow "mystery"`) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestImportKeepsEachReviewRuleProvider(t *testing.T) {
+	dir := t.TempDir()
+	gh := "repos:\n" +
+		"  - {repo: a/b, workflow: review-pr, on: [pr-opened, pr-updated]}\n" +
+		"  - {repo: a/b, workflow: review-pr, on: [checks-failed], inputs: {provider: claude}}\n"
+	if err := os.WriteFile(filepath.Join(dir, FileAwfGh), []byte(gh), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := Import(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := Build(imported, dir, Settings{})
+	if err != nil {
+		t.Fatalf("imported file does not generate: %v\n%s", err, imported)
+	}
+	if got, want := ruleKeys(t, files[FileAwfGh]), ruleKeys(t, []byte(gh)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rules differ after the round trip\ngot  %v\nwant %v\n\nimported:\n%s", got, want, imported)
 	}
 }
 

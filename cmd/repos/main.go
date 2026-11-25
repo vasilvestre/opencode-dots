@@ -105,7 +105,7 @@ func importFiles(dir string, force bool) error {
 			return err
 		}
 	}
-	if err := os.WriteFile(target, data, 0o644); err != nil {
+	if err := os.WriteFile(target, data, 0o600); err != nil {
 		return err
 	}
 	fmt.Println("repos: wrote", repos.SourceFile, "- read it, then run `repos generate`; the generated files replace the three you had")
