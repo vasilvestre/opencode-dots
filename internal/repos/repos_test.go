@@ -317,7 +317,7 @@ func TestWriteTouchesOnlyChangedFiles(t *testing.T) {
 
 // echo is a plugin: a feature written outside the built-ins, registered the way
 // a new one would be. It proves the registry is the whole extension surface.
-type echo struct{}
+type echo struct{ base }
 
 func (echo) Key() string { return "echo" }
 func (echo) Doc() string { return "test feature: writes one line per repository to echo.txt" }

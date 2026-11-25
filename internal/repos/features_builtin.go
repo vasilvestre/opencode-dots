@@ -28,7 +28,7 @@ func init() {
 
 // --- checkout -> repos.map ---------------------------------------------------
 
-type checkout struct{}
+type checkout struct{ base }
 
 func (checkout) Key() string { return "checkout" }
 func (checkout) Doc() string {
@@ -53,7 +53,7 @@ func (checkout) Emit(r *Resolved, out *Output) error {
 
 // --- tend -> tend.list -------------------------------------------------------
 
-type tend struct{}
+type tend struct{ base }
 
 func (tend) Key() string { return "tend" }
 func (tend) Doc() string {
@@ -85,6 +85,7 @@ func (tend) Emit(r *Resolved, out *Output) error {
 // --- watch rules -> awf-gh.yaml ---------------------------------------------
 
 type watch struct {
+	base
 	key           string
 	workflow      string
 	defaultOn     []string
@@ -248,7 +249,7 @@ func stringList(block map[string]any, key string) ([]string, error) {
 // provider picks the agent CLI for the repository. It emits nothing itself: it
 // sets the `provider` input on the rules whose workflow declares one, so a
 // workflow that does not support it is never handed an input it would ignore.
-type provider struct{}
+type provider struct{ base }
 
 func (provider) Key() string { return "provider" }
 func (provider) Doc() string {

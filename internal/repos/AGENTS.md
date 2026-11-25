@@ -8,7 +8,7 @@ dashboard calls it when it saves `repos.yaml`. ADR 0022.
 | File | Holds |
 | --- | --- |
 | `repos.go` | `Document`, `Parse`, `Resolve`: top-level keys, `defaults`, `profiles`, `use`, merging |
-| `features.go` | the `Feature`, `Modifier` and `Importer` interfaces, the registry, `Generate` |
+| `features.go` | the `Feature` interface, its `base` defaults, the registry, `Generate` |
 | `features_builtin.go` | `checkout`, `tend`, `review`, `reply`, `fix_ci`, `fix_issue`, `provider` |
 | `features_sync.go` | `sync`: a feature that owns one extra generated file |
 | `emit.go` | `Render`, `Write`, `Diff`, `Build`, settings merging |
@@ -18,17 +18,17 @@ dashboard calls it when it saves `repos.yaml`. ADR 0022.
 
 A feature is one key under a repository. To add one:
 
-1. Create `features_<name>.go` with a type that satisfies `Feature`
-   (`Key`, `Doc`, `Check`, `Emit`) and `Register` it from `init`.
+1. Create `features_<name>.go` with a type that embeds `base` and implements
+   `Key`, `Doc`, `Check` and `Emit`, and `Register` it from `init`.
 2. `Check` validates the value after defaults and profiles are applied. A `true`
    arrives as an empty mapping; a list of blocks arrives as a list.
 3. `Emit` adds to the `Output`: a watcher `Rule`, a `TendEntry`, a
    `CheckoutEntry`, or lines of a file the feature owns in `Output.Files` (the
    name is the generated file; it gets the standard header).
 4. To change what other features emitted for the same repository (as `provider`
-   does), also implement `Modifier`; it runs after every `Emit` of that repository.
-5. To make `bin/repos import` recognise an existing rule, implement `Importer`
-   (return the awf-gh workflow it owns), and teach `importer.go` any other file.
+   does), override `Modify`; it runs after every `Emit` of that repository.
+5. To make `bin/repos import` recognise an existing rule, override `Workflow` (the
+   awf-gh workflow the feature owns), and teach `importer.go` any other file.
 6. Test it: `TestAFeatureCanBeAddedWithoutTouchingTheLoader` shows the shape. If
    the feature reads a file `bin/repos import` should absorb, add it to
    `testdata/` and the round trip test.

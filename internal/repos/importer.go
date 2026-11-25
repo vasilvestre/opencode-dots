@@ -49,8 +49,8 @@ func Import(dir string) ([]byte, error) {
 	}
 	workflowKey := map[string]string{}
 	for key, f := range registry {
-		if imp, ok := f.(Importer); ok && imp.Workflow() != "" {
-			workflowKey[imp.Workflow()] = key
+		if w := f.Workflow(); w != "" {
+			workflowKey[w] = key
 		}
 	}
 

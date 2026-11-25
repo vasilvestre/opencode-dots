@@ -46,7 +46,7 @@ type CheckoutEntry struct {
 // Feature is one key under a repository. It is the extension point: add a
 // type that satisfies it and register it from an init function, and repos.yaml
 // accepts the key, `bin/repos features` documents it, and the generated files
-// carry what it emits.
+// carry what it emits. Embed `base` to get the two optional methods as no-ops.
 type Feature interface {
 	// Key is the name used under a repository, under defaults and in profiles.
 	Key() string
@@ -57,22 +57,21 @@ type Feature interface {
 	Check(value any) error
 	// Emit adds this feature's contribution for one repository.
 	Emit(r *Resolved, out *Output) error
-}
-
-// Modifier is a Feature that changes what other features emitted for the same
-// repository instead of, or as well as, emitting its own. It runs after every
-// Emit of that repository.
-type Modifier interface {
+	// Modify changes what the features emitted for the same repository, from
+	// index `from` of out.Rules on (as provider does), instead of or as well as
+	// emitting its own. It runs after every Emit of that repository.
 	Modify(r *Resolved, out *Output, from int) error
-}
-
-// Importer is a Feature that can be read back from the existing generated
-// files, which is how `bin/repos import` builds a first repos.yaml.
-type Importer interface {
-	// Workflow names the awf-gh workflow whose rules this feature owns; empty
-	// for a feature that is not a watcher rule.
+	// Workflow names the awf-gh workflow whose rules this feature owns, so
+	// `bin/repos import` can read them back; empty for a feature that is not a
+	// watcher rule.
 	Workflow() string
 }
+
+// base holds the optional methods of Feature, for a feature that needs neither.
+type base struct{}
+
+func (base) Modify(*Resolved, *Output, int) error { return nil }
+func (base) Workflow() string                     { return "" }
 
 var (
 	registry = map[string]Feature{}
@@ -130,10 +129,8 @@ func Generate(doc *Document) (*Output, error) {
 			if _, ok := r.Values[key]; !ok {
 				continue
 			}
-			if m, ok := registry[key].(Modifier); ok {
-				if err := m.Modify(r, out, from); err != nil {
-					problems = append(problems, fmt.Sprintf("%s: %s: %v", r.Name, key, err))
-				}
+			if err := registry[key].Modify(r, out, from); err != nil {
+				problems = append(problems, fmt.Sprintf("%s: %s: %v", r.Name, key, err))
 			}
 		}
 	}

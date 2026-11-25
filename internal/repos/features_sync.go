@@ -13,7 +13,7 @@ func init() { Register(syncFeature{}) }
 
 // syncFeature is a plain extension: it adds nothing to the built-in outputs and
 // owns one generated file of its own, through Output.Files.
-type syncFeature struct{}
+type syncFeature struct{ base }
 
 func (syncFeature) Key() string { return "sync" }
 func (syncFeature) Doc() string {
