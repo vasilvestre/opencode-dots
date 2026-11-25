@@ -23,6 +23,8 @@ export function mountConfig(el, arg) {
   let modelInputs = [];
   let notifLoading = true;
   let notifSaving = false;
+  let modelRoles = [];
+  let presetInputs = {};
   const listEl = h("div", {});
   const modelsEl = h("div", { class: "list", style: { marginTop: "14px" } },
     h("div", { class: "empty" }, "Loading model defaults…"));
@@ -67,8 +69,10 @@ export function mountConfig(el, arg) {
         saveModelsBtn,
       ),
       h("p", { class: "muted", style: { marginTop: "6px" } },
-        "Use ", h("code", {}, "provider/model#variant"), ", for example ", h("code", {}, "local/helper#fast"),
-        ". Changes apply to the next workflow run. Runs already in progress keep their current model."),
+        "Set the global model presets, then override individual roles only when needed. opencode takes ",
+        h("code", {}, "provider/model#variant"), ", for example ", h("code", {}, "local/helper#fast"),
+        ". The claude CLI takes its own names, for example ", h("code", {}, "sonnet"), " or ", h("code", {}, "claude-haiku-4-5"),
+        "; a repository routed to ", h("code", {}, "provider: claude"), " uses the claude presets. Changes apply to the next workflow run. Runs already in progress keep their current model."),
       modelsEl,
     ),
     h("div", { class: "card" },
@@ -97,12 +101,29 @@ export function mountConfig(el, arg) {
   ));
 
   function updateModelsSave() {
-    saveModelsBtn.disabled = modelLoading || modelSaving || modelConflicts || modelInputs.length === 0;
+    saveModelsBtn.disabled = modelLoading || modelSaving || modelConflicts || modelRoles.length === 0;
+  }
+
+  function modelField(id, value, dataset, list = null) {
+    return h("input", {
+      id,
+      class: "mono",
+      type: "text",
+      value: value || "",
+      maxLength: 200,
+      autocomplete: "off",
+      list,
+      placeholder: "provider/model#variant",
+      dataset,
+      style: { width: "100%" },
+    });
   }
 
   async function loadModels() {
     modelLoading = true;
     modelInputs = [];
+    modelRoles = [];
+    presetInputs = {};
     modelConflicts = false;
     updateModelsSave();
     mount(modelsEl, h("div", { class: "empty" }, "Loading model defaults…"));
@@ -111,39 +132,105 @@ export function mountConfig(el, arg) {
       if (destroyed) return;
       const variables = res?.variables || [];
       const available = Array.isArray(res?.available) ? res.available : [];
+      const presets = res?.presets || {};
+      const problems = Array.isArray(res?.problems) ? res.problems : [];
       const catalog = available.length ? h("datalist", { id: "model-catalog" },
         available.map((model) => h("option", { value: model })),
       ) : null;
       const conflicts = variables.filter((v) => v.conflict);
-      modelConflicts = conflicts.length > 0;
-      modelInputs = variables.map((v, i) => h("input", {
-        id: `model-default-${i}`,
-        class: "mono",
-        type: "text",
-        value: v.value || "",
-        maxLength: 200,
-        autocomplete: "off",
-        list: available.length ? "model-catalog" : null,
-        placeholder: "provider/model#variant",
-        dataset: { key: v.key },
-        "aria-describedby": v.description ? `model-default-${i}-description` : null,
-        style: { width: "100%" },
-      }));
+      modelConflicts = conflicts.length > 0 || problems.length > 0;
+      const catalogID = available.length ? "model-catalog" : null;
+      const hasClaude = variables.some((v) => v.provider === "claude");
+      const claudeCatalog = h("datalist", { id: "claude-catalog" },
+        ["sonnet", "haiku"].map((model) => h("option", { value: model })));
+      presetInputs = {
+        light: modelField("model-preset-light", presets.light, { preset: "light" }, catalogID),
+        default: modelField("model-preset-default", presets.default, { preset: "default" }, catalogID),
+      };
+      if (hasClaude) {
+        presetInputs.claude_light = modelField("model-preset-claude-light", presets.claude_light, { preset: "claude_light" }, "claude-catalog");
+        presetInputs.claude_default = modelField("model-preset-claude-default", presets.claude_default, { preset: "claude_default" }, "claude-catalog");
+      }
+      modelRoles = variables.map((v, i) => {
+        const enabled = v.override != null;
+        const input = modelField(`model-override-${i}`, enabled ? v.override : "", { key: v.key }, v.provider === "claude" ? "claude-catalog" : catalogID);
+        input.disabled = !enabled;
+        const checkbox = h("input", {
+          id: `model-override-${i}-enabled`,
+          type: "checkbox",
+          checked: enabled,
+          onchange: () => {
+            input.disabled = !checkbox.checked;
+            if (checkbox.checked && !input.value) input.value = v.value || "";
+          },
+        });
+        return { variable: v, input, checkbox };
+      });
+      modelInputs = [...Object.values(presetInputs), ...modelRoles.map((role) => role.input)];
+      const roleField = (v, i) => {
+        const role = modelRoles[i];
+        const details = `model-role-${i}-details`;
+        const conflict = `model-role-${i}-conflict`;
+        role.input.setAttribute("aria-describedby", v.conflict ? `${details} ${conflict}` : details);
+        return h("div", { class: "field" },
+          h("label", { for: role.checkbox.id }, role.checkbox, " Use a custom override"),
+          role.input,
+          h("div", { class: "hint", id: details },
+            `${v.workflow} · ${v.input} · preset: `, h("code", {}, v.preset || "unassigned"),
+            " · resolved: ", h("code", {}, v.value || "")),
+          v.conflict ? h("div", { class: "hint", id: conflict, style: { color: "var(--err)" } }, v.conflict) : null,
+          v.description ? h("div", { class: "hint" }, v.description) : null,
+        );
+      };
+      const rolesOf = (provider) => variables
+        .map((v, i) => (v.provider === provider ? roleField(v, i) : null))
+        .filter(Boolean);
       mount(modelsEl,
         catalog,
+        hasClaude ? claudeCatalog : null,
+        res?.migration_required ? h("div", { class: "issues" },
+          h("div", { class: "head" }, "Model presets need a first save"),
+          h("p", { class: "hint", style: { padding: "0 12px 10px" } },
+            "Current workflow defaults were imported in memory. Save to create model-presets.yaml."),
+        ) : null,
+        problems.length ? h("div", { class: "issues bad" },
+          h("div", { class: "head" }, "Resolve model configuration problems before saving"),
+          h("ul", {}, problems.map((problem) => h("li", {}, problem))),
+        ) : null,
         conflicts.length ? h("div", { class: "issues bad" },
           h("div", { class: "head" }, "Resolve model conflicts before saving"),
           h("ul", {}, conflicts.map((v) => h("li", {}, `${v.workflow}/${v.input}: ${v.conflict}`))),
         ) : null,
-        variables.length ? variables.map((v, i) => h("div", { class: "field" },
-          h("label", { for: `model-default-${i}` }, `${v.workflow} · ${v.input}`),
-          modelInputs[i],
-          v.description ? h("div", { class: "hint", id: `model-default-${i}-description` }, v.description) : null,
-        )) : h("div", { class: "empty" }, "No model roles found."),
+        h("div", { class: "field" },
+          h("label", { for: "model-preset-light" }, "Light preset"),
+          presetInputs.light,
+          h("div", { class: "hint" }, "Ask, CI fixes, replies, and review addressing."),
+        ),
+        h("div", { class: "field" },
+          h("label", { for: "model-preset-default" }, "Default preset"),
+          presetInputs.default,
+          h("div", { class: "hint" }, "Issue fixes, daily tending, and reviews."),
+        ),
+        hasClaude ? h("h3", { style: { marginTop: "14px" } }, "claude presets") : null,
+        hasClaude ? h("div", { class: "field" },
+          h("label", { for: "model-preset-claude-default" }, "Claude default preset"),
+          presetInputs.claude_default,
+          h("div", { class: "hint" }, "Reviews when a repository is routed to provider claude."),
+        ) : null,
+        hasClaude ? h("div", { class: "field" },
+          h("label", { for: "model-preset-claude-light" }, "Claude light preset"),
+          presetInputs.claude_light,
+          h("div", { class: "hint" }, "Review addressing when a repository is routed to provider claude. Keep it different from the default one."),
+        ) : null,
+        h("h3", { style: { marginTop: "14px" } }, "Role overrides (opencode)"),
+        variables.length ? rolesOf("opencode") : h("div", { class: "empty" }, "No model roles found."),
+        hasClaude ? h("h3", { style: { marginTop: "14px" } }, "Role overrides (claude)") : null,
+        hasClaude ? rolesOf("claude") : null,
       );
     } catch (err) {
       if (destroyed) return;
       modelInputs = [];
+      modelRoles = [];
       mount(modelsEl, h("div", { class: "empty" }, `Cannot load model defaults (${err.body?.error || err.message}).`));
       toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
     } finally {
@@ -153,23 +240,31 @@ export function mountConfig(el, arg) {
   }
 
   async function saveModels() {
-    if (modelLoading || modelSaving || modelConflicts || modelInputs.length === 0) return;
+    if (modelLoading || modelSaving || modelConflicts || modelRoles.length === 0) return;
     modelSaving = true;
     updateModelsSave();
     modelInputs.forEach((input) => { input.disabled = true; });
+    modelRoles.forEach(({ checkbox }) => { checkbox.disabled = true; });
     try {
-      const variables = Object.fromEntries(modelInputs.map((input) => [input.dataset.key, input.value]));
-      const res = await putJSON("/api/models", { variables });
+      const presets = Object.fromEntries(Object.entries(presetInputs).map(([name, input]) => [name, input.value]));
+      const overrides = Object.fromEntries(modelRoles.map(({ variable, input, checkbox }) =>
+        [variable.key, checkbox.checked ? input.value : null]));
+      const res = await putJSON("/api/models", { presets, overrides });
       if (destroyed) return;
       const changed = res?.changed || [];
       const paths = changed.map((item) => typeof item === "string" ? item : item?.path).filter(Boolean).join(", ");
       toast(`Saved model defaults: ${changed.length} file${changed.length === 1 ? "" : "s"} changed${paths ? ` (${paths})` : ""}.`, { tone: "ok" });
+      await loadModels();
     } catch (err) {
       if (!destroyed) toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
     } finally {
       modelSaving = false;
       if (!destroyed) {
         modelInputs.forEach((input) => { input.disabled = false; });
+        modelRoles.forEach(({ input, checkbox }) => {
+          checkbox.disabled = false;
+          input.disabled = !checkbox.checked;
+        });
         updateModelsSave();
       }
     }

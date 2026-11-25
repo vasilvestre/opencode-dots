@@ -98,6 +98,7 @@ func main() {
 	ui := flag.String("ui", filepath.Join(root, "ui", "index.html"), "dashboard page")
 	transcripts := flag.String("transcripts", "", "awf transcript directory, empty finds it in the usual places")
 	opencode := flag.String("opencode", defaultOpencodeConfig(), "opencode config declaring the tower MCP server")
+	opencodeDB := flag.String("opencode-db", envOr("OPENCODE_DB", defaultOpencodeDB()), "opencode SQLite database, read-only, for the run view sessions")
 	allowHost := flag.String("allow-host", envOr("DOTS_ALLOW_HOST", ""),
 		"comma separated hosts allowed to write through the proxy, for the tailnet name")
 	flag.Parse()
@@ -114,7 +115,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
 	for _, h := range strings.Split(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {
@@ -144,6 +145,7 @@ func main() {
 	mux.HandleFunc("/api/cost", d.cost)
 	mux.HandleFunc("/api/usage", d.usage)
 	mux.HandleFunc("/api/run", d.runTimeline)
+	mux.HandleFunc("/api/sessions", d.sessions)
 	mux.HandleFunc("/api/logs", d.logs)
 	mux.HandleFunc("/api/repos", d.repos)
 	mux.HandleFunc("/api/repos/names", d.repoNames)
@@ -172,6 +174,7 @@ type dash struct {
 	awfgh        string
 	transcripts  string
 	opencode     string
+	opencodeDB   string          // opencode SQLite database, read-only
 	allow        map[string]bool // extra hosts allowed to write, see -allow-host
 	editMu       sync.Mutex
 	modelCatalog func(context.Context) []string

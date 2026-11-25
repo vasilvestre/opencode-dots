@@ -1,6 +1,7 @@
 // Package models reads, validates and rewrites the model defaults declared by
-// the workflow files. Only the default scalar of each model input is replaced;
-// every other byte of the file is preserved.
+// the workflow files. It also resolves global presets and per-role overrides.
+// Only the default scalar of each model input is replaced; every other byte of
+// the file is preserved.
 package models
 
 import (
@@ -24,37 +25,74 @@ import (
 
 // Pattern is the identifier shape every workflow input must declare.
 const (
-	Pattern        = `^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$`
+	Pattern = `^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$`
+	// ClaudePattern is the model identifier of the claude CLI: an alias or a
+	// full name, no provider prefix, an optional [1m] style suffix.
+	ClaudePattern  = `^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$`
 	maxIDLength    = 200
 	catalogTimeout = 2 * time.Second
 )
 
-var idRE = regexp.MustCompile(Pattern)
+var (
+	idRE       = regexp.MustCompile(Pattern)
+	claudeIDRE = regexp.MustCompile(ClaudePattern)
+)
 
 type inputRole struct {
 	workflow string
 	input    string
-	state    string
+	// state is the agent step that reads the model; empty when a pick step
+	// reads this input on the agent's behalf.
+	state  string
+	preset string
+	// provider is the agent CLI the model is for: opencode or claude.
+	provider string
+	// pick names the shell step whose output the agent step reads, for the
+	// roles that exist in both providers. claudeInput is the claude twin.
+	pick        string
+	claudeInput string
+}
+
+func (r inputRole) pattern() string {
+	if r.provider == "claude" {
+		return ClaudePattern
+	}
+	return Pattern
 }
 
 var roles = []inputRole{
-	{workflow: "ask-pr", input: "model", state: "ask"},
-	{workflow: "fix-ci", input: "model", state: "fix"},
-	{workflow: "fix-issue", input: "model", state: "fix"},
-	{workflow: "reply-pr", input: "model", state: "reply"},
-	{workflow: "review-pr", input: "review_model", state: "review"},
-	{workflow: "review-pr", input: "address_model", state: "address"},
-	{workflow: "tend-repo", input: "model", state: "learn"},
+	{workflow: "ask-pr", input: "model", state: "ask", preset: "light", provider: "opencode"},
+	{workflow: "fix-ci", input: "model", state: "fix", preset: "light", provider: "opencode"},
+	{workflow: "_fix-issue-owned", input: "model", state: "fix", preset: "default", provider: "opencode"},
+	{workflow: "_fix-issue-external", input: "model", state: "fix", preset: "default", provider: "opencode"},
+	{workflow: "reply-pr", input: "model", state: "reply", preset: "light", provider: "opencode"},
+	{workflow: "review-pr", input: "review_model", state: "review", preset: "default", provider: "opencode", pick: "pick_review_model", claudeInput: "claude_review_model"},
+	{workflow: "review-pr", input: "address_model", state: "address", preset: "light", provider: "opencode", pick: "pick_address_model", claudeInput: "claude_address_model"},
+	{workflow: "review-pr", input: "claude_review_model", preset: "claude_default", provider: "claude"},
+	{workflow: "review-pr", input: "claude_address_model", preset: "claude_light", provider: "claude"},
+	{workflow: "tend-repo", input: "model", state: "learn", preset: "default", provider: "opencode"},
+}
+
+func roleFor(key string) (inputRole, bool) {
+	for _, role := range roles {
+		if role.key() == key {
+			return role, true
+		}
+	}
+	return inputRole{}, false
 }
 
 // Variable is one workflow model input and its saved default.
 type Variable struct {
-	Key         string `json:"key"`
-	Workflow    string `json:"workflow"`
-	Input       string `json:"input"`
-	Value       string `json:"value"`
-	Description string `json:"description"`
-	Conflict    string `json:"conflict"`
+	Key         string  `json:"key"`
+	Workflow    string  `json:"workflow"`
+	Input       string  `json:"input"`
+	Provider    string  `json:"provider"`
+	Value       string  `json:"value"`
+	Description string  `json:"description"`
+	Preset      string  `json:"preset"`
+	Override    *string `json:"override"`
+	Conflict    string  `json:"conflict"`
 
 	defaultNode *yaml.Node
 	span        scalarSpan
@@ -77,6 +115,12 @@ type Snapshot struct {
 	files     []*workflowFile
 	variables []*Variable
 	problems  []string
+
+	configuration  *Configuration
+	presetPath     string
+	presetAbs      string
+	presetOriginal []byte
+	migration      bool
 }
 
 type replacement struct {
@@ -90,9 +134,10 @@ type fileChange struct {
 	backup   string
 	original []byte
 	data     []byte
+	created  bool
 }
 
-// Saved names a rewritten file and the backup taken before it.
+// Saved names a rewritten file and its backup. Backup is empty for a new file.
 type Saved struct {
 	Path   string `json:"path"`
 	Backup string `json:"backup"`
@@ -247,13 +292,19 @@ func inspect(rel string, data []byte) ([]*Variable, []string) {
 			continue
 		}
 		expectedInputs[role.input] = true
-		expectedStates[role.state] = role.input
-		want := "{{.inputs." + role.input + "}}"
-		got, ok := stateModels[role.state]
-		if !ok {
-			problems = append(problems, fmt.Sprintf("missing agent state %q for model input %q", role.state, role.input))
-		} else if got != want {
-			problems = append(problems, fmt.Sprintf("agent state %q must use %q in options.model", role.state, want))
+		if role.state != "" {
+			expectedStates[role.state] = role.input
+			want := "{{.inputs." + role.input + "}}"
+			if role.pick != "" {
+				want = "{{.states." + role.pick + ".Output}}"
+				problems = append(problems, pickProblems(root["states"], role)...)
+			}
+			got, ok := stateModels[role.state]
+			if !ok {
+				problems = append(problems, fmt.Sprintf("missing agent state %q for model input %q", role.state, role.input))
+			} else if got != want {
+				problems = append(problems, fmt.Sprintf("agent state %q must use %q in options.model", role.state, want))
+			}
 		}
 		if counts[role.input] == 0 {
 			problems = append(problems, fmt.Sprintf("missing model input %q", role.input))
@@ -269,7 +320,11 @@ func inspect(rel string, data []byte) ([]*Variable, []string) {
 	for _, item := range candidates {
 		variable := item.variable
 		fields := item.fields
-		if _, ok := expectedInputs[variable.Input]; !ok {
+		pattern := Pattern
+		if role, ok := roleFor(variable.Key); ok {
+			variable.Provider = role.provider
+			pattern = role.pattern()
+		} else {
 			addConflict(variable, fmt.Sprintf("unexpected model input %q for workflow %q", variable.Input, workflow))
 		}
 		if counts[variable.Input] > 1 {
@@ -287,7 +342,7 @@ func inspect(rel string, data []byte) ([]*Variable, []string) {
 				variable.Value = def.Value
 				if strings.TrimSpace(variable.Value) == "" {
 					addConflict(variable, "default must be a non-empty model identifier")
-				} else if !idRE.MatchString(variable.Value) {
+				} else if !modelRE(pattern).MatchString(variable.Value) {
 					addConflict(variable, "default is not a valid model identifier")
 				}
 			}
@@ -301,17 +356,17 @@ func inspect(rel string, data []byte) ([]*Variable, []string) {
 		} else {
 			addConflict(variable, "missing default")
 		}
-		pattern := ""
+		got := ""
 		if validation, ok := fields["validation"]; ok {
 			validationFields, err := nodeFields(validation)
 			if err != nil {
 				addConflict(variable, "invalid validation: "+err.Error())
 			} else {
-				pattern = scalarString(validationFields["pattern"])
+				got = scalarString(validationFields["pattern"])
 			}
 		}
-		if pattern != Pattern {
-			addConflict(variable, "validation pattern must match the shared model pattern")
+		if got != pattern {
+			addConflict(variable, "validation pattern must match the model pattern of its provider")
 		}
 		variables = append(variables, variable)
 	}
@@ -384,6 +439,38 @@ func agentModels(states *yaml.Node) (map[string]string, []string) {
 	return models, problems
 }
 
+func modelRE(pattern string) *regexp.Regexp {
+	if pattern == ClaudePattern {
+		return claudeIDRE
+	}
+	return idRE
+}
+
+// pickProblems checks the shell step that chooses between the opencode and the
+// claude model of one role: it must exist and read both inputs and the provider.
+func pickProblems(states *yaml.Node, role inputRole) []string {
+	fields, err := nodeFields(states)
+	if err != nil {
+		return nil
+	}
+	node, ok := fields[role.pick]
+	if !ok {
+		return []string{fmt.Sprintf("missing step %q that picks the model of %q", role.pick, role.input)}
+	}
+	step, err := nodeFields(node)
+	if err != nil {
+		return []string{"step " + role.pick + ": " + err.Error()}
+	}
+	command := scalarString(step["command"])
+	var problems []string
+	for _, ref := range []string{role.input, role.claudeInput, "provider"} {
+		if !strings.Contains(command, "{{.inputs."+ref+"}}") {
+			problems = append(problems, fmt.Sprintf("step %q must read {{.inputs.%s}}", role.pick, ref))
+		}
+	}
+	return problems
+}
+
 func addConflict(variable *Variable, problem string) {
 	if variable.Conflict == "" {
 		variable.Conflict = problem
@@ -442,18 +529,50 @@ func (s *Snapshot) Prepare(values map[string]string) (*Plan, error) {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		value := values[key]
-		if len(value) > maxIDLength {
-			return nil, fmt.Errorf("%s is longer than %d characters", key, maxIDLength)
-		}
-		if !idRE.MatchString(value) {
-			return nil, fmt.Errorf("%s is not a valid model identifier", key)
+		if err := validateRoleModel(key, values[key]); err != nil {
+			return nil, fmt.Errorf("%s: %w", key, err)
 		}
 	}
-	if values["review-pr/review_model"] == values["review-pr/address_model"] {
-		return nil, errors.New("review-pr review_model and address_model must be different")
+	if err := distinctReviewModels(func(key string) string { return values[key] }); err != nil {
+		return nil, err
 	}
 
+	return s.prepareWorkflowChanges(values)
+}
+
+func validateModelID(value string) error { return validateModel(value, Pattern) }
+
+// distinctReviewModels keeps the reviewer from approving its own output, for
+// each provider.
+func distinctReviewModels(get func(key string) string) error {
+	if get("review-pr/review_model") == get("review-pr/address_model") {
+		return errors.New("review-pr review_model and address_model must be different")
+	}
+	if get("review-pr/claude_review_model") == get("review-pr/claude_address_model") {
+		return errors.New("review-pr claude_review_model and claude_address_model must be different")
+	}
+	return nil
+}
+
+func validateModel(value, pattern string) error {
+	if len(value) > maxIDLength {
+		return fmt.Errorf("model identifier is longer than %d characters", maxIDLength)
+	}
+	if !modelRE(pattern).MatchString(value) {
+		return errors.New("model identifier is not valid")
+	}
+	return nil
+}
+
+func validateRoleModel(key, value string) error {
+	role, ok := roleFor(key)
+	if !ok {
+		return validateModelID(value)
+	}
+	return validateModel(value, role.pattern())
+}
+
+func (s *Snapshot) prepareWorkflowChanges(values map[string]string) (*Plan, error) {
 	byFile := map[*workflowFile][]replacement{}
 	for _, variable := range s.variables {
 		value := values[variable.Key]
@@ -622,10 +741,13 @@ type Plan struct {
 	changes []fileChange
 }
 
-// Apply backs up each file with backup, then writes it with write. When a
-// write fails, the files already written are restored.
+// Apply backs up each existing file with backup, then writes it with write.
+// When a write fails, written files are restored and new files are removed.
 func (p *Plan) Apply(backup func(abs string) (string, error), write func(abs string, data []byte) error) ([]Saved, error) {
 	for i := range p.changes {
+		if p.changes[i].created {
+			continue
+		}
 		path, err := backup(p.changes[i].abs)
 		if err != nil {
 			return nil, fmt.Errorf("backup failed: %w", err)
@@ -645,12 +767,22 @@ func (p *Plan) Apply(backup func(abs string) (string, error), write func(abs str
 	return saved, nil
 }
 
+func restoreFile(change fileChange, write func(string, []byte) error) error {
+	if !change.created {
+		return write(change.abs, change.original)
+	}
+	if err := os.Remove(change.abs); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func writeAll(changes []fileChange, write func(string, []byte) error) error {
 	for i, change := range changes {
 		if err := write(change.abs, change.data); err != nil {
 			problems := []error{fmt.Errorf("write %s: %w", change.path, err)}
-			for j := i - 1; j >= 0; j-- {
-				if err := write(changes[j].abs, changes[j].original); err != nil {
+			for j := i; j >= 0; j-- {
+				if err := restoreFile(changes[j], write); err != nil {
 					problems = append(problems, fmt.Errorf("restore %s: %w", changes[j].path, err))
 				}
 			}

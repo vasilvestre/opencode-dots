@@ -13,6 +13,21 @@ repos:
     on: [pr-opened, pr-updated, checks-failed]
     ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
 
+  # review-pr's `provider` input defaults to opencode. Route a repository
+  # whose work leans on Claude Code instead (set DOT_CLAUDE in bin/configure
+  # first) by overriding it here. The models then come from the claude presets
+  # (claude_review_model, claude_address_model), not the opencode ones. Needs an
+  # awf-gh build that carries the repos[].inputs field (not yet in an
+  # awf-project/awf-gh release at the time of writing, see AWF_GH_SRC in the
+  # Makefile).
+  - repo: your-org/claude-routed-repo
+    scope: local
+    workflow: review-pr
+    on: [pr-opened, pr-updated, checks-failed]
+    ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+    inputs:
+      provider: claude
+
   # Answer review comments on your own PRs. only_authors keeps other people's
   # PRs out; review-comment fires once per new comment.
   - repo: your-org/your-repo

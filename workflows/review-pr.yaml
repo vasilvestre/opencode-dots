@@ -19,7 +19,7 @@ inputs:
   - name: review_model
     type: string
     required: false
-    default: claude-agent/haiku
+    default: mistral/deepseek-v4-1-flash-1017
     description: model for the review agent
     validation:
       pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
@@ -30,6 +30,33 @@ inputs:
     description: model for the fix agent
     validation:
       pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
+  # Per-repo routing: a repos[].inputs.provider entry in awf-gh.yaml picks the
+  # agent CLI for this run. The provider decides which model pair is used:
+  # review_model and address_model for opencode, the claude_ pair for claude.
+  - name: provider
+    type: string
+    required: false
+    default: opencode
+    description: agent CLI for the review and fix steps (opencode or claude)
+    validation:
+      pattern: '^(opencode|claude)$'
+  # The models for provider claude. awf hands the model string to the claude
+  # CLI as is, so these are claude names (haiku, sonnet, claude-sonnet-4-5), not
+  # the provider/model ids opencode takes. Edited through the Config view.
+  - name: claude_review_model
+    type: string
+    required: false
+    default: sonnet
+    description: claude model for the review agent (used when provider is claude)
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$'
+  - name: claude_address_model
+    type: string
+    required: false
+    default: haiku
+    description: claude model for the fix agent (used when provider is claude)
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$'
 
 states:
   initial: guard
@@ -60,6 +87,32 @@ states:
         goto: done
       - when: 'states.guard.Output contains "CLOSED:"'
         goto: done
+    on_success: pick_review_model
+    on_failure: error
+
+  # awf has no conditional in its interpolation, so a shell step picks the model
+  # that matches the provider and the agent steps read its output.
+  pick_review_model:
+    type: step
+    command: |
+      if [ "{{.inputs.provider}}" = claude ]; then
+        printf '%s' '{{.inputs.claude_review_model}}'
+      else
+        printf '%s' '{{.inputs.review_model}}'
+      fi
+    timeout: 10
+    on_success: pick_address_model
+    on_failure: error
+
+  pick_address_model:
+    type: step
+    command: |
+      if [ "{{.inputs.provider}}" = claude ]; then
+        printf '%s' '{{.inputs.claude_address_model}}'
+      else
+        printf '%s' '{{.inputs.address_model}}'
+      fi
+    timeout: 10
     on_success: fetch
     on_failure: error
 
@@ -272,12 +325,12 @@ states:
   # work. It reads the worktree the fix left, not only the pushed diff.
   review:
     type: agent
-    provider: opencode
+    provider: "{{.inputs.provider}}"
     options:
       # A free default model hits the shared rate limit within minutes. A
       # different model from the one that fixes, so the review has a second
       # point of view instead of approving its own output.
-      model: "{{.inputs.review_model}}"
+      model: "{{.states.pick_review_model.Output}}"
     prompt: |
       You review pull request {{.inputs.repo}}#{{.inputs.pr}}.
 
@@ -414,6 +467,18 @@ states:
         *) echo "warning: pull request state unknown ('$state'), continuing" >&2 ;;
       esac
       cp "$d/diff.patch" "$d/diff.round{{.loop.Index1}}.patch"
+      # A reviewer that wrote nothing (rate limit, empty reply) is not a clean
+      # review. Ask again, twice at most, then fail instead of posting nothing.
+      if [ ! -s "$d/review.md" ]; then
+        n=$(( $(cat "$d/noreview.count" 2>/dev/null || echo 0) + 1 ))
+        printf '%s\n' "$n" > "$d/noreview.count"
+        if [ "$n" -le 2 ]; then
+          echo "NOREVIEW: the reviewer wrote no review.md, asking again ($n/2)"
+          exit 0
+        fi
+        echo "the reviewer wrote no review.md after 3 tries" >&2
+        exit 1
+      fi
       open=$(grep '^- ' "$d/review.md" | grep -v '^- cleared:' || true)
       if [ -z "$open" ]; then
         echo "STOP: review has no open finding"
@@ -432,6 +497,8 @@ states:
     transitions:
       - when: 'states.gate.Output contains "STOP"'
         goto: post
+      - when: 'states.gate.Output contains "NOREVIEW"'
+        goto: review
     on_success: rework
     on_failure: error
 
@@ -549,9 +616,9 @@ states:
   # never commits or pushes: the push step does, only on an owned branch.
   address:
     type: agent
-    provider: opencode
+    provider: "{{.inputs.provider}}"
     options:
-      model: "{{.inputs.address_model}}"
+      model: "{{.states.pick_address_model.Output}}"
     prompt: |
       You clear the review findings on my pull request
       {{.inputs.repo}}#{{.inputs.pr}} so it can merge.

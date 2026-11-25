@@ -31,35 +31,70 @@ disk as ES modules, with no build step.
 | `/api/files` | the editable files: `workflows/*.yaml` and the local configs |
 | `/api/source?path=` | one editable file as text |
 | `/api/save` (PUT) | writes one editable file, keeps a `.bak` |
-| `/api/models` (GET) | lists workflow model input variables, saved defaults, and available local model IDs |
-| `/api/models` (PUT) | updates named workflow model input defaults |
+| `/api/models` (GET) | lists presets, migration status, model variables with preset and override, and available local model IDs |
+| `/api/models` (PUT) | updates presets and overrides, then projects resolved workflow defaults |
 | `/api/notifications` (GET) | reads the Discord webhook setting from `notifications.json`, or the disabled defaults |
 | `/api/notifications` (PUT) | saves the Discord webhook setting under the same write lock and keeps a `.bak` |
 | `/awf/*` | proxied to `AWF_URL`, default `http://127.0.0.1:2511` |
 
-## MODEL DEFAULTS
+## MODEL PRESETS
 
-The Config view's Model defaults form lists variables with `GET /api/models` and
-saves them with `PUT /api/models`. Single-agent workflows use `model`.
-`review-pr` uses `review_model` and `address_model`. A model identifier is
-`provider/model`, with an optional `#variant`. The `provider: opencode` field
-selects the awf adapter, not the model provider. `GET /api/models` also returns
-an `available` array from the local `opencode models` command. The Config view
-offers those IDs in a native datalist and keeps every field free text. A failed
-or timed-out lookup returns an empty array without blocking the form.
+The Config view's Model defaults form uses `GET /api/models` and
+`PUT /api/models`. The tracked root `model-presets.yaml` has `version: 1`, two
+presets (plus two optional claude ones) and optional per-role overrides. The
+fixed mapping is:
+
+- `light`: `ask-pr/model`, `fix-ci/model`, `reply-pr/model`,
+  `review-pr/address_model`.
+- `default`: `_fix-issue-owned/model`, `_fix-issue-external/model`, `tend-repo/model`, `review-pr/review_model`.
+- `claude_light`: `review-pr/claude_address_model`.
+- `claude_default`: `review-pr/claude_review_model`.
+
+The claude roles use `models.ClaudePattern` (no provider prefix), and every
+other role uses `models.Pattern`; each variable carries a `provider`. A missing
+claude preset takes `sonnet` or `haiku`. `review-pr` agent steps read
+`{{.states.pick_review_model.Output}}` and `{{.states.pick_address_model.Output}}`,
+and the dashboard reports a conflict when a pick step does not read its three
+inputs. The effective review and address models must differ for each provider.
+See ADR 0019.
+
+An override wins over its assigned preset. The API eagerly projects each
+resolved ID into the workflow input's concrete default. awf keeps reading
+workflow defaults, not the preset file. A model identifier is `provider/model`,
+with an optional `#variant`. The `provider: opencode` field selects the awf
+adapter, not the model provider.
+
+`GET /api/models` returns `presets`, `migration_required`, `variables`,
+`problems` and `available`. Each variable carries its `preset`, `override` and
+role-specific `conflict`. Top-level `problems` also reports structural or preset
+file errors when no role variables exist. The `available`
+array comes from the local `opencode models` command. The Config view offers
+those IDs in a native datalist and keeps every field free text. A failed or
+timed-out lookup returns an empty array without blocking the form.
+
+`PUT /api/models` accepts `{presets, overrides}`. An override value is a string
+or `null`; `null` clears it. The legacy `{variables}` payload remains a
+compatibility path that creates explicit overrides. Only `/api/models` writes
+`model-presets.yaml`; the generic editor does not expose it.
+
+A missing preset file means migration mode. `GET` does not write during
+migration. Derive `light` from the current `ask-pr/model` default and `default`
+from the current `_fix-issue-owned/model` default. Make every differing role an
+override, preserving all current runtime models. The first save creates the
+preset file.
 
 Automatic runs from `awf-gh`, Ask and `bin/tend` omit model inputs and use the
-saved defaults. The Run dialog can override a model for one run. A saved change
-applies to the next run without restarting awf or OpenCode. A running request
-keeps the model it started with.
+saved workflow defaults. The Run dialog can override a model for one run. A
+saved change applies to the next run without restarting awf or OpenCode. A
+running request keeps the model it started with.
 
 Only a dashboard-started run keeps its exact original inputs in browser
 `localStorage`, including a model override. Replay uses that record when
 available. An automatic run has no browser record, so replay may use the current
 saved default instead of the historical model.
 
-A `tend-repo` model override changes only its own agent step. It does not replace
-the `review_model` or `address_model` used by the nested `review-pr` run.
+A `tend-repo` override changes only its own role. Its nested `review-pr` run uses
+`review-pr`'s own resolved `review_model` and `address_model`.
 
 ## REPLAY
 
@@ -117,23 +152,34 @@ counted once.
   (1 MiB), path allowlist, YAML parse. A YAML file that does not parse is
   refused and left untouched, because a broken watcher config stops the next
   polling pass.
-- `PUT /api/models` checks `PUT`, trusted `Host` and `Origin`, JSON content type
-  and a size cap before it updates workflow files. Match exact workflow and
-  input names. Refuse unknown keys and duplicate input names.
+- `GET /api/models` uses the trusted `Host` and `Origin` check.
+  `PUT /api/models` checks `PUT`, those trusted headers, JSON content type and a
+  size cap before it writes. Parse the preset file as version 1 YAML. Refuse
+  unknown versions, unknown keys and invalid YAML.
+- Match exact workflow and input names in `variables`, `presets` and
+  `overrides`. Refuse unknown keys and duplicate input names.
+- Preset IDs and overrides must be non-empty and match `provider/model`, with an
+  optional `#variant`. Reuse the model-ID validator and length limit. Validation
+  checks identifier syntax, not provider availability. An unavailable model
+  fails the next agent step. Reject equal effective `review-pr/review_model` and
+  `address_model` values.
 - Refuse a structural conflict instead of overwriting it: the named model input
   must exist once, be an optional string, have a non-empty scalar default and
   carry the shared validation pattern. Each agent step must reference the
   expected model input. The generic YAML editor can break this convention, so
   the form reports the conflict.
-- Model values must be non-empty and match `provider/model`, with an optional
-  `#variant`. Validation checks identifier syntax, not provider availability.
-  An unavailable model fails the next agent step.
-- Edit only the matched `default` scalar. Preserve every other line and byte;
-  never marshal the whole YAML document.
-- Serialize `/api/models` updates with `/api/save` under the same write lock.
-  Keep a stamped `.bak` and use `atomicWrite`, as `saveFile` does. A save across
-  several workflow files is not one filesystem transaction, so a run that starts
-  during the save can use mixed defaults.
+- Report drift when a workflow default differs from its resolved preset or
+  override. Block the next preset save until the operator reconciles it.
+- Edit only the matched workflow `default` scalar. Preserve every other line and
+  byte; never marshal the whole YAML document.
+- Prepare workflow scalar replacements and serialized preset content as one
+  save plan. Serialize `/api/models` updates with `/api/save` under the same
+  write lock. Write workflow files before `model-presets.yaml`. Keep a stamped
+  `.bak` for each existing changed file and use `atomicWrite`. First-time preset
+  creation and unchanged saves create no backups. If a later write fails, roll
+  back written workflows and remove a newly created preset file. A multi-file
+  save is not one filesystem transaction, so a run that starts during the save
+  can use mixed defaults.
 - The Config view also edits the private `notifications.json` at the repository
   root through `GET` and `PUT /api/notifications`. Its only shape is
   `{"discord":{"enabled":boolean,"webhook":string}}`. GET returns the saved
@@ -155,9 +201,10 @@ counted once.
   not add a webhook test endpoint: saving the config sends nothing.
 - The page never runs git. The backup file is the safety net for the private
   files; for tracked files, git is.
-- The only other write is `state/logs/`: the watcher goroutine records a
-  running execution's event stream, because awf forgets it once the run leaves
-  its session registry. It prunes logs older than 30 days.
+- Apart from files written through the editors, the only other write is
+  `state/logs/`: the watcher goroutine records a running execution's event
+  stream, because awf forgets it once the run leaves its session registry. It
+  prunes logs older than 30 days.
 - `/api/stream` prefers awf's per-run transcript (`<data dir>/awf/transcripts/<id>.jsonl`),
   which also holds the agent messages the event stream omits. The recorder's
   file stays the fallback and the source of the terminal state, because the
@@ -206,8 +253,8 @@ counted once.
 ## FLAGS
 
 `-addr`, `-state` (default `STATE_DIR`), `-root` (default the repository root;
-holds `workflows/` and the local configs), `-allow-host` (default
-`DOTS_ALLOW_HOST`), `-awf` (default `AWF_URL`), `-ui`,
+holds `workflows/`, the local configs and `model-presets.yaml`), `-allow-host`
+(default `DOTS_ALLOW_HOST`), `-awf` (default `AWF_URL`), `-ui`,
 `-awfgh` (default `awf-gh.yaml`), `-opencode` (default the opencode config under
 `$XDG_CONFIG_HOME`).
 
@@ -217,12 +264,13 @@ holds `workflows/` and the local configs), `-allow-host` (default
   directory falls back to the working directory.
 - Tests cover the index, `resolveEditable`, the save handler (backup, YAML
   refusal, origin and path rejection), and the loopback and trusted-host checks.
-  Model API tests cover GET and PUT validation, bad requests, exact-key changes,
-  structural conflicts, quote, comment and line-ending preservation, backups,
-  unchanged-request idempotence, multi-file preflight, and rollback after a write
-  failure. `TestWorkflowModelInputs` checks all six workflows for optional model
-  inputs with non-empty defaults, the shared validation pattern, and the correct
-  agent references. Notification tests cover defaults, validation, origin and
+  Model API tests cover validation, bad requests, exact-key changes, structural
+  conflicts, quote, comment and line-ending preservation, backups, idempotence,
+  multi-file preflight and rollback. Preset tests cover migration, resolution,
+  drift, equal-role rejection, override clearing, creation, workflow-first
+  ordering and API propagation. `TestWorkflowModelInputs` checks all six
+  workflows for optional model inputs with non-empty defaults, the shared
+  validation pattern and the correct agent references. Notification tests cover defaults, validation, origin and
   size rejection, backups, one notice per execution, and the Discord payload
   through an injected post function.
 - `state/logs/` only holds runs that happened while the page was up.

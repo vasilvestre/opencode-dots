@@ -22,7 +22,7 @@ inputs:
   - name: model
     type: string
     required: false
-    default: opencode-go/deepseek-v4.1-flash
+    default: mistral/deepseek-v4-1-flash-1017
     description: model for the agent step
     validation:
       pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'

@@ -21,3 +21,5 @@ systemd/dots-dashboard.env
 # Local Discord webhook, editable from the dashboard Config page.
 notifications.json
 notifications.json.*.bak
+# /api/save backups (ADR 0004), pruned to the last twenty per file at runtime.
+*.*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].bak

@@ -10,7 +10,7 @@ AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
 .PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard lint
 
-configure: ## choose local or image for opencode, awf, gh and awf-gh; writes .env
+configure: ## choose local or image for opencode, awf, gh, awf-gh and (optional) claude; writes .env
 	bin/configure
 
 lint: ## lint the dashboard frontend, report unused code

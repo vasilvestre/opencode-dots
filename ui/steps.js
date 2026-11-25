@@ -4,6 +4,8 @@
 const LABELS = {
   "review-pr": {
     guard: "Check PR",
+    pick_review_model: null,
+    pick_address_model: null,
     fetch: "Fetch PR",
     wait: "Wait for CI",
     rework: null,
@@ -26,7 +28,16 @@ const LABELS = {
     post: "Post replies",
     notify: "Notify",
   },
-  "fix-issue": { fetch: "Fetch issue", fix: "Fix issue", push: "Open PR", notify: "Notify" },
+  "fix-issue": {
+    fetch: "Fetch issue",
+    route: null,
+    fix_owned: "Fix issue",
+    fix_external: "Fix issue (upstream)",
+    push: "Open PR",
+    notify: "Notify",
+  },
+  "_fix-issue-owned": { fix: "Fix issue" },
+  "_fix-issue-external": { fix: "Fix issue (upstream)" },
   "fix-ci": { fetch: "Fetch CI logs", guard: "Check failure", fix: "Fix CI", push: "Push fix", notify: "Notify" },
   "tend-repo": { survey: "Survey repo", learn: "Learn", file: "File issues", patch: "Patch", notify: "Notify" },
   "ask-pr": { fetch: "Fetch PR", ask: "Answer question" },

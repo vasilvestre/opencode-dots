@@ -261,6 +261,7 @@ input[type="search"] { min-width: 200px; }
   font-size: 12px; color: var(--muted);
 }
 .chip b { color: var(--text); font-weight: 600; }
+.chip.provider-claude { border-color: var(--accent); color: var(--accent); }
 
 /* Running runs ------------------------------------------------------------ */
 

@@ -212,6 +212,86 @@ func (d *dash) runModels(id string) map[string]string {
 	return nil
 }
 
+// runState is the part of awf's per-run state file the page reads.
+type runState struct {
+	WorkflowName string            `json:"WorkflowName"`
+	ParentRunID  string            `json:"ParentRunID"`
+	Inputs       map[string]string `json:"Inputs"`
+	States       map[string]struct {
+		Output string `json:"Output"`
+	} `json:"States"`
+}
+
+// childStates maps a run id to the run its call_workflow step started. awf keeps
+// a sub-workflow as a run of its own, with the parent's id in its state file,
+// and it is not listed as a running execution: the page reads its model through
+// the parent. One pass over the state files, made once per request.
+func (d *dash) childStates() map[string]runState {
+	out := map[string]runState{}
+	for _, dir := range d.transcriptDirs() {
+		entries, err := os.ReadDir(filepath.Join(filepath.Dir(dir), "states"))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			var st runState
+			loadJSON(filepath.Join(filepath.Dir(dir), "states", e.Name()), &st)
+			if st.ParentRunID != "" {
+				out[st.ParentRunID] = st
+			}
+		}
+	}
+	return out
+}
+
+// runInfo is what the history and the running list show next to a run: its model
+// inputs, the agent CLI it used and, for fix-issue, which hidden workflow the
+// router picked.
+type runInfo struct {
+	Models   map[string]string
+	Provider string
+	Route    string
+}
+
+// runInfo reads them from the run's state file. A run with no model input of its
+// own (the fix-issue router) takes the model of its child run. The provider is
+// the run's provider input; a workflow without one always uses opencode.
+func (d *dash) runInfo(id string, children map[string]runState) runInfo {
+	info := runInfo{Models: d.runModels(id)}
+	for _, dir := range d.transcriptDirs() {
+		var st runState
+		loadJSON(filepath.Join(filepath.Dir(dir), "states", id+".json"), &st)
+		if st.WorkflowName == "" && st.Inputs == nil {
+			continue
+		}
+		info.Provider = "opencode"
+		if p := st.Inputs["provider"]; p == "claude" || p == "opencode" {
+			info.Provider = p
+		}
+		if out := strings.ToLower(strings.TrimSpace(st.States["route"].Output)); st.WorkflowName == "fix-issue" && (out == "owned" || out == "external") {
+			info.Route = out
+		}
+		break
+	}
+	if len(info.Models) == 0 {
+		if child, ok := children[id]; ok {
+			info.Models = map[string]string{}
+			for name, model := range child.Inputs {
+				if model != "" && (name == "model" || strings.HasSuffix(name, "_model")) {
+					info.Models[name] = model
+				}
+			}
+			if len(info.Models) == 0 {
+				info.Models = nil
+			}
+		}
+	}
+	return info
+}
+
 // replayRun answers /api/replay: what a finished run was asked to do, so the
 // page can offer the same run again. awf keeps no copy of the inputs, so the
 // values come either from the run log (see replayInputs) or from the page's own
