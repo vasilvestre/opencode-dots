@@ -343,13 +343,14 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 		Rounds []string `json:"rounds,omitempty"`
 	}
 	out := []row{}
+	roundOwner := map[string]int{}
 	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID != "" {
 			usd, _ := d.runCost(e.ID)
 			t := d.target(e.ID)
 			var rounds []string
-			if pr, sha := t["pr"], t["sha"]; roundPRRE.MatchString(pr) && roundShaRE.MatchString(sha) {
+			if pr, sha := t["pr"], t["sha"]; e.WorkflowName == "review-pr" && roundPRRE.MatchString(pr) && roundShaRE.MatchString(sha) {
 				matches, _ := filepath.Glob(filepath.Join(d.state, "reviews", "pr"+pr+"-"+sha, "diff.round*.patch"))
 				for _, p := range matches {
 					rel, err := filepath.Rel(d.state, p)
@@ -358,6 +359,11 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 					}
 					rounds = append(rounds, filepath.ToSlash(rel))
 				}
+				// A rerun wipes the directory, so only the latest review of this head owns the files.
+				if prev, ok := roundOwner[pr+"-"+sha]; ok {
+					out[prev].Rounds = nil
+				}
+				roundOwner[pr+"-"+sha] = len(out)
 			}
 			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"], Rounds: rounds})
 		}

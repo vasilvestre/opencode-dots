@@ -153,17 +153,27 @@ export function mountActivity(el) {
   function attachLogIds(entries, logs) {
     const byKey = new Map();
     const costs = new Map();
-    const add = (workflow, startedAt, id, cost) => {
+    const roundsById = new Map();
+    const wanted = new Map();
+    for (const e of entries) {
+      const key = runKey(e.workflow_name, e.started_at);
+      wanted.set(key, (wanted.get(key) || 0) + 1);
+    }
+    const add = (workflow, startedAt, id, cost, rounds) => {
       const key = runKey(workflow, startedAt);
-      byKey.set(key, [...(byKey.get(key) || []), id]);
+      const ids = byKey.get(key) || [];
+      if (!ids.includes(id)) byKey.set(key, [...ids, id]);
       if (cost) costs.set(id, cost);
+      if (rounds?.length) roundsById.set(id, rounds);
     };
-    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id, l.cost);
+    for (const l of logs) add(l.workflow_name, l.started_at, l.execution_id, l.cost, l.rounds);
     for (const e of state.executions) add(e.workflow_name, e.started_at, e.execution_id, 0);
     return entries.map((e) => {
-      const list = byKey.get(runKey(e.workflow_name, e.started_at));
-      const logId = list?.length ? list.shift() : undefined;
-      return { ...e, logId, cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "" };
+      const key = runKey(e.workflow_name, e.started_at);
+      const list = byKey.get(key);
+      const logId = list?.length && list.length === wanted.get(key) ? list.shift() : undefined;
+      wanted.set(key, wanted.get(key) - 1);
+      return { ...e, logId, rounds: (logId && roundsById.get(logId)) || [], cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "" };
     });
   }
 
@@ -482,8 +492,10 @@ export function mountActivity(el) {
       body: h("div", {}, slot, rounds, pre),
     });
     if (entry.rounds?.length) {
-      mount(rounds, entry.rounds.map((p) =>
-        artifactDetails(p, `diff round ${(p.match(/diff\.round(\d+)\.patch/) || [])[1]}`)));
+      mount(rounds, entry.rounds.flatMap((p) => {
+        const n = /diff\.round(\d+)\.patch$/.exec(p)?.[1];
+        return n ? [artifactDetails(p, `diff round ${n}`)] : [];
+      }));
     }
     if (entry.logId) {
       const tl = await timeline(entry.logId);
