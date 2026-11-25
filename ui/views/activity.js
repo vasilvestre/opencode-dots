@@ -16,6 +16,7 @@ export function mountActivity(el) {
     history: [],
     stats: { total: 0, failed: 0, avg: 0 },
     runs: [],
+    targets: new Map(),
     filter: "",
     status: "all",
     page: 0,
@@ -106,6 +107,7 @@ export function mountActivity(el) {
       ]);
       state.executions = execRes.body?.executions || [];
       state.runs = state.executions.filter((e) => e.status === "running");
+      state.targets = new Map((logsRes || []).map((l) => [l.execution_id, targetOf(l)]));
       state.history = attachLogIds(histRes.body?.entries || [], logsRes || []);
       const s = statsRes.body || {};
       state.stats = { total: s.TotalExecutions || 0, failed: s.FailedCount || 0, avg: s.AvgDurationMs || 0 };
@@ -160,8 +162,15 @@ export function mountActivity(el) {
     return entries.map((e) => {
       const list = byKey.get(runKey(e.workflow_name, e.started_at));
       const logId = list?.length ? list.shift() : undefined;
-      return { ...e, logId, cost: (logId && costs.get(logId)) || 0 };
+      return { ...e, logId, cost: (logId && costs.get(logId)) || 0, target: (logId && state.targets.get(logId)) || "" };
     });
+  }
+
+  // targetOf names the run target from the fields the backend parsed out of
+  // the log: "owner/repo#123" for a review, "owner/repo#7" for an issue.
+  function targetOf(row) {
+    const num = row.pr || row.issue;
+    return row.repo && num ? `${row.repo}#${num}` : "";
   }
 
   // --- summary ------------------------------------------------------------
@@ -202,6 +211,7 @@ export function mountActivity(el) {
         runs.appendChild(entry.card);
       }
       entry.step.textContent = run.current_step || "starting";
+      entry.target.textContent = state.targets.get(run.execution_id) || "";
       entry.updateCost();
       entry.time.textContent = elapsed(run.started_at);
       const pre = entry.pre;
@@ -212,12 +222,14 @@ export function mountActivity(el) {
 
   function createRunCard(run) {
     const step = h("span", { class: "step muted" }, "starting");
+    const target = h("span", { class: "muted", title: "target guessed from the run log" }, state.targets.get(run.execution_id) || "");
     const costEl = h("span", { class: "cost muted num" });
     const time = h("span", { class: "time muted num" });
     const pre = h("pre", { class: "log" }, logText.get(run.execution_id) || "connecting to the stream…");
     const card = h("div", { class: "run" },
       h("div", { class: "row" },
         h("b", {}, run.workflow_name),
+        target,
         h("span", { class: "badge running" }, "running"),
         step,
         costEl,
@@ -245,7 +257,7 @@ export function mountActivity(el) {
       costEl.title = `${c.steps} agent step${c.steps === 1 ? "" : "s"} so far`;
     };
     updateCost();
-    return { card, step, costEl, time, pre, stream, updateCost };
+    return { card, step, target, costEl, time, pre, stream, updateCost };
   }
 
   // The backend records awf's single event stream, so the page tails that file
@@ -349,7 +361,9 @@ export function mountActivity(el) {
       return;
     }
     mount(historyBody, shown.map((e) => h("tr", {},
-      h("td", {}, h("b", {}, e.workflow_name)),
+      h("td", {},
+        h("b", {}, e.workflow_name),
+        e.target ? h("span", { class: "muted", title: "target guessed from the run log" }, ` ${e.target}`) : null),
       h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
       h("td", { class: "num muted", title: when(e.started_at) }, ago(e.started_at)),
       h("td", { class: "num" }, dur(e.duration_ms)),

@@ -236,6 +236,61 @@ func replayInputs(text string) map[string]string {
 	return out
 }
 
+// targetMemo keeps the last answer for one run log, keyed by its size and
+// modification time, because the page asks again on every refresh.
+type targetMemo struct {
+	size int64
+	mod  time.Time
+	in   map[string]string
+}
+
+// target returns the target cached for a run. cacheTargets does the parsing,
+// so a request never reads a transcript.
+func (d *dash) target(id string) map[string]string {
+	d.targetMu.Lock()
+	defer d.targetMu.Unlock()
+	return d.targets[id].in
+}
+
+// completeTarget reports whether a parsed target names the repository and the
+// pull request or issue, so a log that keeps growing cannot improve it.
+func completeTarget(in map[string]string) bool {
+	return in["repo"] != "" && (in["pr"] != "" || in["issue"] != "")
+}
+
+// cacheTargets parses the target of every indexed run whose log changed since
+// the last pass. A log stops changing once its run ends, cancelled or not, so
+// it is read once however it ended. A partial guess does not settle: a run
+// that names its issue before its repository is read again when the log grows.
+func (d *dash) cacheTargets() {
+	d.mu.Lock()
+	ids := make([]string, 0, len(d.indexed))
+	for id := range d.indexed {
+		ids = append(ids, id)
+	}
+	d.mu.Unlock()
+	for _, id := range ids {
+		path := d.transcriptPath(id)
+		if path == "" {
+			path = filepath.Join(d.state, "logs", id+".jsonl")
+		}
+		st, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		d.targetMu.Lock()
+		memo := d.targets[id]
+		d.targetMu.Unlock()
+		if completeTarget(memo.in) || (memo.size == st.Size() && memo.mod.Equal(st.ModTime())) {
+			continue
+		}
+		in := replayInputs(readFile(path, 4<<20))
+		d.targetMu.Lock()
+		d.targets[id] = targetMemo{size: st.Size(), mod: st.ModTime(), in: in}
+		d.targetMu.Unlock()
+	}
+}
+
 var (
 	workflowNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	repoIssueRE    = regexp.MustCompile(`([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([0-9]+)`)

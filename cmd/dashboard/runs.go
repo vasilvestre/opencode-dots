@@ -18,6 +18,7 @@ func (d *dash) watchRuns() {
 	lastPrune := time.Time{}
 	for {
 		d.recordRuns()
+		d.cacheTargets()
 		if time.Since(lastPrune) > 6*time.Hour {
 			d.pruneLogs()
 			lastPrune = time.Now()
@@ -61,6 +62,14 @@ func (d *dash) pruneLogs() {
 	d.mu.Lock()
 	d.indexed = indexed
 	d.mu.Unlock()
+
+	d.targetMu.Lock()
+	for id := range d.targets {
+		if !indexed[id] {
+			delete(d.targets, id)
+		}
+	}
+	d.targetMu.Unlock()
 }
 
 // recordRuns records every execution awf knows and has no log for yet. A run
@@ -317,17 +326,22 @@ func (d *dash) noteIndex(id, workflow, started string) {
 }
 
 func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
-	// Each row carries its price so the history table needs no second request.
+	// Each row carries its price and target so the history table needs no
+	// second request.
 	type row struct {
 		logIndex
-		Cost float64 `json:"cost,omitempty"`
+		Cost  float64 `json:"cost,omitempty"`
+		Repo  string  `json:"repo,omitempty"`
+		PR    string  `json:"pr,omitempty"`
+		Issue string  `json:"issue,omitempty"`
 	}
 	out := []row{}
 	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID != "" {
 			usd, _ := d.runCost(e.ID)
-			out = append(out, row{logIndex: e, Cost: usd})
+			t := d.target(e.ID)
+			out = append(out, row{logIndex: e, Cost: usd, Repo: t["repo"], PR: t["pr"], Issue: t["issue"]})
 		}
 	}
 	writeJSON(w, out)
