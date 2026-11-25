@@ -51,7 +51,7 @@ logs:
 
 awf-gh: .env ## one polling pass, for testing by hand (native when DOT_AWFGH=local)
 	@if grep -qx 'DOT_AWFGH=local' .env; then \
-	  set -a; . ./.env; set +a; exec bin/awf-gh --config awf-gh.yaml; \
+	  set -a; . ./.env; set +a; bin/awf-gh --config awf-gh.yaml; \
 	else $(COMPOSE) --profile jobs run --rm awf-gh; fi
 
 sync: ## fast-forward the managed clones onto origin/main

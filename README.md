@@ -29,13 +29,14 @@ forces `gh=local`.
 
 ```bash
 make build                                   # bin/awf-gh from $AWF_GH_SRC
-bin/configure --awf=local --awf-gh=local
 cp awf-gh.local.example.yaml awf-gh.yaml     # host paths, then list your repos
+bin/configure --awf=local --awf-gh=local     # rewrites awf_url and state_path in awf-gh.yaml
 systemctl --user edit dots-awf-gh.timer      # [Timer] Unit=dots-awf-gh-local.service
 ```
 
 `systemd/dots-awf-gh-local.service` replaces `dots-awf-gh.service`; the timer
-stays. `make awf-gh` runs the native binary when `.env` has `DOT_AWFGH=local`.
+stays. It names `~/projects/perso/opencode-dots`: for a checkout elsewhere,
+replace that path in the copied unit with `sed -i "s|%h/projects/perso/opencode-dots|$PWD|g"`. `make awf-gh` runs the native binary when `.env` has `DOT_AWFGH=local`.
 
 What `awf-gh` needs at runtime, read from its source: `gh` on `PATH` (`gh pr list`,
 `gh api`, `gh issue list`) with `GH_TOKEN` or a logged-in keyring; HTTP to

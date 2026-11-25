@@ -13,12 +13,13 @@ Description=awf-gh (native): fire awf workflows for open PRs
 [Service]
 Type=oneshot
 WorkingDirectory=%h/projects/perso/opencode-dots
-# The container gets GH_TOKEN from compose; the native process gets it from the
-# same .env. It needs nothing else: the watcher only calls gh and the awf API.
-EnvironmentFile=%h/projects/perso/opencode-dots/.env
+# Workflow steps default to /state, which only exists in the image.
+Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
 # gh must be on PATH. The user manager's default PATH has /usr/bin and
 # ~/.local/bin; add a line here if gh lives elsewhere.
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # awf-gh.yaml here is a host-path config: see awf-gh.local.example.yaml.
-ExecStart=%h/projects/perso/opencode-dots/bin/awf-gh --config %h/projects/perso/opencode-dots/awf-gh.yaml
+# Only GH_TOKEN is taken from .env: the watcher needs nothing else, and the rest
+# (DISCORD_WEBHOOK) must not reach its children.
+ExecStart=/bin/sh -c 'GH_TOKEN=$$(sed -n "s/^GH_TOKEN=//p" %h/projects/perso/opencode-dots/.env) && export GH_TOKEN && exec %h/projects/perso/opencode-dots/bin/awf-gh --config %h/projects/perso/opencode-dots/awf-gh.yaml'
 TimeoutStartSec=180
