@@ -1,0 +1,30 @@
+#!/bin/sh
+# Rebuild the image when something it carries has a new version, and only
+# when no awf run is live. Stamp = awf-gh source HEAD + latest gh + latest
+# opencode. awf stays pinned by AWF_REF in the Dockerfile: bump it by hand.
+# A failed build keeps the old image and the old stamp, so the next tick retries.
+set -eu
+cd "$(dirname "$0")/.."
+root=$(pwd)
+src=${AWF_GH_SRC:-$HOME/projects/oss/awf-gh}
+awf=${AWF_URL:-http://127.0.0.1:2511}
+stamp=$root/state/rebuild.stamp
+mkdir -p "$root/state"
+exec 9>"$root/state/rebuild.lock"
+flock -n 9 || { echo "rebuild: already running"; exit 0; }
+
+now="awf-gh $(git -C "$src" rev-parse HEAD)
+gh $(gh api repos/cli/cli/releases/latest --jq .tag_name)
+opencode $(gh api repos/sst/opencode/releases/latest --jq .tag_name)"
+[ "$now" = "$(cat "$stamp" 2>/dev/null || true)" ] && exit 0
+
+# Calm: awf answers and lists no running execution; no awf-gh pass is live.
+running=$(curl -fsS "$awf/api/executions" | jq '[.body.executions[]|select(.status=="running")]|length') \
+  || { echo "rebuild: awf unreachable, not rebuilding"; exit 0; }
+[ "$running" = 0 ] || { echo "rebuild: $running run(s) live, later"; exit 0; }
+[ -z "$(docker ps -q --filter ancestor=opencode-dots:latest)" ] \
+  || { echo "rebuild: image in use, later"; exit 0; }
+
+echo "rebuild: new versions:"; echo "$now"
+make image
+printf '%s\n' "$now" > "$stamp"

@@ -13,6 +13,7 @@ sync.map
 tend.list
 !bin/adr
 !bin/configure
+!bin/rebuild
 !bin/sync
 !bin/tend
 # Machine-specific dashboard settings: copy the .example and fill it in.

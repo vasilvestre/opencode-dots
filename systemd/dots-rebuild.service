@@ -1,0 +1,8 @@
+[Unit]
+Description=dots-rebuild: rebuild the image when a version moved and awf is idle
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+ExecStart=%h/projects/perso/opencode-dots/bin/rebuild
+TimeoutStartSec=1800
