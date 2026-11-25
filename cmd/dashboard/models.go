@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"opencode-dots/internal/models"
 )
@@ -70,7 +71,8 @@ func (d *dash) models(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.editMu.Lock()
-	defer d.editMu.Unlock()
+	unlock := sync.OnceFunc(d.editMu.Unlock)
+	defer unlock()
 
 	snapshot, err := models.Read(listFiles(filepath.Join(d.root, "workflows"), ".yaml"), d.resolveEditable)
 	if err != nil {
@@ -78,11 +80,14 @@ func (d *dash) models(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		if len(snapshot.Problems()) > 0 {
-			writeJSONStatus(w, http.StatusUnprocessableEntity, map[string]string{"error": strings.Join(snapshot.Problems(), "; ")})
+		problems := snapshot.Problems()
+		variables := snapshot.Variables()
+		unlock()
+		if len(problems) > 0 {
+			writeJSONStatus(w, http.StatusUnprocessableEntity, map[string]string{"error": strings.Join(problems, "; ")})
 			return
 		}
-		writeJSON(w, map[string]any{"variables": snapshot.Variables(), "available": d.availableModels(r.Context())})
+		writeJSON(w, map[string]any{"variables": variables, "available": d.availableModels(r.Context())})
 		return
 	}
 

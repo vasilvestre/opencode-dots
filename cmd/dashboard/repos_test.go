@@ -87,3 +87,16 @@ func TestReposTowerWarning(t *testing.T) {
 		t.Fatalf("tower_ignore = %q with tower disabled, want none", got)
 	}
 }
+
+func TestRepoNameRE(t *testing.T) {
+	for _, ok := range []string{"owner/repo", "o/.github", "a.b/c-d_e"} {
+		if !repoNameRE.MatchString(ok) {
+			t.Errorf("%q rejected", ok)
+		}
+	}
+	for _, bad := range []string{"../..", "a/..", "./x", "x/.", "a/b/c", "", "/x"} {
+		if repoNameRE.MatchString(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

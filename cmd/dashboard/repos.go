@@ -101,7 +101,7 @@ func defaultOpencodeConfig() string {
 	return filepath.Join(dir, "opencode", "opencode.jsonc")
 }
 
-var repoNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+var repoNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]*[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*[A-Za-z0-9_-][A-Za-z0-9_.-]*$`)
 
 // repoNames suggests the repositories this machine already knows: the watcher
 // config, the daily list, the path map and the directories a pass wrote under
