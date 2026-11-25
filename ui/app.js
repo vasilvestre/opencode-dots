@@ -15,7 +15,7 @@ import { openPalette } from "./palette.js";
 const VIEWS = {
   activity: { mount: (el) => mountActivity(el), title: "Activity" },
   workflows: { mount: (el, arg) => mountWorkflows(el, arg), title: "Workflows" },
-  config: { mount: (el, arg) => mountConfig(el, arg), title: "Config" },
+  config: { mount: (el, arg) => mountConfig(el, arg), title: "Settings" },
   repos: { mount: (el) => mountRepos(el), title: "Repos" },
   costs: { mount: (el) => mountCosts(el), title: "Cost" },
   memory: { mount: (el) => mountMemory(el), title: "Memory" },
@@ -45,21 +45,7 @@ function show(route) {
 
 startRouter(show);
 
-const themeSelect = $("#theme");
-const systemDark = matchMedia("(prefers-color-scheme: dark)");
-themeSelect.value = document.documentElement.dataset.themeMode || "auto";
-themeSelect.addEventListener("change", () => {
-  const mode = themeSelect.value;
-  localStorage.setItem("dots-theme", mode);
-  document.documentElement.dataset.themeMode = mode;
-  document.documentElement.dataset.theme =
-    mode === "auto" ? (systemDark.matches ? "dark" : "light") : mode;
-});
-systemDark.addEventListener("change", () => {
-  if (document.documentElement.dataset.themeMode === "auto") {
-    document.documentElement.dataset.theme = systemDark.matches ? "dark" : "light";
-  }
-});
+import "./theme.js";
 
 $("#palette-btn").addEventListener("click", () => openPalette());
 

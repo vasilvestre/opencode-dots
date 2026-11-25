@@ -97,7 +97,7 @@ cp notifications.example.json notifications.json
 
 Set `webhook` to a Discord channel URL of the form
 `https://discord.com/api/webhooks/<id>/<token>` and set `enabled` to `true`,
-either in the file or on the Config page. A save takes effect on the next
+either in the file or on the Settings page. A save takes effect on the next
 finished run without a restart. A dead webhook or a slow network only writes a
 line to the dashboard log. This setting is separate from `DISCORD_WEBHOOK`: the
 workflow `notify` steps keep using the environment variable. There is no test
@@ -339,9 +339,9 @@ It shows:
 - a Workflows tab: the success path of a workflow in order, each step stating
   where it goes on success, on failure and on a branch, plus an editor that
   saves, validates and runs the file without leaving the page
-- a Config tab: the local configs in the same editor, plus Model defaults for
-  global presets and per-role overrides, the Discord webhook and the desktop
-  notification switch
+- a Settings tab: the local configs in the same editor, plus Model defaults for
+  global presets and per-role overrides, the Discord webhook, the desktop
+  notification switch and the theme
 - a Cost tab: every pull request, issue and repository the runs touched, the
   total spent on it and which workflow spent what. The grouping comes from the
   run logs, so it covers the runs the dashboard recorded

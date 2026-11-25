@@ -5,7 +5,7 @@ import { openModal } from "./modal.js";
 const SECTIONS = [
   ["Activity", "activity"],
   ["Workflows", "workflows"],
-  ["Config", "config"],
+  ["Settings", "config"],
   ["Repos", "repos"],
   ["Cost", "costs"],
   ["Memory", "memory"],
@@ -16,8 +16,9 @@ const SECTIONS = [
 export function openPalette() {
   let items = [
     ...SECTIONS.map(([label, view]) => ({ label, hint: "section", href: `#${view}` })),
-    { label: "Model defaults", hint: "config", href: "#config/models" },
-    { label: "Notifications", hint: "config", href: "#config/notifications" },
+    { label: "Model defaults", hint: "settings", href: "#config/models" },
+    { label: "Notifications", hint: "settings", href: "#config/notifications" },
+    { label: "Appearance", hint: "settings", href: "#config/appearance" },
   ];
   let active = 0;
   let shown = [];
@@ -72,7 +73,7 @@ export function openPalette() {
   }).catch(() => {});
   getJSON("/api/files").then((files) => {
     const cfg = files.filter((f) => f.kind !== "workflow").map((f) => ({
-      label: f.path, hint: "config file", href: `#config/${f.path}`,
+      label: f.path, hint: "settings file", href: `#config/${f.path}`,
     }));
     items = [...items, ...cfg];
     paint();

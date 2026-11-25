@@ -4,6 +4,7 @@ import { toast } from "../toast.js";
 import { createEditor } from "../editor.js";
 import { bytes, when } from "../format.js";
 import { confirmDialog } from "../modal.js";
+import { setThemeMode, themeMode } from "../theme.js";
 import { desktopState, isDesktopEnabled, requestDesktopPermission, setDesktopEnabled } from "../notifications.js";
 
 const KIND_LABEL = {
@@ -55,7 +56,7 @@ export function mountConfig(el, arg) {
     onclick: toggleDesktop,
   }, desktopLabel());
 
-  const section = arg === "notifications" ? "notifications" : (!arg || arg === "models") ? "models" : "file";
+  const section = arg === "notifications" ? "notifications" : arg === "appearance" ? "appearance" : (!arg || arg === "models") ? "models" : "file";
   let notifBase = { webhook: "", enabled: false };
   let files = [];
 
@@ -88,24 +89,36 @@ export function mountConfig(el, arg) {
       h("div", { class: "row" }, desktopStateEl, desktopBtn),
     ),
   );
+  const themeSelect = h("select", {
+    id: "theme-mode",
+    onchange: () => { setThemeMode(themeSelect.value); toast("Theme saved in this browser.", { tone: "ok" }); },
+  }, [["auto", "Auto (follow the system)"], ["dark", "Dark"], ["light", "Light"]].map(([v, l]) =>
+    h("option", { value: v, selected: v === themeMode() }, l)));
+  const appearancePanel = h("div", { class: "card" },
+    h("h2", {}, "Appearance"),
+    h("p", { class: "muted", style: { marginTop: "6px" } }, "Applies at once and is kept in this browser only."),
+    h("div", { class: "field", style: { marginTop: "12px" } },
+      h("label", { for: "theme-mode" }, "Theme"), themeSelect),
+  );
   const editorPanel = h("div", { id: "config-editor" },
     h("div", { class: "empty" }, "loading file…"));
 
-  const navEl = h("nav", { class: "side-list", "aria-label": "Config sections" });
+  const navEl = h("nav", { class: "side-list", "aria-label": "Settings sections" });
   const filesNav = h("div", { class: "side-list" });
   const side = h("aside", { class: "side" },
-    h("h2", {}, "Config"),
+    h("h2", {}, "Settings"),
     navEl,
     h("h3", { class: "muted", style: { marginTop: "6px" } }, "Local files"),
     filesNav,
   );
   modelsPanel.hidden = section !== "models";
   notifPanel.hidden = section !== "notifications";
+  appearancePanel.hidden = section !== "appearance";
   editorPanel.hidden = section !== "file";
   mount(el, h("div", { class: "split" }, side,
     h("div", { class: "stack" },
       h("p", { class: "muted" }, "Files awf-gh and the workflows read at run time. Saves keep a stamped backup beside the file."),
-      modelsPanel, notifPanel, editorPanel)));
+      modelsPanel, notifPanel, appearancePanel, editorPanel)));
 
   const modelsDirty = () => modelInputs.some((i) => i.value !== i.dataset.initial)
     || modelRoles.some((r) => r.checkbox.checked !== (r.checkbox.dataset.initial === "1"));
@@ -142,7 +155,8 @@ export function mountConfig(el, arg) {
   function paintNav() {
     mount(navEl,
       navItem("#config/models", section === "models", "Model defaults", "which model each role uses", modelsDirty()),
-      navItem("#config/notifications", section === "notifications", "Notifications", "Discord and desktop", notifDirty()));
+      navItem("#config/notifications", section === "notifications", "Notifications", "Discord and desktop", notifDirty()),
+      navItem("#config/appearance", section === "appearance", "Appearance", "light or dark theme", false));
     mount(filesNav, files.length
       ? files.map((f) => navItem(`#config/${f.path}`, section === "file" && arg === f.path, f.path, KIND_LABEL[f.kind] || f.kind, section === "file" && arg === f.path && editor?.isDirty(), !f.exists))
       : h("div", { class: "empty" }, "No local file."));
