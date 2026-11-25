@@ -336,8 +336,8 @@ It shows:
   when the answer names a next workflow, the message carries a button that
   opens the run dialog for it
 - the pull requests the watcher already saw
-- a Workflows tab: the success path of a workflow in order, each step stating
-  where it goes on success, on failure and on a branch, plus an editor that
+- a Workflows tab: a workflow drawn as a diagram, with a detail panel per step,
+  plus an editor linked to the diagram that
   saves, validates and runs the file without leaving the page
 - a Settings tab: the local configs in the same editor, plus Model defaults for
   global presets and per-role overrides, the Discord webhook, the desktop
