@@ -5,6 +5,7 @@ import { toast } from "../toast.js";
 import { confirmDialog, openModal } from "../modal.js";
 import { openRunModal, recalledRun } from "../run.js";
 import { openAskModal } from "../ask.js";
+import { stepLabel, trailText } from "../steps.js";
 
 const REFRESH_MS = 5000;
 const ARTIFACTS_MS = 15000;
@@ -210,7 +211,9 @@ export function mountActivity(el) {
         runCards.set(run.execution_id, entry);
         runs.appendChild(entry.card);
       }
-      entry.step.textContent = run.current_step || "starting";
+      const trail = trailText(run.workflow_name, entry.steps);
+      entry.step.textContent = trail || (run.current_step ? stepLabel(run.workflow_name, run.current_step) : "starting");
+      entry.step.title = run.current_step ? `current step: ${run.current_step}` : "";
       entry.target.textContent = state.targets.get(run.execution_id) || "";
       entry.updateCost();
       entry.time.textContent = elapsed(run.started_at);
@@ -243,12 +246,17 @@ export function mountActivity(el) {
       h("div", { class: "bar", role: "progressbar", "aria-label": "Run in progress" }, h("i")),
       pre,
     );
+    const steps = [];
     const stream = follow(run.execution_id, (text) => {
       logText.set(run.execution_id, text);
       if (pre.isConnected) {
         pre.textContent = text;
         pre.scrollTop = pre.scrollHeight;
       }
+    }, (name) => {
+      if (name === null) steps.length = 0;
+      else steps.push(name);
+      step.textContent = trailText(run.workflow_name, steps);
     });
     const updateCost = async () => {
       const c = await runCost(run.execution_id);
@@ -257,20 +265,23 @@ export function mountActivity(el) {
       costEl.title = `${c.steps} agent step${c.steps === 1 ? "" : "s"} so far`;
     };
     updateCost();
-    return { card, step, target, costEl, time, pre, stream, updateCost };
+    return { card, step, steps, target, costEl, time, pre, stream, updateCost };
   }
 
   // The backend records awf's single event stream, so the page tails that file
   // instead of opening awf's stream: a second reader would steal events from the
   // recorder. Tailing also replays the steps that ran before the page opened.
-  function follow(id, paint) {
+  function follow(id, paint, onStep) {
     let text = logText.get(id) || "";
     let poll = null;
     const es = new EventSource(`/api/stream?id=${encodeURIComponent(id)}`);
+    // A reconnect replays the run from its first event: start the trail over.
+    es.onopen = () => onStep?.(null);
     es.onmessage = (ev) => {
       let data;
       try { data = JSON.parse(ev.data); } catch { return; }
       const kind = data.kind || "event";
+      if (kind === "step.started" && data.step) onStep?.(data.step);
       text = trimLines(`${text + eventLine({ ...data, kind })}\n`, MAX_LOG_LINES);
       paint(text);
       if (kind === "workflow.completed" || kind === "workflow.failed") {
