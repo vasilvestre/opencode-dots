@@ -94,7 +94,8 @@ Steps:
    findings as the previous round, which writes `stuck.md`. `address` clears the
    findings in the worktree, rewrites `worklog.md` with `file:line` and the new
    line for each one, and `rediff` refreshes
-   `diff.patch` so the next round reads the code as the fix left it.
+   `diff.patch` so the next round reads the code as the fix left it. It also
+   saves each round as `diff.round<N>.patch`, while `diff.patch` stays current.
 4. `post` runs `gh pr comment --body-file`, once per run.
    When a fix round left edits on a branch the dot may not push to (not its own
    `fix/*` branch), `post` keeps them as `fix.patch` and appends them to the

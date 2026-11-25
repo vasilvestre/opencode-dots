@@ -619,6 +619,7 @@ states:
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
       git -C "$d/work" add -A -N
       git -C "$d/work" diff HEAD > "$d/diff.patch"
+      cp "$d/diff.patch" "$d/diff.round{{.loop.Index1}}.patch"
     timeout: 60
     on_success: rework
     on_failure: error

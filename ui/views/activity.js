@@ -476,10 +476,15 @@ export function mountActivity(el) {
   async function showLog(entry) {
     const pre = h("pre", { style: { maxHeight: "60vh" } }, "loading…");
     const slot = h("div", {});
+    const rounds = h("div", {});
     const modal = openModal({
       title: `${entry.workflow_name} · ${when(entry.started_at)} · ${entry.logId ? entry.logId.slice(0, 8) : "no id"}`,
-      body: h("div", {}, slot, pre),
+      body: h("div", {}, slot, rounds, pre),
     });
+    if (entry.rounds?.length) {
+      mount(rounds, entry.rounds.map((p) =>
+        artifactDetails(p, `diff round ${(p.match(/diff\.round(\d+)\.patch/) || [])[1]}`)));
+    }
     if (entry.logId) {
       const tl = await timeline(entry.logId);
       if (tl) mount(slot, tl);

@@ -154,3 +154,50 @@ func TestLogTargets(t *testing.T) {
 		t.Fatal("prune kept the target of a dropped log")
 	}
 }
+
+// A finished review run carries its archived round diffs in the log index, but
+// only when the log names a valid pull request and commit.
+func TestLogRoundDiffs(t *testing.T) {
+	state := t.TempDir()
+	os.MkdirAll(filepath.Join(state, "logs"), 0o755)
+	os.MkdirAll(filepath.Join(state, "reviews", "pr42-deadbeef"), 0o755)
+	os.WriteFile(filepath.Join(state, "reviews", "pr42-deadbeef", "diff.round1.patch"), []byte("round 1\n"), 0o644)
+	os.WriteFile(filepath.Join(state, "reviews", "pr42-deadbeef", "diff.round2.patch"), []byte("round 2\n"), 0o644)
+
+	id := "abcd1234-1234-1234-1234-123456789012"
+	log := filepath.Join(state, "logs", id+".jsonl")
+	os.WriteFile(log, []byte(`data: {"text":"review awf-project/cli#42 pr42-deadbeef"}`+"\n"), 0o644)
+
+	// A run whose log names no commit gets no rounds.
+	plain := "efgh5678-1234-1234-1234-123456789012"
+	plainLog := filepath.Join(state, "logs", plain+".jsonl")
+	os.WriteFile(plainLog, []byte(`data: {"text":"review awf-project/cli#7"}`+"\n"), 0o644)
+
+	d := &dash{state: state, indexed: map[string]bool{}, targets: map[string]targetMemo{}}
+	d.noteIndex(id, "review-pr", "2026-11-25T10:00:00Z")
+	d.noteIndex(plain, "review-pr", "2026-11-25T10:05:00Z")
+	d.cacheTargets()
+
+	rec := httptest.NewRecorder()
+	d.logs(rec, httptest.NewRequest(http.MethodGet, "/api/logs", nil))
+	var out []struct {
+		Rounds []string `json:"rounds"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out) != 2 {
+		t.Fatalf("api/logs returned %q (err %v), want 2 entries", rec.Body.String(), err)
+	}
+
+	got := out[0].Rounds
+	want := []string{"reviews/pr42-deadbeef/diff.round1.patch", "reviews/pr42-deadbeef/diff.round2.patch"}
+	if len(got) != len(want) {
+		t.Fatalf("rounds = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rounds = %v, want %v", got, want)
+		}
+	}
+	if n := len(out[1].Rounds); n != 0 {
+		t.Fatalf("rounds for a run without a sha = %v, want none", out[1].Rounds)
+	}
+}
