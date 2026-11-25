@@ -91,6 +91,11 @@ Steps:
    line for each one, and `rediff` refreshes
    `diff.patch` so the next round reads the code as the fix left it.
 4. `post` runs `gh pr review --comment --body-file`, once per run.
+   When a fix round left edits on a branch the dot may not push to (not its own
+   `fix/*` branch), `post` keeps them as `fix.patch` and appends them to the
+   comment under "Proposed fix, not pushed", inside a `<details>` diff block cut
+   at 60000 bytes. `fetch` writes `owned` once (`ok` or the reason); `decide`
+   and `post` both read it. `notify` then names `fix.patch`.
 5. `decide` sends a `merge` verdict to `automerge`, a `hold` on my own `fix/*`
    pull request to `push`, and anything else to `notify`. `push` commits the
    worktree and pushes it, so the next `pr-updated` starts another run, capped

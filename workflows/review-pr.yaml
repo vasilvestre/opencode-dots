@@ -131,6 +131,21 @@ states:
         echo "failed checks: $(jq -r '[.[] | select(.bucket == "fail") | .name] | join(", ")' "$d/checks.json")"
         wc -l "$d/ci-failed.log"
       fi
+      # The one ownership test. `owned` holds "ok" when I may push to this
+      # branch, else the reason. decide and post both read it, so they agree.
+      me=$(gh api user --jq .login)
+      author=$(jq -r '.author.login' "$d/meta.json")
+      owner=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json" | cut -d/ -f1)
+      branch=$(jq -r '.headRefName' "$d/meta.json")
+      if [ "$author" != "$me" ] || [ "$owner" != "$me" ] \
+        || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+        printf 'not my branch to fix (%s/%s by %s)\n' "$owner" "$branch" "$author" > "$d/owned"
+      else
+        case "$branch" in
+          fix/*) echo ok > "$d/owned" ;;
+          *) printf 'branch %s is not a fix-issue branch\n' "$branch" > "$d/owned" ;;
+        esac
+      fi
     timeout: 300
     on_success: wait
     on_failure: error
@@ -353,8 +368,46 @@ states:
         echo "SUPERSEDED: head moved to $head, dropping this review"
         exit 0
       fi
+      body="$d/review.md"
+      # A branch I may not push to can still hold edits from a fix round. They
+      # are never lost: keep them as fix.patch and show them in the comment.
+      if [ "$(head -1 "$d/owned" 2>/dev/null || echo ok)" != ok ] \
+        && [ -d "$d/work" ] && [ -n "$(git -C "$d/work" status --porcelain)" ]; then
+        git -C "$d/work" add -A -N
+        git -C "$d/work" diff HEAD > "$d/fix.patch"
+        if [ -s "$d/fix.patch" ]; then
+          body="$d/comment.md"
+          printf 'A fix round edited code on a branch I may not push to; the proposed patch is kept.\n' \
+            > "${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}/stuck.md"
+          max=60000
+          size=$(wc -c < "$d/fix.patch")
+          head -c "$max" "$d/fix.patch" > "$d/fix.shown"
+          # A fence longer than any backtick run in the patch cannot be closed from inside.
+          run=$(grep -o '`\+' "$d/fix.shown" | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')
+          [ "$run" -ge 3 ] || run=2
+          fence=$(printf '%*s' $((run + 1)) '' | tr ' ' '`')
+          {
+            cat "$d/review.md"
+            printf '\n\n---\n\n'
+            printf '_The review above was written against the proposed fix below, so its line references may differ from the pushed head._\n\n'
+            printf '### Proposed fix, not pushed (this branch is not mine to push to)\n\n'
+            if [ -s "$d/fixmsg.md" ]; then
+              printf 'Commit message:\n\n'
+              sed 's/^/> /' "$d/fixmsg.md"
+              printf '\n'
+            fi
+            printf '<details><summary>Patch (%s bytes)</summary>\n\n%sdiff\n' "$size" "$fence"
+            cat "$d/fix.shown"
+            printf '\n%s\n' "$fence"
+            if [ "$size" -gt "$max" ]; then
+              printf '\n_Truncated at %s of %s bytes. The full patch is %s/fix.patch._\n' "$max" "$size" "$d"
+            fi
+            printf '\n</details>\n'
+          } > "$body"
+        fi
+      fi
       gh pr comment {{.inputs.pr}} --repo {{.inputs.repo}} \
-        --body-file "$d/review.md"
+        --body-file "$body"
     timeout: 120
     transitions:
       - when: 'states.post.Output contains "SUPERSEDED:"'
@@ -382,19 +435,11 @@ states:
         echo "MERGE: verdict merge"
         exit 0
       fi
-      me=$(gh api user --jq .login)
-      author=$(jq -r '.author.login' "$d/meta.json")
-      owner=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json" | cut -d/ -f1)
-      branch=$(jq -r '.headRefName' "$d/meta.json")
-      if [ "$author" != "$me" ] || [ "$owner" != "$me" ] \
-        || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
-        echo "STUCK: not my branch to fix ($owner/$branch by $author)"
+      owned=$(head -1 "$d/owned" 2>/dev/null || echo "ownership unknown")
+      if [ "$owned" != ok ]; then
+        echo "STUCK: $owned"
         exit 0
       fi
-      case "$branch" in
-        fix/*) ;;
-        *) echo "STUCK: branch $branch is not a fix-issue branch"; exit 0 ;;
-      esac
       jq -e '.body | test("Closes #[0-9]+")' "$d/meta.json" >/dev/null \
         || { echo "STUCK: body has no Closes #N"; exit 0; }
       count=0
@@ -621,6 +666,8 @@ states:
         msg="Arrêt, décision humaine requise sur {{.inputs.repo}}#{{.inputs.pr}} : $title
       $(cat "$stuck")
       <$url>"
+        [ -s "$d/fix.patch" ] && msg="$msg
+      Correctif proposé, non poussé : $d/fix.patch"
       elif [ "$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)" = "merge" ]; then
         msg="Review postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
       <$url>"

@@ -96,6 +96,9 @@ rules for editing them.
   `reviews/pr<pr>/attempts`. The next `pr-updated` starts a fresh review, so the
   loop ends in a merge or in `stuck.md` plus a Discord notice. A finding that
   needs a human decision writes `stuck.md` and stops.
+  Edits left on a branch I may not push to are never dropped: `post` writes
+  `fix.patch` and embeds it in the comment. `fetch` computes ownership once in
+  `owned`; `decide` and `post` read it, never recompute it.
 - `reply-pr`: `only_authors` in `awf-gh.yaml` keeps other people's PRs out.
 
 ## DO NOT
