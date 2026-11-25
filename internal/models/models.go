@@ -1,6 +1,7 @@
 // Package models reads, validates and rewrites the model defaults declared by
-// the workflow files. Only the default scalar of each model input is replaced;
-// every other byte of the file is preserved.
+// the workflow files. It also resolves global presets and per-role overrides.
+// Only the default scalar of each model input is replaced; every other byte of
+// the file is preserved.
 package models
 
 import (
@@ -35,26 +36,29 @@ type inputRole struct {
 	workflow string
 	input    string
 	state    string
+	preset   string
 }
 
 var roles = []inputRole{
-	{workflow: "ask-pr", input: "model", state: "ask"},
-	{workflow: "fix-ci", input: "model", state: "fix"},
-	{workflow: "fix-issue", input: "model", state: "fix"},
-	{workflow: "reply-pr", input: "model", state: "reply"},
-	{workflow: "review-pr", input: "review_model", state: "review"},
-	{workflow: "review-pr", input: "address_model", state: "address"},
-	{workflow: "tend-repo", input: "model", state: "learn"},
+	{workflow: "ask-pr", input: "model", state: "ask", preset: "light"},
+	{workflow: "fix-ci", input: "model", state: "fix", preset: "light"},
+	{workflow: "fix-issue", input: "model", state: "fix", preset: "default"},
+	{workflow: "reply-pr", input: "model", state: "reply", preset: "light"},
+	{workflow: "review-pr", input: "review_model", state: "review", preset: "default"},
+	{workflow: "review-pr", input: "address_model", state: "address", preset: "light"},
+	{workflow: "tend-repo", input: "model", state: "learn", preset: "default"},
 }
 
 // Variable is one workflow model input and its saved default.
 type Variable struct {
-	Key         string `json:"key"`
-	Workflow    string `json:"workflow"`
-	Input       string `json:"input"`
-	Value       string `json:"value"`
-	Description string `json:"description"`
-	Conflict    string `json:"conflict"`
+	Key         string  `json:"key"`
+	Workflow    string  `json:"workflow"`
+	Input       string  `json:"input"`
+	Value       string  `json:"value"`
+	Description string  `json:"description"`
+	Preset      string  `json:"preset"`
+	Override    *string `json:"override"`
+	Conflict    string  `json:"conflict"`
 
 	defaultNode *yaml.Node
 	span        scalarSpan
@@ -77,6 +81,12 @@ type Snapshot struct {
 	files     []*workflowFile
 	variables []*Variable
 	problems  []string
+
+	configuration  *Configuration
+	presetPath     string
+	presetAbs      string
+	presetOriginal []byte
+	migration      bool
 }
 
 type replacement struct {
@@ -90,9 +100,10 @@ type fileChange struct {
 	backup   string
 	original []byte
 	data     []byte
+	created  bool
 }
 
-// Saved names a rewritten file and the backup taken before it.
+// Saved names a rewritten file and its backup. Backup is empty for a new file.
 type Saved struct {
 	Path   string `json:"path"`
 	Backup string `json:"backup"`
@@ -442,18 +453,28 @@ func (s *Snapshot) Prepare(values map[string]string) (*Plan, error) {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		value := values[key]
-		if len(value) > maxIDLength {
-			return nil, fmt.Errorf("%s is longer than %d characters", key, maxIDLength)
-		}
-		if !idRE.MatchString(value) {
-			return nil, fmt.Errorf("%s is not a valid model identifier", key)
+		if err := validateModelID(values[key]); err != nil {
+			return nil, fmt.Errorf("%s: %w", key, err)
 		}
 	}
 	if values["review-pr/review_model"] == values["review-pr/address_model"] {
 		return nil, errors.New("review-pr review_model and address_model must be different")
 	}
 
+	return s.prepareWorkflowChanges(values)
+}
+
+func validateModelID(value string) error {
+	if len(value) > maxIDLength {
+		return fmt.Errorf("model identifier is longer than %d characters", maxIDLength)
+	}
+	if !idRE.MatchString(value) {
+		return errors.New("model identifier is not valid")
+	}
+	return nil
+}
+
+func (s *Snapshot) prepareWorkflowChanges(values map[string]string) (*Plan, error) {
 	byFile := map[*workflowFile][]replacement{}
 	for _, variable := range s.variables {
 		value := values[variable.Key]
@@ -622,10 +643,13 @@ type Plan struct {
 	changes []fileChange
 }
 
-// Apply backs up each file with backup, then writes it with write. When a
-// write fails, the files already written are restored.
+// Apply backs up each existing file with backup, then writes it with write.
+// When a write fails, written files are restored and new files are removed.
 func (p *Plan) Apply(backup func(abs string) (string, error), write func(abs string, data []byte) error) ([]Saved, error) {
 	for i := range p.changes {
+		if p.changes[i].created {
+			continue
+		}
 		path, err := backup(p.changes[i].abs)
 		if err != nil {
 			return nil, fmt.Errorf("backup failed: %w", err)
@@ -645,12 +669,22 @@ func (p *Plan) Apply(backup func(abs string) (string, error), write func(abs str
 	return saved, nil
 }
 
+func restoreFile(change fileChange, write func(string, []byte) error) error {
+	if !change.created {
+		return write(change.abs, change.original)
+	}
+	if err := os.Remove(change.abs); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func writeAll(changes []fileChange, write func(string, []byte) error) error {
 	for i, change := range changes {
 		if err := write(change.abs, change.data); err != nil {
 			problems := []error{fmt.Errorf("write %s: %w", change.path, err)}
-			for j := i - 1; j >= 0; j-- {
-				if err := write(changes[j].abs, changes[j].original); err != nil {
+			for j := i; j >= 0; j-- {
+				if err := restoreFile(changes[j], write); err != nil {
 					problems = append(problems, fmt.Errorf("restore %s: %w", changes[j].path, err))
 				}
 			}

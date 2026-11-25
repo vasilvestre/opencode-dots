@@ -17,21 +17,42 @@ Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
 that is an absolute host path, because the local opencode server resolves paths
 on the host.
 
-## Model inputs
+## Model inputs and presets
 
 Every agent step reads its model from a validated workflow input. A model
-identifier is `provider/model`, with an optional `#variant`. The
-`provider: opencode` field selects the awf adapter, not the model provider.
+identifier is `provider/model`, with an optional `#variant`. The step's own
+`provider:` field is a different thing: it selects the awf adapter (CLI) that
+runs the step, not the model provider. `review-pr`'s agent steps read it from
+a `provider` input, `opencode` by default, so an `awf-gh.yaml` repo entry can
+route that one repository to Claude Code instead with `inputs: {provider:
+claude}` (needs `DOT_CLAUDE` configured; see `bin/configure` and the root
+`README.md`).
 
 Single-agent workflows (`reply-pr`, `tend-repo`, `fix-issue`, `fix-ci` and
 `ask-pr`) use `model`. `review-pr` uses `review_model` for the reviewer and
-`address_model` for the fixer. Keep their saved defaults different so the
+`address_model` for the fixer. Their effective models must differ so the
 reviewer does not approve its own work.
 
-The Config view's Model defaults form edits these input defaults through
-`GET /api/models` and `PUT /api/models`. Automatic runs from `awf-gh`, Ask and
-`bin/tend` omit model inputs and use the saved defaults. The Run dialog can
-override a model for one run.
+The Config view manages the tracked root `model-presets.yaml` (version 1)
+through `GET /api/models` and `PUT /api/models`. Its role mapping is fixed:
+
+| Preset | Roles |
+| --- | --- |
+| `light` | `ask-pr/model`, `fix-ci/model`, `reply-pr/model`, `review-pr/address_model` |
+| `default` | `fix-issue/model`, `tend-repo/model`, `review-pr/review_model` |
+
+A role can set an optional custom override. An override wins over its assigned
+preset. The dashboard eagerly projects each resolved ID into the workflow
+input's concrete default. awf keeps reading workflow defaults, not the preset
+file.
+
+On first use, migration derives `light` from the current `ask-pr/model` default
+and `default` from the current `fix-issue/model` default. Every other current
+value becomes an override, so migration changes no runtime model. The first
+save creates `model-presets.yaml`.
+
+Automatic runs from `awf-gh`, Ask and `bin/tend` omit model inputs and use the
+saved workflow defaults. The Run dialog can override a model for one run.
 
 A saved change applies to the next run without restarting awf or OpenCode. A
 running request keeps the model it started with.
@@ -41,11 +62,12 @@ Only a dashboard-started run keeps its exact original inputs in browser
 available. An automatic run has no browser record, so replay may use the current
 saved default instead of the historical model.
 
-Validation checks identifier syntax, not provider availability. An unavailable
-model fails the next agent step.
+The form validates identifier syntax, not provider availability. An unavailable
+model fails the next agent step. It refuses structural conflicts and drift,
+where a workflow default differs from the resolved configuration.
 
-A `tend-repo` model override changes only its own agent step. It does not replace
-the `review_model` or `address_model` used by the nested `review-pr` run.
+A `tend-repo` override changes only its own role. Its nested `review-pr` run uses
+`review-pr`'s own resolved `review_model` and `address_model`.
 
 ## review-pr
 
@@ -84,8 +106,8 @@ Steps:
    section that walks trust boundaries, secrets, privileges, data destruction,
    dependencies and failure paths. The agent writes `verdict.txt` with `merge`
    or `hold`; a security finding always means `hold`. `review` uses
-   `review_model` and `address` uses `address_model`. Their saved defaults use
-   different models, and each round starts a fresh session, so the reviewer
+   `review_model` and `address` uses `address_model`. The model form rejects
+   equal effective models, and each round starts a fresh session, so the reviewer
    cannot approve its own work.
    The reviewer lists each finding the fix round cleared as a `- cleared:` bullet
    quoting one exact line of the worktree. `verify` checks every quote with
@@ -498,8 +520,9 @@ An agent step looks like this:
 ```
 
 Every agent step must read a validated model input with a non-empty default.
-Use `provider/model`, with an optional `#variant`. The free default hits a shared
-rate limit within minutes and every agent step then fails with
+The `light` and `default` preset inputs and every override must also be non-empty
+model IDs. Use `provider/model`, with an optional `#variant`. The free default
+hits a shared rate limit within minutes and every agent step then fails with
 `provider.free-limit`.
 
 ## Next:

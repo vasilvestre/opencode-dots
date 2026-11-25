@@ -1,0 +1,6 @@
+version: 1
+presets:
+    light: mistral/deepseek-v4-1-flash-1017
+    default: mistral/deepseek-v4-1-flash-1017
+overrides:
+    review-pr/address_model: claude-agent/sonnet

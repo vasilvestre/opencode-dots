@@ -7,6 +7,10 @@ After=network-online.target
 EnvironmentFile=%h/projects/perso/opencode-dots/.env
 # Workflow steps default to /state, which only exists in the image.
 Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
+# Shim first on PATH: adds --agent dots-worker to every `opencode run`.
+Environment=PATH=%h/projects/perso/opencode-dots/bin/shim:%h/.local/bin:%h/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+# The shared opencode server loads agents from the working directory.
+ExecStartPre=/bin/sh -c 'mkdir -p .opencode/agents && ln -sf ../../../agent/agents/dots-worker.md .opencode/agents/dots-worker.md'
 WorkingDirectory=%h/projects/perso/opencode-dots/state
 ExecStart=/usr/local/bin/awf serve
 Restart=always

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-11-24
 - Supersedes: none
-- Superseded by: none
+- Superseded by: 0018
 
 ## Context
 

@@ -5,7 +5,7 @@ on the host: one image holds `opencode`, `awf`, `gh` and `awf-gh`.
 
 ## Choose what runs where
 
-`make configure` asks four questions and writes `.env` and
+`make configure` asks a few questions and writes `.env` and
 `compose.override.yaml`.
 
 | Piece | `local` | `docker` |
@@ -14,6 +14,13 @@ on the host: one image holds `opencode`, `awf`, `gh` and `awf-gh`.
 | `awf` | uses an `awf serve` that you start on the host | starts `awf serve` in a container |
 | `gh` | mounts the host `gh` binary, no version drift | uses the `gh` baked into the image |
 | `awf-gh` | runs `bin/awf-gh` on the host (needs `make build`) | runs the one-shot container (default) |
+| `claude` (optional, `off` by default) | mounts the host `claude` CLI and `~/.claude`, no version drift | uses the `claude` CLI baked into the image |
+
+`claude` is a CLI `awf` shells out to per step (`provider: claude` in a
+workflow), not a server: there is no `claude serve` to attach to, so `local`
+just means "use the host binary and credentials" the same way `gh` does.
+Opting in does not replace opencode; workflows that should use Claude Code
+instead of opencode set `provider: claude` themselves.
 
 Docker mode is experimental and not encouraged. `local` is the supported path:
 the image builds and the binaries answer, but nothing runs it on a schedule,
@@ -301,7 +308,7 @@ It shows:
 - the run history, its success, failure and average duration counters, and the
   price of each run that spent an agent turn
 - Replay on a finished run: it reopens the run dialog of the same workflow with
-  the inputs that run used, so a fix can be retested without retyping them
+  exact inputs when the browser kept them, otherwise recovered inputs you check
 - reviewed pull requests from `state/reviews/`, with the review and the diff
   behind a click
 - answered pull requests from `state/replies/`, with the reply and the pushed
@@ -315,8 +322,9 @@ It shows:
 - a Workflows tab: the success path of a workflow in order, each step stating
   where it goes on success, on failure and on a branch, plus an editor that
   saves, validates and runs the file without leaving the page
-- a Config tab: `awf-gh.yaml`, `tend.list` and `repos.map` in the same editor,
-  plus a model defaults form, the Discord webhook and the desktop notification switch
+- a Config tab: the local configs in the same editor, plus Model defaults for
+  global presets and per-role overrides, the Discord webhook and the desktop
+  notification switch
 - a Cost tab: every pull request, issue and repository the runs touched, the
   total spent on it and which workflow spent what. The grouping comes from the
   run logs, so it covers the runs the dashboard recorded
@@ -328,37 +336,36 @@ It shows:
   or lists no pattern.
 
 The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
-running (`make up`). It binds loopback only. It writes four things:
-`state/logs/` (awf forgets an execution's events once the run leaves its
-session registry, so the dashboard records them while it runs and deletes files
-older than 30 days), `state/asks/` (the Ask conversation), and the five local
-config files you edit from the page.
-`/api/save` accepts `workflows/*.yaml`, `awf-gh.yaml`, `tend.list`, `repos.map`
-and `notifications.json`; the previous content stays as a stamped `.bak` beside
-the file. The Model defaults form uses `GET /api/models` to list model inputs and
-`PUT /api/models` to update them. It changes only named workflow input defaults
-and uses the same backups and atomic writes. The page never commits: read the
-diff and commit yourself. See
-[ADR 0014](ADR/0014-dashboard-editable-model-defaults.md) and
+running (`make up`). It binds loopback only. It writes `state/logs/` (awf
+forgets an execution's events once the run leaves its session registry, so the
+dashboard records them while it runs and deletes files older than 30 days),
+`state/asks/` (the Ask conversation), and the files you edit from the page.
+
+The generic editor saves only `workflows/*.yaml`, `awf-gh.yaml`, `tend.list`,
+`repos.map` and `notifications.json`; the previous content stays as a stamped
+`.bak` beside the file. The Model defaults form also writes the tracked root
+`model-presets.yaml`. The page never commits: read the diff and commit yourself.
+See [ADR 0004](ADR/0004-dashboard-edits-local-config.md),
+[ADR 0018](ADR/0018-dashboard-managed-model-presets.md) and
 [ADR 0017](ADR/0017-dashboard-edits-completion-notifications.md).
 
-Single-agent workflows use the `model` input. `review-pr` uses `review_model`
-and `address_model`. A model identifier is `provider/model`, with an optional
-`#variant`. The `provider: opencode` field selects the awf adapter, not the model
-provider.
+The Config view manages global presets in `model-presets.yaml` (version 1).
+`light` covers `ask-pr/model`, `fix-ci/model`, `reply-pr/model` and
+`review-pr/address_model`. `default` covers `fix-issue/model`, `tend-repo/model`
+and `review-pr/review_model`. A role can set an optional custom override; an
+override wins over its preset.
 
-Automatic runs from `awf-gh`, Ask and `bin/tend` omit model inputs and use the
-saved defaults. The Run dialog can override a model for one run. A saved change
-applies to the next run without restarting awf or OpenCode. A running request
-keeps the model it started with.
+The dashboard eagerly projects those resolved IDs into workflow input
+defaults. awf still reads concrete workflow defaults. On first use, migration
+derives `light` from `ask-pr/model` and `default` from `fix-issue/model`. Every
+other current value becomes an override, so no runtime model changes. The first
+save creates `model-presets.yaml`.
 
-Only a dashboard-started run keeps its exact original inputs in browser
-`localStorage`, including a model override. Replay uses that record when
-available. An automatic run has no browser record, so replay may use the current
-saved default instead of the historical model.
-
-A `tend-repo` model override changes only its own agent step. It does not replace
-the `review_model` or `address_model` used by the nested `review-pr` run.
+Saved changes apply to the next run without restarting awf or OpenCode.
+Automatic dispatch keeps using saved workflow defaults. The Run dialog still
+overrides one run, and a running request keeps its started model. A
+`tend-repo` override does not change the resolved roles of its nested
+`review-pr` run. See [ADR 0018](ADR/0018-dashboard-managed-model-presets.md).
 
 Prices come from awf itself: since v0.12.0 it records what each agent step cost
 (`cost_usd`) in the run log, and the page sums that per run. A run started by an
@@ -371,10 +378,11 @@ may write only its answer: the workflow makes no clone and the prompt forbids
 commits, pushes and comments. Nothing feeds back into a verdict by itself. See
 [ADR 0007](ADR/0007-ask-the-agent-about-a-pull-request.md).
 
-Replay has two sources. A run the page started keeps its exact inputs in the
+Replay has two sources. A dashboard-started run keeps its exact inputs in the
 browser that started it. For any other run, the page reads them back from the
 run log, where every prompt spells `owner/repo#123`; it labels that as a guess
-so you check the fields before running.
+so you check the fields before running. Replaying an automatic run may omit
+model inputs and use the current saved defaults.
 
 Flags: `-addr`, `-state`, `-root` (repository holding the editable files),
 `-awf`, `-ui`, `-awfgh` (watcher config, default `awf-gh.yaml`),

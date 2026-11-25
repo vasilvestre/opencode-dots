@@ -21,7 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/agent/bin:/home/agent/.opencode/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      bash ca-certificates curl git jq ripgrep tini unzip \
+      bash ca-certificates curl git jq nodejs npm ripgrep tini unzip \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /opt/agent/bin && useradd -m -u 1000 agent
 
@@ -53,7 +53,7 @@ RUN chmod +x /opt/agent/bin/*
 # Pre-create every bind-mount target: Docker creates missing parents as root,
 # and then the agent cannot write next to them.
 RUN mkdir -p /home/agent/.local/share/opencode /home/agent/.local/state \
-             /home/agent/.config/gh /home/agent/.config/opencode /state \
+             /home/agent/.config/gh /home/agent/.config/opencode /home/agent/.claude /state \
     && chown -R agent:agent /home/agent /state
 
 USER agent
@@ -61,6 +61,11 @@ WORKDIR /home/agent
 
 # The official installer writes to ~/.opencode/bin, which stays in the image.
 RUN curl -fsSL https://opencode.ai/install | bash
+
+# npm global installs land under $HOME/.npm-global (no root needed).
+ENV NPM_CONFIG_PREFIX=/home/agent/.npm-global \
+    PATH=/home/agent/.npm-global/bin:/opt/agent/bin:/home/agent/.opencode/bin:$PATH
+RUN npm install -g @anthropic-ai/claude-code
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bash"]

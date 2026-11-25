@@ -18,7 +18,8 @@ ADR/           decision records: index in README.md, one file per decision
 agent/         opencode config mounted into the container: AGENTS.md, agents/assistant.md
 bin/           configure (mode chooser), tend (daily dispatch), adr (records)
 cmd/dashboard/ Go server for the activity page
-internal/      models/: model-defaults logic (parse, validate, rewrite workflow defaults)
+internal/      models/: model preset and default logic (parse, validate, project)
+model-presets.yaml  global model presets projected into workflow defaults
 docs/          workflow reference, memory-design rationale
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
 systemd/       user units and timers
@@ -39,6 +40,7 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Daily tend dispatch | `bin/tend` | reads `tend.list`, posts to the awf API |
 | Bot instructions | `agent/AGENTS.md` | mounted config, not documentation |
 | Dashboard edits a config file | `/api/save` in `main.go` | allowlist and backups, see ADR 0004 |
+| Manage global model presets | `model-presets.yaml`, Config Model defaults | eager projection, see ADR 0018 and `cmd/dashboard/AGENTS.md` |
 | Watcher config example | `awf-gh.example.yaml` | real `awf-gh.yaml` is gitignored |
 
 ## CONVENTIONS
@@ -48,9 +50,14 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
   `cd "$(dirname "$0")/.."`.
 - Private names never enter git. `awf-gh.yaml`, `repos.map`, `tend.list` are
   gitignored; only their `.example` files are tracked.
-- `DOT_OPENCODE`, `DOT_AWF`, `DOT_GH`, `DOT_AWFGH` are mode selectors written by
-  `bin/configure`, which also reads them back to keep the previous answer. Besides
-  `bin/configure`, only the Makefile (`make awf-gh`) reads `DOT_AWFGH`.
+- The dashboard projects `model-presets.yaml` into workflow input defaults.
+  Edit presets through the Config view, not by hand.
+- `DOT_OPENCODE`, `DOT_AWF`, `DOT_GH`, `DOT_AWFGH`, `DOT_CLAUDE` are mode
+  selectors written by `bin/configure`, which also reads them back to keep the
+  previous answer. Besides `bin/configure`, only the Makefile (`make awf-gh`)
+  reads `DOT_AWFGH`. `DOT_CLAUDE` is `off` by default: opt in with
+  `--claude=local` or `--claude=docker` to wire the `claude` CLI into the
+  awf/awf-gh containers alongside (not instead of) opencode.
 - `local` and `docker` must agree on the absolute paths for `STATE_DIR`,
   `WORK_ROOT` and `repos.map`, because a local opencode server resolves host
   paths.

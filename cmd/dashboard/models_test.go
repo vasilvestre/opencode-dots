@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -101,20 +105,25 @@ func currentModelValues(t *testing.T, d *dash) map[string]string {
 }
 
 type testModelVariable struct {
-	Key         string `json:"key"`
-	Workflow    string `json:"workflow"`
-	Input       string `json:"input"`
-	Value       string `json:"value"`
-	Description string `json:"description"`
-	Conflict    string `json:"conflict"`
+	Key         string  `json:"key"`
+	Workflow    string  `json:"workflow"`
+	Input       string  `json:"input"`
+	Value       string  `json:"value"`
+	Description string  `json:"description"`
+	Preset      string  `json:"preset"`
+	Override    *string `json:"override"`
+	Conflict    string  `json:"conflict"`
 }
 
 // Longest accepted model identifier.
 const maxTestModelIDLength = 200
 
 type testModelList struct {
-	Variables []testModelVariable `json:"variables"`
-	Available []string            `json:"available"`
+	Variables         []testModelVariable `json:"variables"`
+	Problems          []string            `json:"problems"`
+	Available         []string            `json:"available"`
+	Presets           map[string]string   `json:"presets"`
+	MigrationRequired bool                `json:"migration_required"`
 }
 
 func getModels(t *testing.T, d *dash) testModelList {
@@ -142,8 +151,14 @@ func getModels(t *testing.T, d *dash) testModelList {
 	if out.Variables == nil {
 		t.Fatal("GET /api/models returned a null variables array")
 	}
+	if out.Problems == nil {
+		t.Fatal("GET /api/models returned a null problems array")
+	}
 	if out.Available == nil {
 		t.Fatal("GET /api/models returned a null available array")
+	}
+	if out.Presets == nil {
+		t.Fatal("GET /api/models returned a null presets object")
 	}
 	return out
 }
@@ -171,6 +186,67 @@ func putModelValues(t *testing.T, d *dash, values map[string]string) *httptest.R
 	return putModelsRaw(d, string(body))
 }
 
+func putPresetUpdate(t *testing.T, d *dash, presets map[string]string, overrides map[string]*string) *httptest.ResponseRecorder {
+	t.Helper()
+	payload := map[string]any{"presets": presets}
+	if overrides != nil {
+		payload["overrides"] = overrides
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return putModelsRaw(d, string(body))
+}
+
+func testModelString(value string) *string { return &value }
+
+func testMatchingModelValues() map[string]string {
+	return map[string]string{
+		"ask-pr/model":            "provider/light",
+		"fix-ci/model":            "provider/light",
+		"reply-pr/model":          "provider/light",
+		"review-pr/address_model": "provider/light",
+		"fix-issue/model":         "provider/default",
+		"tend-repo/model":         "provider/default",
+		"review-pr/review_model":  "provider/default",
+	}
+}
+
+func writeModelPresets(t *testing.T, root, body string) string {
+	t.Helper()
+	path := filepath.Join(root, "model-presets.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func assertModelChanges(t *testing.T, rec *httptest.ResponseRecorder, want []string) []models.Saved {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/models returned %d: %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil || len(raw) != 1 || raw["changed"] == nil {
+		t.Fatalf("response must contain only changed: %s (err %v)", rec.Body, err)
+	}
+	var out struct {
+		Changed []models.Saved `json:"changed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, len(out.Changed))
+	for i, change := range out.Changed {
+		got[i] = change.Path
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("changed paths = %v, want %v", got, want)
+	}
+	return out.Changed
+}
+
 func assertModelFile(t *testing.T, path, want string) {
 	t.Helper()
 	got, err := os.ReadFile(path)
@@ -190,6 +266,13 @@ func assertNoModelBackups(t *testing.T, root string) {
 	}
 	if len(matches) != 0 {
 		t.Fatalf("unexpected backups: %v", matches)
+	}
+}
+
+func assertNoModelPresets(t *testing.T, root string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(root, "model-presets.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected preset file: %v", err)
 	}
 }
 
@@ -254,25 +337,159 @@ func TestModelsGET(t *testing.T) {
 	})
 	d := &dash{root: root}
 
-	variables := getModelVariables(t, d)
+	variables := getModels(t, d).Variables
 	want := []testModelVariable{
-		{Key: "ask-pr/model", Workflow: "ask-pr", Input: "model", Value: "provider/main", Description: "model for the ask agent"},
-		{Key: "fix-ci/model", Workflow: "fix-ci", Input: "model", Value: "provider/fix-ci", Description: "model for the fix agent"},
-		{Key: "fix-issue/model", Workflow: "fix-issue", Input: "model", Value: "provider/fix-issue", Description: "model for the fix agent"},
-		{Key: "reply-pr/model", Workflow: "reply-pr", Input: "model", Value: "provider/reply", Description: "model for the reply agent"},
-		{Key: "review-pr/review_model", Workflow: "review-pr", Input: "review_model", Value: "provider/review#v1", Description: "model for the review agent"},
-		{Key: "review-pr/address_model", Workflow: "review-pr", Input: "address_model", Value: "provider/address", Description: "model for the address agent"},
-		{Key: "tend-repo/model", Workflow: "tend-repo", Input: "model", Value: "provider/learn", Description: "model for the learn agent"},
+		{Key: "ask-pr/model", Workflow: "ask-pr", Input: "model", Value: "provider/main", Description: "model for the ask agent", Preset: "light"},
+		{Key: "fix-ci/model", Workflow: "fix-ci", Input: "model", Value: "provider/fix-ci", Description: "model for the fix agent", Preset: "light", Override: testModelString("provider/fix-ci")},
+		{Key: "fix-issue/model", Workflow: "fix-issue", Input: "model", Value: "provider/fix-issue", Description: "model for the fix agent", Preset: "default"},
+		{Key: "reply-pr/model", Workflow: "reply-pr", Input: "model", Value: "provider/reply", Description: "model for the reply agent", Preset: "light", Override: testModelString("provider/reply")},
+		{Key: "review-pr/review_model", Workflow: "review-pr", Input: "review_model", Value: "provider/review#v1", Description: "model for the review agent", Preset: "default", Override: testModelString("provider/review#v1")},
+		{Key: "review-pr/address_model", Workflow: "review-pr", Input: "address_model", Value: "provider/address", Description: "model for the address agent", Preset: "light", Override: testModelString("provider/address")},
+		{Key: "tend-repo/model", Workflow: "tend-repo", Input: "model", Value: "provider/learn", Description: "model for the learn agent", Preset: "default", Override: testModelString("provider/learn")},
 	}
 	if len(variables) != len(want) {
 		t.Fatalf("got %d variables, want %d: %+v", len(variables), len(want), variables)
 	}
 	for i := range want {
 		got := variables[i]
-		if got != want[i] {
+		if !reflect.DeepEqual(got, want[i]) {
 			t.Errorf("variable %d = %+v, want %+v", i, got, want[i])
 		}
 	}
+	out := getModels(t, d)
+	if !out.MigrationRequired {
+		t.Fatal("missing preset file did not require migration")
+	}
+	if out.Presets["light"] != "provider/main" || out.Presets["default"] != "provider/fix-issue" {
+		t.Fatalf("presets = %v", out.Presets)
+	}
+	if _, err := os.Stat(filepath.Join(root, "model-presets.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("GET created the preset file: %v", err)
+	}
+}
+
+func TestModelsGETMigratesCurrentDefaults(t *testing.T) {
+	const base = "opencode-go/hungerg-free"
+	const address = "opencode-go/hy4-flash-free"
+	values := map[string]string{}
+	for key := range testMatchingModelValues() {
+		values[key] = base
+	}
+	values["review-pr/address_model"] = address
+	root := t.TempDir()
+	originals := writeModelWorkflows(t, root, values)
+	d := &dash{root: root}
+
+	out := getModels(t, d)
+	if !out.MigrationRequired {
+		t.Fatal("missing preset file did not require migration")
+	}
+	if out.Presets["light"] != base || out.Presets["default"] != base {
+		t.Fatalf("presets = %v, want both %q", out.Presets, base)
+	}
+	if len(out.Problems) != 0 || len(out.Variables) != len(values) {
+		t.Fatalf("GET = %+v", out)
+	}
+	for _, variable := range out.Variables {
+		wantPreset := "default"
+		switch variable.Key {
+		case "ask-pr/model", "fix-ci/model", "reply-pr/model", "review-pr/address_model":
+			wantPreset = "light"
+		}
+		if variable.Preset != wantPreset {
+			t.Fatalf("variable %s preset = %q, want %q", variable.Key, variable.Preset, wantPreset)
+		}
+		wantValue := base
+		if variable.Key == "review-pr/address_model" {
+			wantValue = address
+			if variable.Override == nil || *variable.Override != address {
+				t.Fatalf("address override = %v, want %q", variable.Override, address)
+			}
+		} else if variable.Override != nil {
+			t.Fatalf("unexpected override for %s: %q", variable.Key, *variable.Override)
+		}
+		if variable.Value != wantValue || variable.Conflict != "" {
+			t.Fatalf("variable = %+v, want value %q without conflict", variable, wantValue)
+		}
+	}
+	assertNoModelPresets(t, root)
+	for file, want := range originals {
+		assertModelFile(t, filepath.Join(root, "workflows", file), want)
+	}
+
+	overrides := map[string]*string{"review-pr/address_model": testModelString(address)}
+	changes := assertModelChanges(t, putPresetUpdate(t, d, out.Presets, overrides), []string{"model-presets.yaml"})
+	if changes[0].Backup != "" {
+		t.Fatalf("new preset file has backup %q", changes[0].Backup)
+	}
+	for file, want := range originals {
+		assertModelFile(t, filepath.Join(root, "workflows", file), want)
+	}
+	if got := currentModelValues(t, d); !maps.Equal(got, values) {
+		t.Fatalf("migration changed runtime values: got %v, want %v", got, values)
+	}
+	out = getModels(t, d)
+	if out.MigrationRequired || len(out.Problems) != 0 {
+		t.Fatalf("GET after first save = %+v", out)
+	}
+	var addressVariable testModelVariable
+	for _, variable := range out.Variables {
+		if variable.Key == "review-pr/address_model" {
+			addressVariable = variable
+		}
+	}
+	if addressVariable.Key != "review-pr/address_model" || addressVariable.Override == nil || *addressVariable.Override != address {
+		t.Fatalf("address variable after save = %+v", addressVariable)
+	}
+	assertModelChanges(t, putPresetUpdate(t, d, out.Presets, overrides), nil)
+}
+
+func TestModelsGETReportsProblemsWithoutVariables(t *testing.T) {
+	t.Run("missing workflows", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "workflows"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		d := &dash{root: root}
+		out := getModels(t, d)
+		if len(out.Variables) != 0 {
+			t.Fatalf("variables = %+v, want none", out.Variables)
+		}
+		if !slices.ContainsFunc(out.Problems, func(problem string) bool {
+			return strings.Contains(problem, "missing workflow ask-pr.yaml")
+		}) {
+			t.Fatalf("problems = %v, want missing workflow errors", out.Problems)
+		}
+		if rec := putPresetUpdate(t, d, map[string]string{"light": "provider/light", "default": "provider/default"}, nil); rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("PUT returned %d, want 422: %s", rec.Code, rec.Body)
+		}
+		assertNoModelPresets(t, root)
+		assertNoModelBackups(t, root)
+	})
+
+	t.Run("invalid config", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "workflows"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		const config = "version: [\n"
+		path := writeModelPresets(t, root, config)
+		d := &dash{root: root}
+		out := getModels(t, d)
+		if len(out.Variables) != 0 {
+			t.Fatalf("variables = %+v, want none", out.Variables)
+		}
+		if !slices.ContainsFunc(out.Problems, func(problem string) bool {
+			return strings.Contains(problem, "yaml")
+		}) {
+			t.Fatalf("problems = %v, want preset YAML error", out.Problems)
+		}
+		if rec := putPresetUpdate(t, d, map[string]string{"light": "provider/light", "default": "provider/default"}, nil); rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("PUT returned %d, want 422: %s", rec.Code, rec.Body)
+		}
+		assertModelFile(t, path, config)
+		assertNoModelBackups(t, root)
+	})
 }
 
 func TestModelsPUT(t *testing.T) {
@@ -288,26 +505,14 @@ func TestModelsPUT(t *testing.T) {
 	}
 
 	rec := putModelValues(t, d, values)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT /api/models returned %d: %s", rec.Code, rec.Body)
-	}
+	changes := assertModelChanges(t, rec, []string{"workflows/ask-pr.yaml", "model-presets.yaml"})
 	if catalogCalled {
 		t.Fatal("PUT loaded the model catalog")
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil || len(raw) != 1 {
-		t.Fatalf("response must contain only changed: %s (err %v)", rec.Body, err)
+	if changes[0].Backup == "" || changes[1].Backup != "" {
+		t.Fatalf("changed = %+v, want a workflow backup and no preset backup", changes)
 	}
-	var out struct {
-		Changed []models.Saved `json:"changed"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if len(out.Changed) != 1 || out.Changed[0].Path != "workflows/ask-pr.yaml" {
-		t.Fatalf("changed = %+v, want only workflows/ask-pr.yaml", out.Changed)
-	}
-	backup := out.Changed[0].Backup
+	backup := changes[0].Backup
 	if !strings.HasPrefix(backup, "ask-pr.yaml.") || !strings.HasSuffix(backup, ".bak") {
 		t.Fatalf("backup name = %q", backup)
 	}
@@ -317,6 +522,27 @@ func TestModelsPUT(t *testing.T) {
 	backups, _ := filepath.Glob(filepath.Join(root, "workflows", "*.bak"))
 	if len(backups) != 1 {
 		t.Fatalf("got %d backups, want 1: %v", len(backups), backups)
+	}
+
+	snapshot, err := models.ReadConfigured(listFiles(filepath.Join(root, "workflows"), ".yaml"), d.resolveEditable, filepath.Join(root, "model-presets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.MigrationRequired() {
+		t.Fatal("preset file still requires migration after PUT")
+	}
+	if got := snapshot.Presets(); got["light"] != "provider/old" || got["default"] != "provider/fix-issue" {
+		t.Fatalf("legacy PUT changed synthesized presets: %v", got)
+	}
+	configuration := snapshot.Configuration()
+	if len(configuration.Overrides) != len(values) {
+		t.Fatalf("legacy PUT overrides = %v, want all seven roles", configuration.Overrides)
+	}
+	for key, value := range values {
+		override := configuration.Overrides[key]
+		if override == nil || *override != value {
+			t.Errorf("override %s = %v, want %q", key, override, value)
+		}
 	}
 
 	variables := getModelVariables(t, d)
@@ -350,16 +576,13 @@ func TestModelsPUTPreservesYAML(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT /api/models returned %d: %s", rec.Code, rec.Body)
 	}
-	var out struct {
-		Changed []models.Saved `json:"changed"`
+	changes := assertModelChanges(t, rec, []string{
+		"workflows/ask-pr.yaml", "workflows/review-pr.yaml", "model-presets.yaml",
+	})
+	if changes[2].Backup != "" {
+		t.Fatalf("new preset file has backup %q", changes[2].Backup)
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if len(out.Changed) != 2 {
-		t.Fatalf("changed = %+v, want two files", out.Changed)
-	}
-	for _, change := range out.Changed {
+	for _, change := range changes[:2] {
 		file := filepath.Base(change.Path)
 		assertModelFile(t, filepath.Join(root, "workflows", change.Backup), originals[file])
 	}
@@ -381,16 +604,20 @@ func TestModelsPUTUnchanged(t *testing.T) {
 	root := t.TempDir()
 	originals := writeModelWorkflows(t, root, nil)
 	d := &dash{root: root}
+	values := currentModelValues(t, d)
 
-	rec := putModelValues(t, d, currentModelValues(t, d))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT /api/models returned %d: %s", rec.Code, rec.Body)
-	}
-	if got := strings.TrimSpace(rec.Body.String()); got != `{"changed":[]}` {
-		t.Fatalf("identical PUT returned %s, want an empty changed array", got)
+	changes := assertModelChanges(t, putModelValues(t, d, values), []string{"model-presets.yaml"})
+	if changes[0].Backup != "" {
+		t.Fatalf("new preset file has backup %q", changes[0].Backup)
 	}
 	for file, want := range originals {
 		assertModelFile(t, filepath.Join(root, "workflows", file), want)
+	}
+	assertNoModelBackups(t, root)
+
+	rec := putModelValues(t, d, values)
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"changed":[]}` {
+		t.Fatalf("identical PUT returned %s, want an empty changed array", got)
 	}
 	assertNoModelBackups(t, root)
 }
@@ -454,15 +681,29 @@ func TestModelsPUTRejectsBadRequests(t *testing.T) {
 	}{
 		{"malformed", `{"variables":`, http.StatusBadRequest},
 		{"empty", ``, http.StatusBadRequest},
-		{"missing variables", `{}`, http.StatusBadRequest},
+		{"missing payload", `{}`, http.StatusBadRequest},
 		{"null variables", `{"variables":null}`, http.StatusBadRequest},
 		{"array variables", `{"variables":[]}`, http.StatusBadRequest},
 		{"non-string value", `{"variables":{"ask-pr/model":42}}`, http.StatusBadRequest},
 		{"null value", `{"variables":{"ask-pr/model":null}}`, http.StatusBadRequest},
+		{"both payloads", `{"variables":{},"presets":{"light":"provider/l","default":"provider/d"}}`, http.StatusBadRequest},
+		{"variables and overrides", `{"variables":{},"overrides":{}}`, http.StatusBadRequest},
+		{"unknown field", `{"presets":{"light":"provider/l","default":"provider/d"},"extra":true}`, http.StatusBadRequest},
+		{"null presets", `{"presets":null}`, http.StatusBadRequest},
+		{"array presets", `{"presets":[]}`, http.StatusBadRequest},
+		{"null preset", `{"presets":{"light":null,"default":"provider/d"}}`, http.StatusBadRequest},
+		{"non-string preset", `{"presets":{"light":42,"default":"provider/d"}}`, http.StatusBadRequest},
+		{"null overrides", `{"presets":{"light":"provider/l","default":"provider/d"},"overrides":null}`, http.StatusBadRequest},
+		{"array overrides", `{"presets":{"light":"provider/l","default":"provider/d"},"overrides":[]}`, http.StatusBadRequest},
+		{"non-string override", `{"presets":{"light":"provider/l","default":"provider/d"},"overrides":{"ask-pr/model":42}}`, http.StatusBadRequest},
+		{"missing preset", `{"presets":{"light":"provider/l"}}`, http.StatusUnprocessableEntity},
+		{"unknown preset", `{"presets":{"light":"provider/l","default":"provider/d","other":"provider/o"}}`, http.StatusUnprocessableEntity},
+		{"unknown override", `{"presets":{"light":"provider/l","default":"provider/d"},"overrides":{"other/model":"provider/o"}}`, http.StatusUnprocessableEntity},
 		{"trailing object", `{"variables":{"ask-pr/model":"provider/new"}} {}`, http.StatusBadRequest},
-		{"unknown key", `{"variables":{"other/model":"provider/new"}}`, http.StatusUnprocessableEntity},
-		{"missing key", `{"variables":{}}`, http.StatusUnprocessableEntity},
+		{"unknown variable", `{"variables":{"other/model":"provider/new"}}`, http.StatusUnprocessableEntity},
+		{"missing variable", `{"variables":{}}`, http.StatusUnprocessableEntity},
 		{"oversized", strings.Repeat(" ", maxModelsBodySize+1), http.StatusRequestEntityTooLarge},
+		{"oversized trailing body", `{}` + strings.Repeat(" ", maxModelsBodySize+1), http.StatusRequestEntityTooLarge},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -610,49 +851,48 @@ func TestModelsEnforcesRoleMapping(t *testing.T) {
 		"    options:\n" +
 		"      model: \"{{.inputs.model}}\"\n"
 	cases := []struct {
-		name       string
-		file       string
-		mutate     func(string) string
-		remove     bool
-		wantStatus int
-		want       string
+		name   string
+		file   string
+		mutate func(string) string
+		remove bool
+		want   string
 	}{
 		{"missing input", "ask-pr.yaml", func(s string) string {
 			start := strings.Index(s, "  - name: model\n")
 			end := strings.Index(s, "\nstates:\n")
 			return s[:start] + s[end+1:]
-		}, false, http.StatusUnprocessableEntity, `missing model input "model"`},
-		{"missing workflow", "ask-pr.yaml", nil, true, http.StatusUnprocessableEntity, "missing workflow ask-pr.yaml"},
+		}, false, `missing model input "model"`},
+		{"missing workflow", "ask-pr.yaml", nil, true, "missing workflow ask-pr.yaml"},
 		{"mismatched workflow name", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, "name: ask-pr\n", "name: renamed\n", 1)
-		}, false, http.StatusOK, `workflow name must match filename stem "ask-pr"`},
+		}, false, `workflow name must match filename stem "ask-pr"`},
 		{"extra input", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, "states:\n", extraInput+"states:\n", 1)
-		}, false, http.StatusOK, `unexpected model input "other_model"`},
+		}, false, `unexpected model input "other_model"`},
 		{"extra state", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, "  done:\n", extraState+"  done:\n", 1)
-		}, false, http.StatusOK, `unexpected agent state "extra"`},
+		}, false, `unexpected agent state "extra"`},
 		{"renamed state", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, "  ask:\n", "  renamed:\n", 1)
-		}, false, http.StatusOK, `missing agent state "ask"`},
+		}, false, `missing agent state "ask"`},
 		{"renamed input", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, "  - name: model\n", "  - name: renamed_model\n", 1)
-		}, false, http.StatusOK, `missing model input "model"`},
+		}, false, `missing model input "model"`},
 		{"pinned state", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, `model: "{{.inputs.model}}"`, `model: "provider/literal"`, 1)
-		}, false, http.StatusOK, `must use "{{.inputs.model}}"`},
+		}, false, `must use "{{.inputs.model}}"`},
 		{"leading template whitespace", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, `model: "{{.inputs.model}}"`, `model: " {{.inputs.model}}"`, 1)
-		}, false, http.StatusOK, `must use "{{.inputs.model}}"`},
+		}, false, `must use "{{.inputs.model}}"`},
 		{"trailing template whitespace", "ask-pr.yaml", func(s string) string {
 			return strings.Replace(s, `model: "{{.inputs.model}}"`, `model: "{{.inputs.model}} "`, 1)
-		}, false, http.StatusOK, `must use "{{.inputs.model}}"`},
+		}, false, `must use "{{.inputs.model}}"`},
 		{"swapped review roles", "review-pr.yaml", func(s string) string {
 			return strings.NewReplacer(
 				`model: "{{.inputs.review_model}}"`, `model: "{{.inputs.address_model}}"`,
 				`model: "{{.inputs.address_model}}"`, `model: "{{.inputs.review_model}}"`,
 			).Replace(s)
-		}, false, http.StatusOK, `agent state "review" must use "{{.inputs.review_model}}"`},
+		}, false, `agent state "review" must use "{{.inputs.review_model}}"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -671,30 +911,17 @@ func TestModelsEnforcesRoleMapping(t *testing.T) {
 				originals[c.file] = body
 			}
 			d := &dash{root: root, modelCatalog: func(context.Context) []string { return []string{} }}
-			if c.wantStatus == http.StatusOK {
-				found := false
-				for _, variable := range getModelVariables(t, d) {
-					if strings.Contains(variable.Conflict, c.want) {
-						found = true
-					}
+			out := getModels(t, d)
+			found := slices.ContainsFunc(out.Problems, func(problem string) bool {
+				return strings.Contains(problem, c.want)
+			})
+			for _, variable := range out.Variables {
+				if strings.Contains(variable.Conflict, c.want) {
+					found = true
 				}
-				if !found {
-					t.Fatalf("no conflict contains %q", c.want)
-				}
-			} else {
-				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
-				req.Host = "127.0.0.1:8099"
-				d.models(rec, req)
-				var out struct {
-					Error string `json:"error"`
-				}
-				if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-					t.Fatal(err)
-				}
-				if rec.Code != c.wantStatus || !strings.Contains(out.Error, c.want) {
-					t.Fatalf("GET returned %d: %s, want %d containing %q", rec.Code, out.Error, c.wantStatus, c.want)
-				}
+			}
+			if !found {
+				t.Fatalf("no problem or conflict contains %q: %+v", c.want, out)
 			}
 			if rec := putModelValues(t, d, testModelDefaults()); rec.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("PUT returned %d, want 422: %s", rec.Code, rec.Body)
@@ -825,4 +1052,249 @@ func TestModelsPUTPreflightsEveryFile(t *testing.T) {
 		assertModelFile(t, filepath.Join(root, "workflows", file), want)
 	}
 	assertNoModelBackups(t, root)
+	assertNoModelPresets(t, root)
+}
+
+func TestModelsPUTPropagatesPresets(t *testing.T) {
+	root := t.TempDir()
+	writeModelWorkflows(t, root, testMatchingModelValues())
+	d := &dash{root: root}
+	presets := map[string]string{"light": "provider/new-light#fast", "default": "provider/new-default"}
+
+	changes := assertModelChanges(t, putPresetUpdate(t, d, presets, nil), []string{
+		"workflows/ask-pr.yaml",
+		"workflows/fix-ci.yaml",
+		"workflows/fix-issue.yaml",
+		"workflows/reply-pr.yaml",
+		"workflows/review-pr.yaml",
+		"workflows/tend-repo.yaml",
+		"model-presets.yaml",
+	})
+	for _, change := range changes[:6] {
+		if change.Backup == "" {
+			t.Fatalf("workflow change has no backup: %+v", change)
+		}
+	}
+	if changes[6].Backup != "" {
+		t.Fatalf("new preset file has backup %q", changes[6].Backup)
+	}
+
+	want := map[string]string{}
+	for key, value := range testMatchingModelValues() {
+		if value == "provider/light" {
+			want[key] = presets["light"]
+		} else {
+			want[key] = presets["default"]
+		}
+	}
+	if got := currentModelValues(t, d); !maps.Equal(got, want) {
+		t.Fatalf("resolved values = %v, want %v", got, want)
+	}
+	out := getModels(t, d)
+	if out.MigrationRequired || out.Presets["light"] != presets["light"] || out.Presets["default"] != presets["default"] {
+		t.Fatalf("GET after PUT = %+v", out)
+	}
+	for _, variable := range out.Variables {
+		if variable.Conflict != "" {
+			t.Fatalf("unexpected conflict after propagation: %+v", variable)
+		}
+	}
+}
+
+func TestModelsPUTOverrideRetentionAndClearing(t *testing.T) {
+	root := t.TempDir()
+	writeModelWorkflows(t, root, testMatchingModelValues())
+	d := &dash{root: root}
+	presets := map[string]string{"light": "provider/light-2", "default": "provider/default"}
+
+	assertModelChanges(t, putPresetUpdate(t, d, presets, map[string]*string{
+		"ask-pr/model": testModelString("provider/custom"),
+	}), []string{
+		"workflows/ask-pr.yaml",
+		"workflows/fix-ci.yaml",
+		"workflows/reply-pr.yaml",
+		"workflows/review-pr.yaml",
+		"model-presets.yaml",
+	})
+
+	presets["light"] = "provider/light-3"
+	assertModelChanges(t, putPresetUpdate(t, d, presets, map[string]*string{}), []string{
+		"workflows/fix-ci.yaml",
+		"workflows/reply-pr.yaml",
+		"workflows/review-pr.yaml",
+		"model-presets.yaml",
+	})
+	values := currentModelValues(t, d)
+	if values["ask-pr/model"] != "provider/custom" {
+		t.Fatalf("missing override key did not preserve ask-pr/model: %v", values)
+	}
+	if values["fix-ci/model"] != presets["light"] {
+		t.Fatalf("light preset did not propagate: %v", values)
+	}
+
+	assertModelChanges(t, putPresetUpdate(t, d, presets, map[string]*string{
+		"ask-pr/model": nil,
+	}), []string{"workflows/ask-pr.yaml", "model-presets.yaml"})
+	values = currentModelValues(t, d)
+	if values["ask-pr/model"] != presets["light"] {
+		t.Fatalf("cleared override did not resolve to the light preset: %v", values)
+	}
+	snapshot, err := models.ReadConfigured(listFiles(filepath.Join(root, "workflows"), ".yaml"), d.resolveEditable, filepath.Join(root, "model-presets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if override := snapshot.Configuration().Overrides["ask-pr/model"]; override != nil {
+		t.Fatalf("cleared override remains: %q", *override)
+	}
+}
+
+func TestModelsGETDriftRefusesPUT(t *testing.T) {
+	root := t.TempDir()
+	originals := writeModelWorkflows(t, root, testMatchingModelValues())
+	config := "version: 1\npresets:\n  light: provider/light\n  default: provider/drift\n"
+	path := writeModelPresets(t, root, config)
+	d := &dash{root: root}
+
+	out := getModels(t, d)
+	found := false
+	for _, variable := range out.Variables {
+		if strings.Contains(variable.Conflict, "differs from resolved model") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("GET did not report drift: %+v", out.Variables)
+	}
+	rec := putPresetUpdate(t, d, map[string]string{"light": "provider/light", "default": "provider/drift"}, nil)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "differs from resolved model") {
+		t.Fatalf("PUT returned %d: %s, want 422 for drift", rec.Code, rec.Body)
+	}
+	assertModelFile(t, path, config)
+	for file, want := range originals {
+		assertModelFile(t, filepath.Join(root, "workflows", file), want)
+	}
+	assertNoModelBackups(t, root)
+}
+
+func TestModelsGETInvalidPresetConfig(t *testing.T) {
+	valid := "version: 1\npresets:\n  light: provider/light\n  default: provider/default\n"
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"empty", "", "preset file is empty"},
+		{"malformed", "version: [", "yaml"},
+		{"multiple documents", valid + "---\n" + valid, "one YAML document"},
+		{"unknown root key", valid + "extra: true\n", "field extra not found"},
+		{"unsupported version", strings.Replace(valid, "version: 1", "version: 2", 1), "unsupported preset version"},
+		{"string version", strings.Replace(valid, "version: 1", `version: "1"`, 1), "cannot unmarshal"},
+		{"missing preset", "version: 1\npresets:\n  light: provider/light\n", "exactly light and default"},
+		{"unknown preset", valid + "  other: provider/other\n", "exactly light and default"},
+		{"duplicate preset", "version: 1\npresets:\n  light: provider/light\n  light: provider/other\n  default: provider/default\n", "already defined"},
+		{"unknown role", valid + "overrides:\n  other/model: provider/other\n", "unknown model role"},
+		{"null unknown role", valid + "overrides:\n  other/model: null\n", "unknown model role"},
+		{"invalid override", valid + "overrides:\n  ask-pr/model: not-a-model\n", "model identifier is not valid"},
+		{"equal review roles", "version: 1\npresets:\n  light: provider/same\n  default: provider/same\n", "must be different"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			originals := writeModelWorkflows(t, root, testMatchingModelValues())
+			path := writeModelPresets(t, root, c.body)
+			d := &dash{root: root}
+
+			out := getModels(t, d)
+			found := slices.ContainsFunc(out.Problems, func(problem string) bool {
+				return strings.Contains(problem, c.want)
+			})
+			if !found {
+				t.Fatalf("no problem contains %q: %+v", c.want, out.Problems)
+			}
+			rec := putPresetUpdate(t, d, map[string]string{"light": "provider/light", "default": "provider/default"}, nil)
+			if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), c.want) {
+				t.Fatalf("PUT returned %d: %s, want 422 containing %q", rec.Code, rec.Body, c.want)
+			}
+			assertModelFile(t, path, c.body)
+			for file, want := range originals {
+				assertModelFile(t, filepath.Join(root, "workflows", file), want)
+			}
+			assertNoModelBackups(t, root)
+		})
+	}
+}
+
+func TestModelsPUTRejectsInvalidPresetUpdates(t *testing.T) {
+	cases := []struct {
+		name      string
+		presets   map[string]string
+		overrides map[string]*string
+		want      string
+	}{
+		{"invalid preset", map[string]string{"light": "not-a-model", "default": "provider/default"}, nil, "model identifier is not valid"},
+		{"long preset", map[string]string{"light": strings.Repeat("a", 199) + "/b", "default": "provider/default"}, nil, "200"},
+		{"invalid override", map[string]string{"light": "provider/light", "default": "provider/default"}, map[string]*string{"ask-pr/model": testModelString("")}, "model identifier is not valid"},
+		{"equal review roles", map[string]string{"light": "provider/same", "default": "provider/same"}, nil, "must be different"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			originals := writeModelWorkflows(t, root, testMatchingModelValues())
+			d := &dash{root: root}
+			rec := putPresetUpdate(t, d, c.presets, c.overrides)
+			if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), c.want) {
+				t.Fatalf("PUT returned %d: %s, want 422 containing %q", rec.Code, rec.Body, c.want)
+			}
+			for file, want := range originals {
+				assertModelFile(t, filepath.Join(root, "workflows", file), want)
+			}
+			assertNoModelBackups(t, root)
+			assertNoModelPresets(t, root)
+		})
+	}
+}
+
+func TestModelsPUTRollsBackFailedPresetWrite(t *testing.T) {
+	for _, created := range []bool{false, true} {
+		name := "existing preset"
+		if created {
+			name = "new preset"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			originals := writeModelWorkflows(t, root, testMatchingModelValues())
+			config := "version: 1\npresets:\n  light: provider/light\n  default: provider/default\n"
+			path := filepath.Join(root, "model-presets.yaml")
+			if !created {
+				writeModelPresets(t, root, config)
+			}
+			d := &dash{root: root}
+			originalApply := applyModelPlan
+			applyModelPlan = func(plan *models.Plan) ([]models.Saved, error) {
+				return plan.Apply(backupFile, func(path string, data []byte) error {
+					if filepath.Base(path) == "model-presets.yaml" {
+						if err := os.WriteFile(path, data, 0o644); err != nil {
+							return err
+						}
+						return errors.New("injected preset write failure")
+					}
+					return atomicWrite(path, data)
+				})
+			}
+			defer func() { applyModelPlan = originalApply }()
+
+			rec := putPresetUpdate(t, d, map[string]string{"light": "provider/new-light", "default": "provider/new-default"}, nil)
+			if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "injected preset write failure") {
+				t.Fatalf("PUT returned %d: %s, want rollback error", rec.Code, rec.Body)
+			}
+			for file, want := range originals {
+				assertModelFile(t, filepath.Join(root, "workflows", file), want)
+			}
+			if created {
+				assertNoModelPresets(t, root)
+			} else {
+				assertModelFile(t, path, config)
+			}
+		})
+	}
 }

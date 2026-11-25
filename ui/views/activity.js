@@ -476,6 +476,15 @@ export function mountActivity(el) {
       return null;
     }
     if (!t.steps?.length) return null;
+    let sess = [];
+    try {
+      sess = (await getJSON(`/api/sessions?id=${encodeURIComponent(id)}`)).sessions || [];
+    } catch { /* the sessions column is optional */ }
+    const sessionCell = (name) => h("td", { class: "muted" }, sess.filter((x) => x.step === name).map((x) =>
+      h("div", { title: x.id },
+        `${x.id.slice(-8)} ${x.model || ""} · ${x.tool_calls} tools · ${x.output_tokens} out `,
+        x.loop ? h("span", { class: "badge failed" }, "loop") : null,
+        x.orphan ? h("span", { class: "badge failed" }, "orphan") : null)));
     const rows = t.steps.map((s) => h("tr", {},
       h("td", {}, s.name),
       h("td", { class: "muted" }, s.kind),
@@ -483,6 +492,7 @@ export function mountActivity(el) {
       h("td", { class: "num" }, dur(s.ms)),
       h("td", { class: "num" }, s.cost ? money(s) : "—"),
       h("td", { class: "num muted" }, s.prompt ? `${s.prompt} → ${s.answer}` : ""),
+      sessionCell(s.name),
     ));
     return h("div", { class: "table-wrap", style: { marginBottom: "12px" } },
       h("table", {},
@@ -490,6 +500,7 @@ export function mountActivity(el) {
           h("th", {}, "Step"), h("th", {}, "Kind"), h("th", {}, "Status"),
           h("th", { class: "num" }, "Time"), h("th", { class: "num" }, "Cost"),
           h("th", { class: "num", title: "prompt bytes → answer bytes" }, "Prompt"),
+          h("th", { title: "opencode session behind the step" }, "Session"),
         )),
         h("tbody", {}, rows),
       ),

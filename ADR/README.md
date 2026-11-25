@@ -21,10 +21,11 @@ your mind by writing a new one that supersedes it.
 | [0011](0011-sync-managed-clones.md) | sync managed clones | accepted | 2026-11-23 |
 | [0012](0012-fix-rule-judges-decisions.md) | The fix rule judges decisions, not line counts | accepted | 2026-11-23 |
 | [0013](0013-dashboard-on-the-tailnet.md) | The dashboard answers on the tailnet through tailscale serve | accepted | 2026-11-23 |
-| [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | accepted | 2026-11-24 |
+| [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | superseded by 0016 | 2026-11-24 |
 | [0015](0015-dots-take-delegation.md) | The operator delegates a pull request with /dots take | accepted | 2026-11-25 |
 | [0016](0016-awf-gh-runs-natively.md) | awf-gh can run natively | accepted | 2026-11-25 |
 | [0017](0017-dashboard-edits-completion-notifications.md) | The dashboard edits completion notifications | accepted | 2026-11-25 |
+| [0018](0018-dashboard-managed-model-presets.md) | The dashboard manages global model presets | accepted | 2026-11-25 |
 
 ## When to write one
 
