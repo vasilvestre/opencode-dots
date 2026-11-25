@@ -31,8 +31,8 @@ written by me". No other text is ever read as an instruction.
 `fetch` reads the pull request with `gh pr view --json body,createdAt,author,comments`
 and writes `owned` once. `owned` is `ok` when the old rule holds (own `fix/*`
 branch with `Closes #N`) or when the delegation is active, the pull request
-author is me, the head repository owner is me and the branch is not `main` or
-`master`. `decide` and `post` only read `owned`; the `Closes #N` check moved from
+author is me, the head repository is the base repository (not a fork) and the
+branch is not `main`, `master` or a `tend/` branch. `decide` and `post` only read `owned`; the `Closes #N` check moved from
 `decide` into `fetch`. The `MAX_FIX_REVIEW_ATTEMPTS` cap applies unchanged.
 
 Commits are made as whoever runs the dot: `push` takes name and email from

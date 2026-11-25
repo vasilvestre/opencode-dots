@@ -167,15 +167,17 @@ states:
             ((.comments // [])[] | select(.author.login == $me) | {t: .createdAt, c: (.body // "" | whole)}) ]
           | map(select(.c != "")) | sort_by(.t) | last | .c // empty
           end
-        ' "$d/delegation.json" 2>/dev/null || true)
+        ' "$d/delegation.json" 2>/dev/null) || delegation_read=failed
       others=$(jq -r --arg me "$me" '
         def cmd: [split("\n")[] | gsub("^\\s+|\\s+$"; "") | select(. == "/dots take" or . == "/dots stop")] | length;
         [(.comments // [])[] | select(.author.login != $me) | (.body // "" | cmd)] | add // 0
-        ' "$d/delegation.json" 2>/dev/null || echo 0)
+        ' "$d/delegation.json" 2>/dev/null) || delegation_read=failed
+      headrepo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
       if [ "$author" != "$me" ] || [ "$owner" != "$me" ] \
         || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
         printf 'not my branch to fix (%s/%s by %s)\n' "$owner" "$branch" "$author" > "$d/owned"
-      elif [ "$delegation" = "/dots take" ]; then
+      elif [ "$delegation" = "/dots take" ] && [ "$headrepo" = "{{.inputs.repo}}" ] \
+        && [ "${branch#tend/}" = "$branch" ]; then
         echo ok > "$d/owned"
       else
         case "$branch" in
@@ -186,11 +188,19 @@ states:
               printf 'body has no Closes #N\n' > "$d/owned"
             fi
             ;;
-          *) printf 'branch %s is not a fix-issue branch\n' "$branch" > "$d/owned" ;;
+          *)
+            if [ "$delegation" = "/dots take" ] && [ "$headrepo" != "{{.inputs.repo}}" ]; then
+              printf 'delegation refused: head repository %s is a fork\n' "$headrepo" > "$d/owned"
+            elif [ "$delegation" = "/dots take" ] && [ "${branch#tend/}" != "$branch" ]; then
+              printf 'delegation refused: tend/ branches are not delegable\n' > "$d/owned"
+            else
+              printf 'branch %s is not a fix-issue branch\n' "$branch" > "$d/owned"
+            fi
+            ;;
         esac
       fi
       if [ "$delegation_read" = failed ] && [ "$(head -1 "$d/owned")" != ok ]; then
-        printf 'could not read /dots take or /dots stop (gh pr view failed); retry the run\n' > "$d/owned"
+        printf 'could not read /dots take or /dots stop (gh pr view or jq failed); retry the run\n' > "$d/owned"
       fi
       if [ "${others:-0}" != 0 ] && [ "$delegation" != "/dots take" ]; then
         printf 'delegation ignored: not written by me\n' >> "$d/owned"
@@ -359,7 +369,8 @@ states:
       while IFS= read -r line; do
         case "$line" in
           "- cleared:"*)
-            quote=$(printf '%s\n' "$line" | sed -n 's/.*`\([^`]*\)`$/\1/p')
+            quote=$(printf '%s\n' "$line" | sed -n 's/^[^`]*`[^`]*`: `\(.*\)`$/\1/p')
+            [ -n "$quote" ] || quote=$(printf '%s\n' "$line" | sed -n 's/.*`\([^`]*\)`$/\1/p')
             if [ -n "$quote" ] && grep -rqF -- "$quote" "$d/work" 2>/dev/null; then
               printf '%s\n' "$line" >> "$tmp"
             else
@@ -465,7 +476,7 @@ states:
     on_failure: error
 
   # A merge verdict goes straight to the merge step. A hold on my own fix-issue
-  # pull request becomes another fix round, capped per pull request, so the loop
+  # or delegated pull request becomes another fix round, capped per pull request, so the loop
   # ends in a merge or in a human notice. Anything else is left alone.
   decide:
     type: step

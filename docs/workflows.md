@@ -107,7 +107,10 @@ Steps:
    request on any branch except `main`/`master`; `/dots stop` revokes. A comment
    counts only when the command is its whole text, because the dot posts with my
    token. The last command wins, except that a `/dots stop` in the body always
-   wins (gh gives no edit time for the body). `/dots stop` does not block my own
+   wins (gh gives no edit time for the body, so a body `/dots take` is dated at
+   creation; to re-take after a stop, delete the `/dots stop` line from the body
+   first, then comment `/dots take`). Never on a fork or a `tend/`
+   branch. `/dots stop` does not block my own
    `fix/*` pull request that closes an issue. `fetch` reads it and sets `owned`;
    others' commands are ignored.
    Merge is not delegated: `automerge` still needs a `fix/*` branch with
