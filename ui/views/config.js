@@ -396,7 +396,7 @@ export function mountConfig(el, arg) {
 
   async function showEditor(file) {
     editor?.destroy();
-    editor = await createEditor({ path: file.path, kind: file.kind });
+    editor = await createEditor({ path: file.path, kind: file.kind, readOnly: Boolean(file.generated) });
     if (destroyed) { editor.destroy(); return; }
     if (arg !== file.path) return;
     mount(el.querySelector("#config-editor"), h("div", { class: "card" },

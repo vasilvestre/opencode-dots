@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"opencode-dots/internal/repos"
 )
@@ -98,6 +99,11 @@ func importFiles(dir string, force bool) error {
 	// Prove the import before writing it: the file must parse and generate.
 	if _, err := repos.Build(data, dir, repos.Settings{}); err != nil {
 		return fmt.Errorf("the imported file does not generate: %w", err)
+	}
+	if old, err := os.ReadFile(target); err == nil {
+		if err := os.WriteFile(target+"."+time.Now().Format("20060102-150405")+".bak", old, 0o600); err != nil {
+			return err
+		}
 	}
 	if err := os.WriteFile(target, data, 0o644); err != nil {
 		return err

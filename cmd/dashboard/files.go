@@ -177,6 +177,10 @@ func (d *dash) saveFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The lock covers the build too: it reads the awf-gh.yaml an earlier save
+	// may be replacing.
+	d.editMu.Lock()
+	defer d.editMu.Unlock()
 	// repos.yaml must generate before it is written: a typo in a feature key or
 	// an unknown event would otherwise stop the next polling pass.
 	var generated map[string][]byte
@@ -197,8 +201,6 @@ func (d *dash) saveFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	d.editMu.Lock()
-	defer d.editMu.Unlock()
 	backup, err := backupFile(abs)
 	if err != nil {
 		http.Error(w, "backup failed: "+err.Error(), http.StatusInternalServerError)
@@ -214,7 +216,9 @@ func (d *dash) saveFile(w http.ResponseWriter, r *http.Request) {
 		// are rewritten only when their content changed, and never half written.
 		changed, err := repos.Write(d.root, generated)
 		if err != nil {
-			http.Error(w, "repos.yaml saved but "+err.Error(), http.StatusInternalServerError)
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{
+				"error": "repos.yaml saved, generated files not refreshed (already rewritten: [" + strings.Join(changed, " ") + "]); save again to finish: " + err.Error(),
+			})
 			return
 		}
 		resp["generated"] = changed

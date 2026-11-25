@@ -32,7 +32,7 @@ export function mountRepos(el) {
     }
     mount(list, rows.map((r) => h("div", { class: "item" },
       h("div", { class: "row between" },
-        h("a", { href: `https://github.com/${r.repo}`, target: "_blank", rel: "noreferrer" }, h("b", {}, r.repo)),
+        h("a", { href: `https://github.com/${r.repo.split("/").map(encodeURIComponent).join("/")}`, target: "_blank", rel: "noreferrer" }, h("b", {}, r.repo)),
         r.seen.length ? h("span", { class: "muted", style: { fontSize: "12px" } }, `${r.seen.length} seen`) : null,
       ),
       // Tower indexes this checkout, so a missing or empty ignore file turns

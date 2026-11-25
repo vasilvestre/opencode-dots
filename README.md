@@ -144,9 +144,12 @@ One file says which repositories the dot works on and what it does on each:
 gitignored and only `repos.example.yaml` is versioned:
 
 ```bash
-cp repos.example.yaml repos.yaml
+go build -o bin/repos ./cmd/repos
+bin/repos import        # existing install: builds repos.yaml from awf-gh.yaml, tend.list and repos.map
+cp repos.example.yaml repos.yaml   # new install only, never over an existing awf-gh.yaml
 $EDITOR repos.yaml      # one block per repository
 make repos              # writes awf-gh.yaml, tend.list, repos.map and sync.map
+make configure          # fits awf_url and state_path to local or docker mode
 ```
 
 A repository block holds feature keys: `review`, `reply`, `fix_issue`, `fix_ci`

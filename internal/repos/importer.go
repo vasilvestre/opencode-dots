@@ -71,7 +71,10 @@ func Import(dir string) ([]byte, error) {
 			return nil, fmt.Errorf("%s: repos[%d] (%s): no feature handles workflow %q; register one (see internal/repos/features_builtin.go)", FileAwfGh, i, r.Repo, r.Workflow)
 		}
 		touch(r.Repo)
-		w := registry[key].(watch)
+		w, isWatch := registry[key].(watch)
+		if !isWatch {
+			return nil, fmt.Errorf("%s: repos[%d]: workflow %q belongs to feature %q, which is not a watcher rule", FileAwfGh, i, r.Workflow, key)
+		}
 		b := block{}
 		switch {
 		case slices.Equal(r.On, []string{"issue-labeled"}) && len(r.Labels) == 1 && w.label:

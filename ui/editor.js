@@ -7,7 +7,7 @@ import { navigate } from "./router.js";
 // Shared source editor for workflows and local configs. It writes files
 // through /api/save and never touches git: the repository is the undo.
 // Validation is awf's own endpoint, which re-reads the file from disk.
-export async function createEditor({ path, kind, scope = "global", name }) {
+export async function createEditor({ path, kind, scope = "global", name, readOnly = false }) {
   const state = { saved: "", busy: false, dirty: false };
 
   const gutter = h("div", { class: "gutter", "aria-hidden": "true" });
@@ -18,6 +18,7 @@ export async function createEditor({ path, kind, scope = "global", name }) {
     autocomplete: "off",
     wrap: "off",
     "aria-label": `Content of ${path}`,
+    readonly: readOnly ? "" : null,
   });
   const dirtyDot = h("span", { class: "dirty-dot", hidden: true, title: "Unsaved changes" });
   const pathLabel = h("span", { class: "path" }, path);
@@ -36,9 +37,9 @@ export async function createEditor({ path, kind, scope = "global", name }) {
       pathLabel,
       dirtyDot,
       h("span", { class: "spacer" }),
-      revertBtn,
+      readOnly ? null : revertBtn,
       validateBtn,
-      saveBtn,
+      readOnly ? null : saveBtn,
       runBtn,
     ),
     issues,

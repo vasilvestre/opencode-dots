@@ -55,15 +55,22 @@ func EffectiveSettings(doc, previous, override Settings) Settings {
 }
 
 // ReadSettings reads the three watcher settings back from a generated (or older
-// hand written) awf-gh.yaml. A missing file gives empty settings.
-func ReadSettings(path string) Settings {
+// hand written) awf-gh.yaml. A missing file gives empty settings; a file that
+// cannot be read or does not parse is an error, so its values are not replaced
+// by defaults.
+func ReadSettings(path string) (Settings, error) {
 	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return Settings{}, nil
+	}
 	if err != nil {
-		return Settings{}
+		return Settings{}, fmt.Errorf("%s: %w", filepath.Base(path), err)
 	}
 	var s Settings
-	_ = yaml.Unmarshal(data, &s)
-	return s
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return Settings{}, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	return s, nil
 }
 
 // Render produces the content of every generated file.
@@ -110,7 +117,7 @@ func renderAwfGh(rules []Rule, s Settings) ([]byte, error) {
 	add := func(m *yaml.Node, key string, value *yaml.Node) {
 		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
 	}
-	str := func(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v} }
+	str := func(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v} }
 	flow := func(values []string) *yaml.Node {
 		n := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
 		for _, v := range values {
@@ -181,15 +188,20 @@ func Diff(dir string, files map[string][]byte) []string {
 }
 
 // Write stores the files that changed, each through a temporary file and a
-// rename so a reader never sees half of one, and returns their names.
+// rename so a reader never sees half of one, and returns the names it wrote,
+// which on an error are only the ones written before it.
 func Write(dir string, files map[string][]byte) ([]string, error) {
-	changed := Diff(dir, files)
-	for _, name := range changed {
-		if err := atomicWrite(filepath.Join(dir, name), files[name]); err != nil {
-			return changed, fmt.Errorf("write %s: %w", name, err)
+	var written []string
+	for _, name := range Diff(dir, files) {
+		if info, err := os.Lstat(filepath.Join(dir, name)); err == nil && !info.Mode().IsRegular() {
+			return written, fmt.Errorf("write %s: not a regular file", name)
 		}
+		if err := atomicWrite(filepath.Join(dir, name), files[name]); err != nil {
+			return written, fmt.Errorf("write %s: %w", name, err)
+		}
+		written = append(written, name)
 	}
-	return changed, nil
+	return written, nil
 }
 
 func atomicWrite(path string, data []byte) error {
@@ -199,6 +211,10 @@ func atomicWrite(path string, data []byte) error {
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -226,6 +242,10 @@ func Build(data []byte, dir string, override Settings) (map[string][]byte, error
 	if len(out.Rules) == 0 {
 		return nil, errors.New("no watch rule: enable review, reply, fix_issue or fix_ci on at least one repository, awf-gh refuses an empty list")
 	}
-	settings := EffectiveSettings(doc.Settings, ReadSettings(filepath.Join(dir, FileAwfGh)), override)
+	previous, err := ReadSettings(filepath.Join(dir, FileAwfGh))
+	if err != nil {
+		return nil, err
+	}
+	settings := EffectiveSettings(doc.Settings, previous, override)
 	return Render(out, settings)
 }

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // The events awf-gh knows. A rule naming another one would stop the whole
@@ -40,7 +41,10 @@ func (checkout) Check(v any) error {
 	if !ok {
 		return errors.New("must be an absolute path")
 	}
-	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\n\r=") {
+	if strings.ContainsFunc(path, unicode.IsControl) {
+		return fmt.Errorf("%q contains a control character; remove it", path)
+	}
+	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "=") {
 		return fmt.Errorf("%q is not an absolute path", path)
 	}
 	return nil
