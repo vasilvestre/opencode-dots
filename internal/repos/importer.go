@@ -141,6 +141,9 @@ func Import(dir string) ([]byte, error) {
 	// defaults: the list option most blocks of a feature share.
 	defaults := map[string]map[string]any{}
 	for _, key := range importOrder {
+		if _, isWatch := registry[key].(watch); !isWatch {
+			continue
+		}
 		var all []block
 		for _, repo := range repoOrder {
 			all = append(all, blocks[repo][key]...)
