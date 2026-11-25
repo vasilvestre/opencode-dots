@@ -1,6 +1,6 @@
 # opencode-dots
 
-Runs a dedicated opencode agent and awf on pop-os without installing anything
+Runs a dedicated opencode agent and awf on this machine without installing anything
 on the host: one image holds `opencode`, `awf`, `gh` and `awf-gh`.
 
 ## Choose what runs where
@@ -244,7 +244,15 @@ the pull request or issue number as provenance.
 ## Dashboard
 
 `make dashboard` builds `cmd/dashboard` and serves a page on
-http://127.0.0.1:8099. It shows:
+http://127.0.0.1:8099. From another machine on the tailnet, the same page
+answers on the tailnet address that `tailscale serve` publishes. Copy
+`systemd/dots-dashboard.env.example` to `systemd/dots-dashboard.env` and set
+`DOTS_ALLOW_HOST` to that name. The process still binds loopback and nothing
+listens on a public interface. The dashboard has no login: every device on the
+tailnet can then edit workflows, change model defaults and start runs, so only
+trusted devices may join the tailnet (see
+[ADR 0013](ADR/0013-dashboard-on-the-tailnet.md)).
+It shows:
 
 - awf executions running now, with their current step and a live log that
   includes what the agent said on its turn
@@ -265,7 +273,8 @@ http://127.0.0.1:8099. It shows:
 - a Workflows tab: the success path of a workflow in order, each step stating
   where it goes on success, on failure and on a branch, plus an editor that
   saves, validates and runs the file without leaving the page
-- a Config tab: `awf-gh.yaml`, `tend.list` and `repos.map` in the same editor
+- a Config tab: `awf-gh.yaml`, `tend.list` and `repos.map` in the same editor,
+  plus a Model defaults form for workflow inputs
 - a Cost tab: every pull request, issue and repository the runs touched, the
   total spent on it and which workflow spent what. The grouping comes from the
   run logs, so it covers the runs the dashboard recorded
@@ -282,10 +291,32 @@ running (`make up`). It binds loopback only. It writes three things:
 session registry, so the dashboard records them while it runs and deletes files
 older than 30 days), `state/asks/` (the Ask conversation), and the four local
 config files you edit from the page.
-Saving is limited to `workflows/*.yaml`, `awf-gh.yaml`, `tend.list` and
+`/api/save` accepts `workflows/*.yaml`, `awf-gh.yaml`, `tend.list` and
 `repos.map`; the previous content stays as a stamped `.bak` beside the file.
-The page never commits: read the diff and commit yourself. See
-[ADR 0004](ADR/0004-dashboard-edits-local-config.md).
+The Model defaults form uses `GET /api/models` to list model inputs and
+`PUT /api/models` to update them. It changes only named workflow input defaults
+and uses the same backups and atomic writes. The page never commits: read the
+diff and commit yourself. See
+[ADR 0004](ADR/0004-dashboard-edits-local-config.md) and
+[ADR 0014](ADR/0014-dashboard-editable-model-defaults.md).
+
+Single-agent workflows use the `model` input. `review-pr` uses `review_model`
+and `address_model`. A model identifier is `provider/model`, with an optional
+`#variant`. The `provider: opencode` field selects the awf adapter, not the model
+provider.
+
+Automatic runs from `awf-gh`, Ask and `bin/tend` omit model inputs and use the
+saved defaults. The Run dialog can override a model for one run. A saved change
+applies to the next run without restarting awf or OpenCode. A running request
+keeps the model it started with.
+
+Only a dashboard-started run keeps its exact original inputs in browser
+`localStorage`, including a model override. Replay uses that record when
+available. An automatic run has no browser record, so replay may use the current
+saved default instead of the historical model.
+
+A `tend-repo` model override changes only its own agent step. It does not replace
+the `review_model` or `address_model` used by the nested `review-pr` run.
 
 Prices come from awf itself: since v0.12.0 it records what each agent step cost
 (`cost_usd`) in the run log, and the page sums that per run. A run started by an
