@@ -56,7 +56,7 @@ export function renderFlow(w, { onSelect, compact = false } = {}) {
 
   function paintDetail() {
     const n = model.nodes.get(selected);
-    detail.replaceChildren(...detailNodes(n, model, wfName, select));
+    detail.replaceChildren(...detailNodes(n, model, wfName, select).filter(Boolean));
   }
 
   select(w.Initial, { silent: true });
