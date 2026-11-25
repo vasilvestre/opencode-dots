@@ -121,7 +121,7 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 		}
 		for _, key := range toggles {
 			st := featureState{}
-			if v, on := res.Values[key]; on {
+			if v, on := res.Value(key); on {
 				st.On = true
 				own, hasOwn := entry.Config[key]
 				switch {
@@ -137,16 +137,19 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 			}
 			row.Features[key] = st
 		}
-		if v, ok := res.Values["provider"].(string); ok && v != "" {
-			row.Provider = v
+		if v, _ := res.Value("provider"); v != nil {
+			name, _ := v.(string)
+			if name != "" {
+				row.Provider = name
+			}
 			if _, own := entry.Config["provider"]; own {
 				row.ProviderSource = "repo"
 			} else {
 				row.ProviderSource = "default"
 			}
 		}
-		if v, ok := res.Values["checkout"].(string); ok {
-			row.Checkout = v
+		if v, _ := res.Value("checkout"); v != nil {
+			row.Checkout, _ = v.(string)
 		}
 		cfg.Repos = append(cfg.Repos, row)
 	}
