@@ -1,0 +1,18 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - run: bin/adr check
+      - run: go install github.com/vasilvestre/deslop-please-go/cmd/deslop-please@3bad9d5baee3bda927869644205b2a635c8e6d42
+      - run: deslop-please ./...
