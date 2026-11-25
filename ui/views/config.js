@@ -11,6 +11,7 @@ const KIND_LABEL = {
   watcher: "watcher rules: which repository, which workflow, which events",
   list: "repositories visited by the daily pass, one per line",
   map: "host paths for the workflow shell steps",
+  repos: "every repository and what the dot does on it",
 };
 
 // Local configs are the files the agent stack reads from the repository root.
@@ -105,11 +106,13 @@ export function mountConfig(el, arg) {
 
   const navEl = h("nav", { class: "side-list", "aria-label": "Settings sections" });
   const filesNav = h("div", { class: "side-list" });
+  const generatedNav = h("div", {});
   const side = h("aside", { class: "side" },
     h("h2", {}, "Settings"),
     navEl,
     h("h3", { class: "muted", style: { marginTop: "6px" } }, "Local files"),
     filesNav,
+    generatedNav,
   );
   modelsPanel.hidden = section !== "models";
   notifPanel.hidden = section !== "notifications";
@@ -117,7 +120,7 @@ export function mountConfig(el, arg) {
   editorPanel.hidden = section !== "file";
   mount(el, h("div", { class: "split" }, side,
     h("div", { class: "stack" },
-      h("p", { class: "muted" }, "Files awf-gh and the workflows read at run time. Saves keep a stamped backup beside the file."),
+      h("p", { class: "muted" }, "Dashboard preferences and the local files the stack reads at run time. Saves keep a stamped backup beside the file."),
       modelsPanel, notifPanel, appearancePanel, editorPanel)));
 
   const modelsDirty = () => modelInputs.some((i) => i.value !== i.dataset.initial)
@@ -157,9 +160,17 @@ export function mountConfig(el, arg) {
       navItem("#config/models", section === "models", "Model defaults", "which model each role uses", modelsDirty()),
       navItem("#config/notifications", section === "notifications", "Notifications", "Discord and desktop", notifDirty()),
       navItem("#config/appearance", section === "appearance", "Appearance", "light or dark theme", false));
-    mount(filesNav, files.length
-      ? files.map((f) => navItem(`#config/${f.path}`, section === "file" && arg === f.path, f.path, KIND_LABEL[f.kind] || f.kind, section === "file" && arg === f.path && editor?.isDirty(), !f.exists))
-      : h("div", { class: "empty" }, "No local file."));
+    const item = (f) => navItem(`#config/${f.path}`, section === "file" && arg === f.path, f.path,
+      f.generated ? "generated, read only" : KIND_LABEL[f.kind] || f.kind,
+      section === "file" && arg === f.path && editor?.isDirty(), !f.exists);
+    // repos.yaml is the file to edit; the files it generates stay readable.
+    const own = files.filter((f) => !f.generated);
+    const generated = files.filter((f) => f.generated);
+    mount(filesNav,
+      own.length ? own.map(item) : h("div", { class: "empty" }, "No local file."));
+    mount(generatedNav,
+      generated.length ? h("h3", { class: "muted", style: { margin: "6px 0 4px" } }, "Generated from repos.yaml") : null,
+      generated.length ? h("div", { class: "side-list" }, generated.map(item)) : null);
   }
   modelsEl.addEventListener("input", () => { updateModelsSave(); paintNav(); });
   webhookInput.addEventListener("input", () => { updateNotifSave(); paintNav(); });
@@ -455,7 +466,7 @@ export function mountConfig(el, arg) {
 
   async function showEditor(file) {
     editor?.destroy();
-    editor = await createEditor({ path: file.path, kind: file.kind });
+    editor = await createEditor({ path: file.path, kind: file.kind, readOnly: Boolean(file.generated) });
     if (destroyed) { editor.destroy(); return; }
     mount(editorPanel, h("div", { class: "card" },
       h("div", { class: "row between", style: { marginBottom: "10px" } },
@@ -463,6 +474,10 @@ export function mountConfig(el, arg) {
         h("span", { class: "muted", style: { fontSize: "12px" } },
           file.exists ? `${bytes(file.size)} · edited ${when(file.mod_time)} · not in git` : "missing on disk: saving creates it"),
       ),
+      file.generated
+        ? h("p", { class: "warning", style: { marginBottom: "10px" } },
+          "This file is written from repos.yaml. Change repos.yaml instead: saving it regenerates this file, and a hand edit here would be overwritten.")
+        : null,
       editor.el,
     ));
     paintNav();

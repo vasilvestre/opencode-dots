@@ -7,7 +7,7 @@ import { navigate } from "./router.js";
 // Shared source editor for workflows and local configs. It writes files
 // through /api/save and never touches git: the repository is the undo.
 // Validation is awf's own endpoint, which re-reads the file from disk.
-export async function createEditor({ path, kind, scope = "global", name, onSave, onCursor }) {
+export async function createEditor({ path, kind, scope = "global", name, onSave, onCursor, readOnly = false }) {
   const state = { saved: "", busy: false, dirty: false };
 
   const gutter = h("div", { class: "gutter", "aria-hidden": "true" });
@@ -44,11 +44,17 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
     issues,
     h("div", { class: "code-box" }, gutter, area),
     h("div", { class: "file-meta" },
-      h("span", { class: "mono" }, "ctrl+s save"),
-      h("span", {}, "tab inserts two spaces"),
+      readOnly ? h("span", {}, "read only") : h("span", { class: "mono" }, "ctrl+s save"),
+      readOnly ? null : h("span", {}, "tab inserts two spaces"),
       validateBtn ? h("span", {}, "validate reads the file from disk, so it saves first") : null,
     ),
   );
+
+  if (readOnly) {
+    area.readOnly = true;
+    saveBtn.hidden = true;
+    revertBtn.hidden = true;
+  }
 
   const beforeUnload = (ev) => {
     if (!state.dirty) return;
@@ -176,6 +182,7 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
   area.addEventListener("input", () => { paintGutter(); setDirty(); });
   area.addEventListener("scroll", () => { gutter.scrollTop = area.scrollTop; });
   area.addEventListener("keydown", (ev) => {
+    if (readOnly) return;
     if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") {
       ev.preventDefault();
       save();
