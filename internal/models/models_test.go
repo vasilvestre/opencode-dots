@@ -141,9 +141,10 @@ func TestWorkflowModelInputs(t *testing.T) {
 	}
 
 	cases := []struct {
-		file   string
-		inputs map[string]bool
-		agents map[string]string
+		file     string
+		inputs   map[string]bool
+		agents   map[string]string
+		provider string
 	}{
 		{
 			file:   "ask-pr.yaml",
@@ -168,13 +169,16 @@ func TestWorkflowModelInputs(t *testing.T) {
 		{
 			file: "review-pr.yaml",
 			inputs: map[string]bool{
-				"review_model":  true,
-				"address_model": true,
+				"review_model":         true,
+				"address_model":        true,
+				"claude_review_model":  true,
+				"claude_address_model": true,
 			},
 			agents: map[string]string{
-				"review":  "{{.inputs.review_model}}",
-				"address": "{{.inputs.address_model}}",
+				"review":  "{{.states.pick_review_model.Output}}",
+				"address": "{{.states.pick_address_model.Output}}",
 			},
+			provider: "{{.inputs.provider}}",
 		},
 		{
 			file:   "tend-repo.yaml",
@@ -227,11 +231,15 @@ func TestWorkflowModelInputs(t *testing.T) {
 				if strings.TrimSpace(input.Description) == "" {
 					t.Errorf("input %q has no description", name)
 				}
-				if input.Validation.Pattern != Pattern {
-					t.Errorf("input %q pattern = %q, want shared pattern %q", name, input.Validation.Pattern, Pattern)
+				wantPattern := Pattern
+				if strings.HasPrefix(name, "claude_") {
+					wantPattern = ClaudePattern
 				}
-				if !idRE.MatchString(input.Default) {
-					t.Errorf("input %q default %q does not match the shared pattern", name, input.Default)
+				if input.Validation.Pattern != wantPattern {
+					t.Errorf("input %q pattern = %q, want %q", name, input.Validation.Pattern, wantPattern)
+				}
+				if !modelRE(wantPattern).MatchString(input.Default) {
+					t.Errorf("input %q default %q does not match its pattern", name, input.Default)
 				}
 			}
 			for name := range inputs {
@@ -251,8 +259,12 @@ func TestWorkflowModelInputs(t *testing.T) {
 					t.Errorf("unexpected agent state %q", name)
 					continue
 				}
-				if state.Provider != "opencode" {
-					t.Errorf("agent state %q provider = %q, want opencode", name, state.Provider)
+				wantProvider := c.provider
+				if wantProvider == "" {
+					wantProvider = "opencode"
+				}
+				if state.Provider != wantProvider {
+					t.Errorf("agent state %q provider = %q, want %q", name, state.Provider, wantProvider)
 				}
 				if state.Options.Model != wantModel {
 					t.Errorf("agent state %q model = %q, want %q", name, state.Options.Model, wantModel)

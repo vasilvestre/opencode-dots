@@ -69,9 +69,10 @@ export function mountConfig(el, arg) {
         saveModelsBtn,
       ),
       h("p", { class: "muted", style: { marginTop: "6px" } },
-        "Set two global model presets, then override individual roles only when needed. Use ",
+        "Set the global model presets, then override individual roles only when needed. opencode takes ",
         h("code", {}, "provider/model#variant"), ", for example ", h("code", {}, "local/helper#fast"),
-        ". Changes apply to the next workflow run. Runs already in progress keep their current model."),
+        ". The claude CLI takes its own names, for example ", h("code", {}, "sonnet"), " or ", h("code", {}, "claude-haiku-4-5"),
+        "; a repository routed to ", h("code", {}, "provider: claude"), " uses the claude presets. Changes apply to the next workflow run. Runs already in progress keep their current model."),
       modelsEl,
     ),
     h("div", { class: "card" },
@@ -139,13 +140,20 @@ export function mountConfig(el, arg) {
       const conflicts = variables.filter((v) => v.conflict);
       modelConflicts = conflicts.length > 0 || problems.length > 0;
       const catalogID = available.length ? "model-catalog" : null;
+      const hasClaude = variables.some((v) => v.provider === "claude");
+      const claudeCatalog = h("datalist", { id: "claude-catalog" },
+        ["sonnet", "haiku"].map((model) => h("option", { value: model })));
       presetInputs = {
         light: modelField("model-preset-light", presets.light, { preset: "light" }, catalogID),
         default: modelField("model-preset-default", presets.default, { preset: "default" }, catalogID),
       };
+      if (hasClaude) {
+        presetInputs.claude_light = modelField("model-preset-claude-light", presets.claude_light, { preset: "claude_light" }, "claude-catalog");
+        presetInputs.claude_default = modelField("model-preset-claude-default", presets.claude_default, { preset: "claude_default" }, "claude-catalog");
+      }
       modelRoles = variables.map((v, i) => {
         const enabled = v.override != null;
-        const input = modelField(`model-override-${i}`, enabled ? v.override : "", { key: v.key }, catalogID);
+        const input = modelField(`model-override-${i}`, enabled ? v.override : "", { key: v.key }, v.provider === "claude" ? "claude-catalog" : catalogID);
         input.disabled = !enabled;
         const checkbox = h("input", {
           id: `model-override-${i}-enabled`,
@@ -159,8 +167,27 @@ export function mountConfig(el, arg) {
         return { variable: v, input, checkbox };
       });
       modelInputs = [...Object.values(presetInputs), ...modelRoles.map((role) => role.input)];
+      const roleField = (v, i) => {
+        const role = modelRoles[i];
+        const details = `model-role-${i}-details`;
+        const conflict = `model-role-${i}-conflict`;
+        role.input.setAttribute("aria-describedby", v.conflict ? `${details} ${conflict}` : details);
+        return h("div", { class: "field" },
+          h("label", { for: role.checkbox.id }, role.checkbox, " Use a custom override"),
+          role.input,
+          h("div", { class: "hint", id: details },
+            `${v.workflow} · ${v.input} · preset: `, h("code", {}, v.preset || "unassigned"),
+            " · resolved: ", h("code", {}, v.value || "")),
+          v.conflict ? h("div", { class: "hint", id: conflict, style: { color: "var(--err)" } }, v.conflict) : null,
+          v.description ? h("div", { class: "hint" }, v.description) : null,
+        );
+      };
+      const rolesOf = (provider) => variables
+        .map((v, i) => (v.provider === provider ? roleField(v, i) : null))
+        .filter(Boolean);
       mount(modelsEl,
         catalog,
+        hasClaude ? claudeCatalog : null,
         res?.migration_required ? h("div", { class: "issues" },
           h("div", { class: "head" }, "Model presets need a first save"),
           h("p", { class: "hint", style: { padding: "0 12px 10px" } },
@@ -184,22 +211,21 @@ export function mountConfig(el, arg) {
           presetInputs.default,
           h("div", { class: "hint" }, "Issue fixes, daily tending, and reviews."),
         ),
-        h("h3", { style: { marginTop: "14px" } }, "Role overrides"),
-        variables.length ? variables.map((v, i) => {
-          const role = modelRoles[i];
-          const details = `model-role-${i}-details`;
-          const conflict = `model-role-${i}-conflict`;
-          role.input.setAttribute("aria-describedby", v.conflict ? `${details} ${conflict}` : details);
-          return h("div", { class: "field" },
-            h("label", { for: role.checkbox.id }, role.checkbox, " Use a custom override"),
-            role.input,
-            h("div", { class: "hint", id: details },
-              `${v.workflow} · ${v.input} · preset: `, h("code", {}, v.preset || "unassigned"),
-              " · resolved: ", h("code", {}, v.value || "")),
-            v.conflict ? h("div", { class: "hint", id: conflict, style: { color: "var(--err)" } }, v.conflict) : null,
-            v.description ? h("div", { class: "hint" }, v.description) : null,
-          );
-        }) : h("div", { class: "empty" }, "No model roles found."),
+        hasClaude ? h("h3", { style: { marginTop: "14px" } }, "claude presets") : null,
+        hasClaude ? h("div", { class: "field" },
+          h("label", { for: "model-preset-claude-default" }, "Claude default preset"),
+          presetInputs.claude_default,
+          h("div", { class: "hint" }, "Reviews when a repository is routed to provider claude."),
+        ) : null,
+        hasClaude ? h("div", { class: "field" },
+          h("label", { for: "model-preset-claude-light" }, "Claude light preset"),
+          presetInputs.claude_light,
+          h("div", { class: "hint" }, "Review addressing when a repository is routed to provider claude. Keep it different from the default one."),
+        ) : null,
+        h("h3", { style: { marginTop: "14px" } }, "Role overrides (opencode)"),
+        variables.length ? rolesOf("opencode") : h("div", { class: "empty" }, "No model roles found."),
+        hasClaude ? h("h3", { style: { marginTop: "14px" } }, "Role overrides (claude)") : null,
+        hasClaude ? rolesOf("claude") : null,
       );
     } catch (err) {
       if (destroyed) return;

@@ -11,7 +11,7 @@ your mind by writing a new one that supersedes it.
 | [0001](0001-memory-split-in-three.md) | Split agent memory into three stores | accepted | 2026-11-23 |
 | [0002](0002-shell-steps-own-side-effects.md) | The agent never writes to a remote; shell steps do | accepted | 2026-11-23 |
 | [0003](0003-private-config-not-in-git.md) | Private names never enter git | accepted | 2026-11-23 |
-| [0004](0004-dashboard-edits-local-config.md) | The dashboard edits local config files | superseded by 0016 | 2026-11-23 |
+| [0004](0004-dashboard-edits-local-config.md) | The dashboard edits local config files | superseded by 0017 | 2026-11-23 |
 | [0005](0005-run-cost-from-opencode-db.md) | Run cost comes from opencode's database | superseded by 0008 | 2026-11-23 |
 | [0006](0006-per-pull-request-memory.md) | Memory of one pull request across runs | accepted | 2026-11-23 |
 | [0007](0007-ask-the-agent-about-a-pull-request.md) | Ask the agent about a pull request from the dashboard | accepted | 2026-11-23 |
@@ -21,11 +21,13 @@ your mind by writing a new one that supersedes it.
 | [0011](0011-sync-managed-clones.md) | sync managed clones | accepted | 2026-11-23 |
 | [0012](0012-fix-rule-judges-decisions.md) | The fix rule judges decisions, not line counts | accepted | 2026-11-23 |
 | [0013](0013-dashboard-on-the-tailnet.md) | The dashboard answers on the tailnet through tailscale serve | accepted | 2026-11-23 |
-| [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | superseded by 0016 | 2026-11-24 |
+| [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | superseded by 0018 | 2026-11-24 |
 | [0015](0015-dots-take-delegation.md) | The operator delegates a pull request with /dots take | accepted | 2026-11-25 |
 | [0016](0016-awf-gh-runs-natively.md) | awf-gh can run natively | accepted | 2026-11-25 |
 | [0017](0017-dashboard-edits-completion-notifications.md) | The dashboard edits completion notifications | accepted | 2026-11-25 |
-| [0018](0018-dashboard-managed-model-presets.md) | The dashboard manages global model presets | accepted | 2026-11-25 |
+| [0018](0018-dashboard-managed-model-presets.md) | The dashboard manages global model presets | superseded by 0019 | 2026-11-25 |
+| [0019](0019-claude-model-presets.md) | Model presets are per provider | accepted | 2026-11-25 |
+| [0020](0020-fix-issue-works-from-a-fork.md) | fix-issue works from a fork when it cannot push upstream | accepted | 2026-11-25 |
 
 ## When to write one
 

@@ -31,8 +31,8 @@ inputs:
     validation:
       pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
   # Per-repo routing: a repos[].inputs.provider entry in awf-gh.yaml picks the
-  # agent CLI for this run, e.g. opencode for a repo whose work leans on
-  # opencode's own plugins. Not part of the model-preset system above.
+  # agent CLI for this run. The provider decides which model pair is used:
+  # review_model and address_model for opencode, the claude_ pair for claude.
   - name: provider
     type: string
     required: false
@@ -40,6 +40,23 @@ inputs:
     description: agent CLI for the review and fix steps (opencode or claude)
     validation:
       pattern: '^(opencode|claude)$'
+  # The models for provider claude. awf hands the model string to the claude
+  # CLI as is, so these are claude names (haiku, sonnet, claude-sonnet-4-5), not
+  # the provider/model ids opencode takes. Edited through the Config view.
+  - name: claude_review_model
+    type: string
+    required: false
+    default: sonnet
+    description: claude model for the review agent (used when provider is claude)
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$'
+  - name: claude_address_model
+    type: string
+    required: false
+    default: haiku
+    description: claude model for the fix agent (used when provider is claude)
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$'
 
 states:
   initial: guard
@@ -70,6 +87,32 @@ states:
         goto: done
       - when: 'states.guard.Output contains "CLOSED:"'
         goto: done
+    on_success: pick_review_model
+    on_failure: error
+
+  # awf has no conditional in its interpolation, so a shell step picks the model
+  # that matches the provider and the agent steps read its output.
+  pick_review_model:
+    type: step
+    command: |
+      if [ "{{.inputs.provider}}" = claude ]; then
+        printf '%s' '{{.inputs.claude_review_model}}'
+      else
+        printf '%s' '{{.inputs.review_model}}'
+      fi
+    timeout: 10
+    on_success: pick_address_model
+    on_failure: error
+
+  pick_address_model:
+    type: step
+    command: |
+      if [ "{{.inputs.provider}}" = claude ]; then
+        printf '%s' '{{.inputs.claude_address_model}}'
+      else
+        printf '%s' '{{.inputs.address_model}}'
+      fi
+    timeout: 10
     on_success: fetch
     on_failure: error
 
@@ -287,7 +330,7 @@ states:
       # A free default model hits the shared rate limit within minutes. A
       # different model from the one that fixes, so the review has a second
       # point of view instead of approving its own output.
-      model: "{{.inputs.review_model}}"
+      model: "{{.states.pick_review_model.Output}}"
     prompt: |
       You review pull request {{.inputs.repo}}#{{.inputs.pr}}.
 
@@ -575,7 +618,7 @@ states:
     type: agent
     provider: "{{.inputs.provider}}"
     options:
-      model: "{{.inputs.address_model}}"
+      model: "{{.states.pick_address_model.Output}}"
     prompt: |
       You clear the review findings on my pull request
       {{.inputs.repo}}#{{.inputs.pr}} so it can merge.

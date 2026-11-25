@@ -1,9 +1,9 @@
 # 0018. The dashboard manages global model presets
 
-- Status: accepted
+- Status: superseded by 0019
 - Date: 2026-11-25
 - Supersedes: 0014
-- Superseded by: none
+- Superseded by: 0019
 
 ## Context
 

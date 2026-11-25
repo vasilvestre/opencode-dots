@@ -226,9 +226,50 @@ states:
           echo "rebase onto $base failed, pushing the commit as is" | tee -a "$d/push.log"
         fi
       fi
-      git -C "$work" push --quiet "https://github.com/$repo.git" "HEAD:$branch"
+
+      # Where the branch goes. A repository I can write to takes it directly.
+      # Any other one (an upstream I am not a maintainer of) gets the branch on
+      # my fork: reuse the fork when it exists, create it when it does not. This
+      # runs only now, with a commit in hand, so a run that changes nothing never
+      # creates a fork.
+      push_url="https://github.com/$repo.git"
+      head_ref="$branch"
+      can_push=$(gh api "repos/$repo" --jq '.permissions.push // false' 2>/dev/null || echo false)
+      if [ "$can_push" != true ]; then
+        fork="$login/${repo#*/}"
+        parent=$(gh api "repos/$fork" \
+          --jq 'if .fork then .parent.full_name else "not-a-fork" end' 2>/dev/null || echo missing)
+        case "$parent" in
+          "$repo")
+            echo "no write access to $repo: using my fork $fork" | tee -a "$d/push.log"
+            ;;
+          missing)
+            echo "no write access to $repo and no fork yet: creating $fork" | tee -a "$d/push.log"
+            gh repo fork "$repo" --clone=false
+            waited=0
+            until gh api "repos/$fork" --jq .full_name >/dev/null 2>&1; do
+              if [ "$waited" -ge 90 ]; then
+                echo "fork $fork not ready after ${waited}s" >&2
+                exit 1
+              fi
+              sleep 3
+              waited=$((waited + 3))
+            done
+            ;;
+          *)
+            # A repository with the fork's name that is not a fork of this one:
+            # never push to it.
+            echo "$fork exists but its parent is '$parent', not $repo: refusing to push there" >&2
+            exit 1
+            ;;
+        esac
+        push_url="https://github.com/$fork.git"
+        head_ref="$login:$branch"
+      fi
+      echo "pushing $branch to $push_url" | tee -a "$d/push.log"
+      git -C "$work" push --quiet "$push_url" "HEAD:$branch"
       printf '\n\nCloses #%s\n' "$iss" >> "$d/fix.md"
-      url=$(gh pr create --repo "$repo" --head "$branch" --base "$(cat "$d/default_branch")" \
+      url=$(gh pr create --repo "$repo" --head "$head_ref" --base "$(cat "$d/default_branch")" \
         --title "$title" --body-file "$d/fix.md" | tail -1)
       echo "$url" | tee "$d/pr-url"
       git -C "$work" --no-pager diff --stat "HEAD~1"

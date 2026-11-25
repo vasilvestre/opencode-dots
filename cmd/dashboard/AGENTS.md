@@ -41,11 +41,22 @@ disk as ES modules, with no build step.
 
 The Config view's Model defaults form uses `GET /api/models` and
 `PUT /api/models`. The tracked root `model-presets.yaml` has `version: 1`, two
-presets and optional per-role overrides. The fixed mapping is:
+presets (plus two optional claude ones) and optional per-role overrides. The
+fixed mapping is:
 
 - `light`: `ask-pr/model`, `fix-ci/model`, `reply-pr/model`,
   `review-pr/address_model`.
 - `default`: `fix-issue/model`, `tend-repo/model`, `review-pr/review_model`.
+- `claude_light`: `review-pr/claude_address_model`.
+- `claude_default`: `review-pr/claude_review_model`.
+
+The claude roles use `models.ClaudePattern` (no provider prefix), and every
+other role uses `models.Pattern`; each variable carries a `provider`. A missing
+claude preset takes `sonnet` or `haiku`. `review-pr` agent steps read
+`{{.states.pick_review_model.Output}}` and `{{.states.pick_address_model.Output}}`,
+and the dashboard reports a conflict when a pick step does not read its three
+inputs. The effective review and address models must differ for each provider.
+See ADR 0019.
 
 An override wins over its assigned preset. The API eagerly projects each
 resolved ID into the workflow input's concrete default. awf keeps reading

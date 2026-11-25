@@ -9,7 +9,7 @@ rules for editing them.
 | `review-pr.yaml` | `awf-gh`: pr-opened, pr-updated, checks-failed | yes, on my own `fix/*` branches |
 | `reply-pr.yaml` | `awf-gh`: review-comment | yes, on owned branches |
 | `tend-repo.yaml` | `bin/tend`, daily | yes, one PR |
-| `fix-issue.yaml` | `awf-gh`: issue-labeled | yes, one branch |
+| `fix-issue.yaml` | `awf-gh`: issue-labeled | yes, one branch; on my fork when I cannot write upstream |
 | `fix-ci.yaml` | `awf-gh`: checks-failed | yes, on your own PR branch |
 | `ask-pr.yaml` | the dashboard's Ask button, one per message | no |
 

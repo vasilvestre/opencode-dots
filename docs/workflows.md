@@ -41,6 +41,16 @@ through `GET /api/models` and `PUT /api/models`. Its role mapping is fixed:
 | `light` | `ask-pr/model`, `fix-ci/model`, `reply-pr/model`, `review-pr/address_model` |
 | `default` | `fix-issue/model`, `tend-repo/model`, `review-pr/review_model` |
 
+| `claude_default` | `review-pr/claude_review_model` |
+| `claude_light` | `review-pr/claude_address_model` |
+
+The claude pair is optional in the file (defaults `sonnet` and `haiku`) and
+uses claude names (`sonnet`, `claude-sonnet-4-5`, `sonnet[1m]`), because awf
+passes the model to the `claude` CLI unchanged. `review-pr` has two shell steps,
+`pick_review_model` and `pick_address_model`, that print the opencode or the
+claude model according to `inputs.provider`; the `review` and `address` agent
+steps read that output. See ADR 0019.
+
 A role can set an optional custom override. An override wins over its assigned
 preset. The dashboard eagerly projects each resolved ID into the workflow
 input's concrete default. awf keeps reading workflow defaults, not the preset
@@ -343,7 +353,13 @@ Steps:
    worked reads `worklog.md` and the tower memory record of the earlier run
    before it starts, and rewrites `worklog.md` at the end.
 3. `push` commits on a `fix/<N>-<date>` branch, pushes it and opens a pull
-   request whose body ends with `Closes #N`, so merging closes the issue.
+   request whose body ends with `Closes #N`, so merging closes the issue. On a
+   repository the token cannot write to, the branch goes to your fork instead:
+   the step reuses `<you>/<repo>` when it is a fork of that repository, creates
+   it when it does not exist yet, and refuses a same-named repository that is
+   not a fork. The pull request is then opened against the upstream with
+   `--head <you>:<branch>`. A run that changes nothing never creates a fork.
+   See ADR 0020.
 4. `notify` posts the pull request URL on Discord when `DISCORD_WEBHOOK` is set.
 
 `fix-issue` never merges. The pull request waits for your review, or for

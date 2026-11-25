@@ -355,6 +355,14 @@ The Config view manages global presets in `model-presets.yaml` (version 1).
 and `review-pr/review_model`. A role can set an optional custom override; an
 override wins over its preset.
 
+A repository routed to `provider: claude` cannot use those IDs: the `claude`
+CLI takes `sonnet`, `haiku` or `claude-sonnet-4-5`, not `provider/model`. So
+the file holds a second pair, `claude_default` (`review-pr/claude_review_model`)
+and `claude_light` (`review-pr/claude_address_model`), with their own syntax.
+`review-pr` picks the pair that matches its `provider` input. They default to
+`sonnet` and `haiku`, and a file without them stays valid. See
+[ADR 0019](ADR/0019-claude-model-presets.md).
+
 The dashboard eagerly projects those resolved IDs into workflow input
 defaults. awf still reads concrete workflow defaults. On first use, migration
 derives `light` from `ask-pr/model` and `default` from `fix-issue/model`. Every

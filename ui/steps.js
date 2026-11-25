@@ -4,6 +4,8 @@
 const LABELS = {
   "review-pr": {
     guard: "Check PR",
+    pick_review_model: null,
+    pick_address_model: null,
     fetch: "Fetch PR",
     wait: "Wait for CI",
     rework: null,

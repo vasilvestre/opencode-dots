@@ -18,25 +18,29 @@ var presetWorkflowFiles = []string{"ask-pr.yaml", "fix-ci.yaml", "fix-issue.yaml
 
 func testModelValues() map[string]string {
 	return map[string]string{
-		"ask-pr/model":            "provider/light",
-		"fix-ci/model":            "provider/light",
-		"fix-issue/model":         "provider/default",
-		"reply-pr/model":          "provider/light",
-		"review-pr/review_model":  "provider/review",
-		"review-pr/address_model": "provider/address",
-		"tend-repo/model":         "provider/default",
+		"ask-pr/model":                   "provider/light",
+		"fix-ci/model":                   "provider/light",
+		"fix-issue/model":                "provider/default",
+		"reply-pr/model":                 "provider/light",
+		"review-pr/review_model":         "provider/review",
+		"review-pr/address_model":        "provider/address",
+		"review-pr/claude_review_model":  "sonnet",
+		"review-pr/claude_address_model": "haiku",
+		"tend-repo/model":                "provider/default",
 	}
 }
 
 func testMatchingValues() map[string]string {
 	return map[string]string{
-		"ask-pr/model":            "provider/light",
-		"fix-ci/model":            "provider/light",
-		"fix-issue/model":         "provider/default",
-		"reply-pr/model":          "provider/light",
-		"review-pr/review_model":  "provider/default",
-		"review-pr/address_model": "provider/light",
-		"tend-repo/model":         "provider/default",
+		"ask-pr/model":                   "provider/light",
+		"fix-ci/model":                   "provider/light",
+		"fix-issue/model":                "provider/default",
+		"reply-pr/model":                 "provider/light",
+		"review-pr/review_model":         "provider/default",
+		"review-pr/address_model":        "provider/light",
+		"review-pr/claude_review_model":  "sonnet",
+		"review-pr/claude_address_model": "haiku",
+		"tend-repo/model":                "provider/default",
 	}
 }
 
@@ -54,20 +58,35 @@ func writePresetWorkflows(t *testing.T, root string, values map[string]string) {
 			if role.workflow != workflow {
 				continue
 			}
-			fmt.Fprintf(&data, "  - name: %s\n    type: string\n    required: false\n    description: %s model\n    default: %s # keep %s default\n    validation:\n      pattern: '%s'\n", role.input, role.input, values[role.key()], role.key(), Pattern)
+			fmt.Fprintf(&data, "  - name: %s\n    type: string\n    required: false\n    description: %s model\n    default: %s # keep %s default\n    validation:\n      pattern: '%s'\n", role.input, role.input, values[role.key()], role.key(), role.pattern())
+		}
+		if workflow == "review-pr" {
+			data.WriteString("  - name: provider\n    type: string\n    required: false\n    default: opencode\n")
 		}
 		data.WriteString("states:\n  initial: ")
 		for _, role := range roles {
-			if role.workflow == workflow {
-				data.WriteString(role.state + "\n")
+			if role.workflow == workflow && role.state != "" {
+				if role.pick != "" {
+					data.WriteString(role.pick + "\n")
+				} else {
+					data.WriteString(role.state + "\n")
+				}
 				break
 			}
 		}
 		for _, role := range roles {
-			if role.workflow != workflow {
+			if role.workflow != workflow || role.state == "" {
 				continue
 			}
-			fmt.Fprintf(&data, "  %s:\n    type: agent\n    provider: opencode\n    options:\n      model: \"{{.inputs.%s}}\"\n    prompt: |\n      Keep this prompt for %s.\n      Do not rewrite this line.\n    on_success: done\n    on_failure: error\n", role.state, role.input, workflow)
+			model := "{{.inputs." + role.input + "}}"
+			next := "done"
+			if role.pick != "" {
+				model = "{{.states." + role.pick + ".Output}}"
+				next = role.state
+				fmt.Fprintf(&data, "  %s:\n    type: step\n    command: |\n      echo '{{.inputs.provider}} {{.inputs.%s}} {{.inputs.%s}}'\n    on_success: %s\n    on_failure: error\n", role.pick, role.input, role.claudeInput, role.state)
+			}
+			_ = next
+			fmt.Fprintf(&data, "  %s:\n    type: agent\n    provider: opencode\n    options:\n      model: \"%s\"\n    prompt: |\n      Keep this prompt for %s.\n      Do not rewrite this line.\n    on_success: done\n    on_failure: error\n", role.state, model, workflow)
 		}
 		data.WriteString("  done:\n    type: terminal\n  error:\n    type: terminal\n")
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(data.String()), 0o644); err != nil {
@@ -141,7 +160,7 @@ func TestPresetMigrationPreservesRuntimeValues(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, presetsFile)); !os.IsNotExist(err) {
 		t.Fatalf("GET created the preset file: %v", err)
 	}
-	assertStringMap(t, snapshot.Presets(), map[string]string{"light": "provider/light", "default": "provider/default"})
+	assertStringMap(t, snapshot.Presets(), map[string]string{"light": "provider/light", "default": "provider/default", "claude_light": "haiku", "claude_default": "sonnet"})
 	wantOverrides := map[string]string{
 		"review-pr/review_model":  "provider/review",
 		"review-pr/address_model": "provider/address",
@@ -165,13 +184,15 @@ func TestPresetRoleMappingAndJSONFields(t *testing.T) {
 	snapshot := readPresetSnapshot(t, root)
 
 	wantPresets := map[string]string{
-		"ask-pr/model":            "light",
-		"fix-ci/model":            "light",
-		"fix-issue/model":         "default",
-		"reply-pr/model":          "light",
-		"review-pr/review_model":  "default",
-		"review-pr/address_model": "light",
-		"tend-repo/model":         "default",
+		"ask-pr/model":                   "light",
+		"fix-ci/model":                   "light",
+		"fix-issue/model":                "default",
+		"reply-pr/model":                 "light",
+		"review-pr/review_model":         "default",
+		"review-pr/address_model":        "light",
+		"review-pr/claude_review_model":  "claude_default",
+		"review-pr/claude_address_model": "claude_light",
+		"tend-repo/model":                "default",
 	}
 	for _, variable := range snapshot.Variables() {
 		if variable.Preset != wantPresets[variable.Key] {
@@ -252,13 +273,15 @@ func TestPresetUpdatePropagatesAndWritesWorkflowsFirst(t *testing.T) {
 
 	after := readPresetSnapshot(t, root)
 	want := map[string]string{
-		"ask-pr/model":            "provider/new-light",
-		"fix-ci/model":            "provider/new-light",
-		"fix-issue/model":         "provider/new-default",
-		"reply-pr/model":          "provider/new-light",
-		"review-pr/review_model":  "provider/review",
-		"review-pr/address_model": "provider/address",
-		"tend-repo/model":         "provider/new-default",
+		"ask-pr/model":                   "provider/new-light",
+		"fix-ci/model":                   "provider/new-light",
+		"fix-issue/model":                "provider/new-default",
+		"reply-pr/model":                 "provider/new-light",
+		"review-pr/review_model":         "provider/review",
+		"review-pr/address_model":        "provider/address",
+		"review-pr/claude_review_model":  "sonnet",
+		"review-pr/claude_address_model": "haiku",
+		"tend-repo/model":                "provider/new-default",
 	}
 	for _, variable := range after.Variables() {
 		if variable.Value != want[variable.Key] {
@@ -638,5 +661,99 @@ func TestPresetOverridesSerializeInRoleOrder(t *testing.T) {
 	sort.Strings(keys)
 	if !reflect.DeepEqual(keys, []string{"ask-pr/model", "tend-repo/model"}) {
 		t.Fatalf("unexpected fixture keys: %q", keys)
+	}
+}
+
+func TestClaudePresetsUseTheirOwnPattern(t *testing.T) {
+	root := t.TempDir()
+	writePresetWorkflows(t, root, testMatchingValues())
+	writePresetConfig(t, root, presetConfig("provider/light", "provider/default", ""))
+	snapshot := readPresetSnapshot(t, root)
+	base := map[string]string{"light": "provider/light", "default": "provider/default"}
+	with := func(key, value string) map[string]string {
+		presets := cloneStrings(base)
+		presets[key] = value
+		return presets
+	}
+	cases := []struct {
+		name    string
+		presets map[string]string
+		want    string
+	}{
+		{"opencode id in a claude preset", with("claude_light", "claude-agent/sonnet"), `preset "claude_light"`},
+		{"claude alias in an opencode preset", with("light", "sonnet"), `preset "light"`},
+		{"equal claude pair", with("claude_default", "haiku"), "claude_review_model and claude_address_model must be different"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			plan, err := snapshot.PrepareUpdate(Update{Presets: c.presets})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("plan = %v, error = %v, want %q", plan, err, c.want)
+			}
+		})
+	}
+	for _, id := range []string{"haiku", "claude-haiku-4-5", "claude-sonnet-4-5", "sonnet[1m]"} {
+		if _, err := snapshot.PrepareUpdate(Update{Presets: with("claude_light", id)}); err != nil {
+			t.Errorf("claude model %q refused: %v", id, err)
+		}
+	}
+}
+
+func TestOldPresetFileGetsClaudeDefaults(t *testing.T) {
+	root := t.TempDir()
+	writePresetWorkflows(t, root, testMatchingValues())
+	writePresetConfig(t, root, presetConfig("provider/light", "provider/default", ""))
+	snapshot := readPresetSnapshot(t, root)
+	if snapshot.MigrationRequired() {
+		t.Fatal("a valid file without claude presets must not need migration")
+	}
+	presets := snapshot.Presets()
+	if presets["claude_light"] != "haiku" || presets["claude_default"] != "sonnet" {
+		t.Fatalf("presets = %v, want claude_light haiku and claude_default sonnet", presets)
+	}
+	for _, variable := range snapshot.Variables() {
+		if variable.Conflict != "" {
+			t.Errorf("%s: %s", variable.Key, variable.Conflict)
+		}
+		wantProvider := "opencode"
+		if strings.Contains(variable.Input, "claude_") {
+			wantProvider = "claude"
+		}
+		if variable.Provider != wantProvider {
+			t.Errorf("%s provider = %q, want %q", variable.Key, variable.Provider, wantProvider)
+		}
+	}
+}
+
+func TestClaudePresetSaveRoundTrips(t *testing.T) {
+	root := t.TempDir()
+	writePresetWorkflows(t, root, testMatchingValues())
+	writePresetConfig(t, root, presetConfig("provider/light", "provider/default", ""))
+	snapshot := readPresetSnapshot(t, root)
+	plan, err := snapshot.PrepareUpdate(Update{
+		Presets: map[string]string{"light": "provider/light", "default": "provider/default", "claude_light": "claude-haiku-4-5", "claude_default": "sonnet[1m]"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPlanPaths(t, plan, []string{"workflows/review-pr.yaml", presetsFile})
+	if _, err := plan.Apply(func(abs string) (string, error) { return abs + ".bak", nil }, func(abs string, data []byte) error {
+		return os.WriteFile(abs, data, 0o644)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	after := readPresetSnapshot(t, root)
+	got := map[string]string{}
+	for _, variable := range after.Variables() {
+		got[variable.Key] = variable.Value
+		if variable.Conflict != "" {
+			t.Errorf("%s: %s", variable.Key, variable.Conflict)
+		}
+	}
+	if got["review-pr/claude_review_model"] != "sonnet[1m]" || got["review-pr/claude_address_model"] != "claude-haiku-4-5" {
+		t.Fatalf("claude defaults = %q and %q", got["review-pr/claude_review_model"], got["review-pr/claude_address_model"])
+	}
+	if got["review-pr/review_model"] != "provider/default" {
+		t.Fatalf("opencode default changed to %q", got["review-pr/review_model"])
 	}
 }

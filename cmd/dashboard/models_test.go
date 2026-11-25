@@ -20,18 +20,31 @@ import (
 type testModelInput struct {
 	name  string
 	state string
+	// pick is the step the agent reads its model from; claude marks the
+	// input as a claude model with no agent step of its own.
+	pick   string
+	claude bool
 }
 
 func testModelDefaults() map[string]string {
 	return map[string]string{
-		"ask-pr/model":            "provider/ask",
-		"fix-ci/model":            "provider/fix-ci",
-		"fix-issue/model":         "provider/fix-issue",
-		"reply-pr/model":          "provider/reply",
-		"review-pr/review_model":  "provider/review",
-		"review-pr/address_model": "provider/address",
-		"tend-repo/model":         "provider/learn",
+		"ask-pr/model":                   "provider/ask",
+		"fix-ci/model":                   "provider/fix-ci",
+		"fix-issue/model":                "provider/fix-issue",
+		"reply-pr/model":                 "provider/reply",
+		"review-pr/review_model":         "provider/review",
+		"review-pr/address_model":        "provider/address",
+		"review-pr/claude_review_model":  "sonnet",
+		"review-pr/claude_address_model": "haiku",
+		"tend-repo/model":                "provider/learn",
 	}
+}
+
+func describe(input testModelInput) string {
+	if input.state != "" {
+		return input.state
+	}
+	return input.name
 }
 
 func writeModelWorkflows(t *testing.T, root string, overrides map[string]string) map[string]string {
@@ -51,7 +64,12 @@ func writeModelWorkflows(t *testing.T, root string, overrides map[string]string)
 		{"fix-ci.yaml", []testModelInput{{name: "model", state: "fix"}}},
 		{"fix-issue.yaml", []testModelInput{{name: "model", state: "fix"}}},
 		{"reply-pr.yaml", []testModelInput{{name: "model", state: "reply"}}},
-		{"review-pr.yaml", []testModelInput{{name: "review_model", state: "review"}, {name: "address_model", state: "address"}}},
+		{"review-pr.yaml", []testModelInput{
+			{name: "review_model", state: "review", pick: "pick_review_model"},
+			{name: "address_model", state: "address", pick: "pick_address_model"},
+			{name: "claude_review_model", claude: true},
+			{name: "claude_address_model", claude: true},
+		}},
 		{"tend-repo.yaml", []testModelInput{{name: "model", state: "learn"}}},
 	}
 	originals := make(map[string]string, len(groups))
@@ -60,22 +78,45 @@ func writeModelWorkflows(t *testing.T, root string, overrides map[string]string)
 		var body strings.Builder
 		body.WriteString("name: " + workflow + "\nversion: \"1.0.0\"\n\n# Keep the section comment.\ninputs:\n")
 		body.WriteString("  - name: token\n    type: string\n    required: true\n")
+		if workflow == "review-pr" {
+			body.WriteString("  - name: provider\n    type: string\n    required: false\n    default: opencode\n")
+		}
 		for _, input := range group.inputs {
+			pattern := models.Pattern
+			if input.claude {
+				pattern = models.ClaudePattern
+			}
 			body.WriteString("  - name: " + input.name + "\n" +
 				"    type: string\n" +
 				"    required: false\n" +
 				"    default: " + defaults[workflow+"/"+input.name] + " # keep this comment\n" +
-				"    description: model for the " + input.state + " agent\n" +
+				"    description: model for the " + describe(input) + " agent\n" +
 				"    validation:\n" +
-				"      pattern: '" + models.Pattern + "'\n")
+				"      pattern: '" + pattern + "'\n")
 		}
-		body.WriteString("\nstates:\n  initial: " + group.inputs[0].state + "\n")
+		initial := group.inputs[0].state
+		if group.inputs[0].pick != "" {
+			initial = group.inputs[0].pick
+		}
+		body.WriteString("\nstates:\n  initial: " + initial + "\n")
 		for _, input := range group.inputs {
+			if input.claude {
+				continue
+			}
+			model := "{{.inputs." + input.name + "}}"
+			if input.pick != "" {
+				model = "{{.states." + input.pick + ".Output}}"
+				body.WriteString("  " + input.pick + ":\n" +
+					"    type: step\n" +
+					"    command: echo '{{.inputs.provider}} {{.inputs." + input.name + "}} {{.inputs.claude_" + input.name + "}}'\n" +
+					"    on_success: " + input.state + "\n" +
+					"    on_failure: error\n")
+			}
 			body.WriteString("  " + input.state + ":\n" +
 				"    type: agent\n" +
 				"    provider: opencode\n" +
 				"    options:\n" +
-				"      model: \"{{.inputs." + input.name + "}}\"\n" +
+				"      model: \"" + model + "\"\n" +
 				"    prompt: |\n" +
 				"      Keep this prompt and {{.inputs." + input.name + "}} reference unchanged.\n" +
 				"    on_success: done\n" +
@@ -108,6 +149,7 @@ type testModelVariable struct {
 	Key         string  `json:"key"`
 	Workflow    string  `json:"workflow"`
 	Input       string  `json:"input"`
+	Provider    string  `json:"provider"`
 	Value       string  `json:"value"`
 	Description string  `json:"description"`
 	Preset      string  `json:"preset"`
@@ -203,13 +245,15 @@ func testModelString(value string) *string { return &value }
 
 func testMatchingModelValues() map[string]string {
 	return map[string]string{
-		"ask-pr/model":            "provider/light",
-		"fix-ci/model":            "provider/light",
-		"reply-pr/model":          "provider/light",
-		"review-pr/address_model": "provider/light",
-		"fix-issue/model":         "provider/default",
-		"tend-repo/model":         "provider/default",
-		"review-pr/review_model":  "provider/default",
+		"ask-pr/model":                   "provider/light",
+		"fix-ci/model":                   "provider/light",
+		"reply-pr/model":                 "provider/light",
+		"review-pr/address_model":        "provider/light",
+		"fix-issue/model":                "provider/default",
+		"tend-repo/model":                "provider/default",
+		"review-pr/review_model":         "provider/default",
+		"review-pr/claude_review_model":  "sonnet",
+		"review-pr/claude_address_model": "haiku",
 	}
 }
 
@@ -339,13 +383,15 @@ func TestModelsGET(t *testing.T) {
 
 	variables := getModels(t, d).Variables
 	want := []testModelVariable{
-		{Key: "ask-pr/model", Workflow: "ask-pr", Input: "model", Value: "provider/main", Description: "model for the ask agent", Preset: "light"},
-		{Key: "fix-ci/model", Workflow: "fix-ci", Input: "model", Value: "provider/fix-ci", Description: "model for the fix agent", Preset: "light", Override: testModelString("provider/fix-ci")},
-		{Key: "fix-issue/model", Workflow: "fix-issue", Input: "model", Value: "provider/fix-issue", Description: "model for the fix agent", Preset: "default"},
-		{Key: "reply-pr/model", Workflow: "reply-pr", Input: "model", Value: "provider/reply", Description: "model for the reply agent", Preset: "light", Override: testModelString("provider/reply")},
-		{Key: "review-pr/review_model", Workflow: "review-pr", Input: "review_model", Value: "provider/review#v1", Description: "model for the review agent", Preset: "default", Override: testModelString("provider/review#v1")},
-		{Key: "review-pr/address_model", Workflow: "review-pr", Input: "address_model", Value: "provider/address", Description: "model for the address agent", Preset: "light", Override: testModelString("provider/address")},
-		{Key: "tend-repo/model", Workflow: "tend-repo", Input: "model", Value: "provider/learn", Description: "model for the learn agent", Preset: "default", Override: testModelString("provider/learn")},
+		{Key: "ask-pr/model", Workflow: "ask-pr", Input: "model", Provider: "opencode", Value: "provider/main", Description: "model for the ask agent", Preset: "light"},
+		{Key: "fix-ci/model", Workflow: "fix-ci", Input: "model", Provider: "opencode", Value: "provider/fix-ci", Description: "model for the fix agent", Preset: "light", Override: testModelString("provider/fix-ci")},
+		{Key: "fix-issue/model", Workflow: "fix-issue", Input: "model", Provider: "opencode", Value: "provider/fix-issue", Description: "model for the fix agent", Preset: "default"},
+		{Key: "reply-pr/model", Workflow: "reply-pr", Input: "model", Provider: "opencode", Value: "provider/reply", Description: "model for the reply agent", Preset: "light", Override: testModelString("provider/reply")},
+		{Key: "review-pr/review_model", Workflow: "review-pr", Input: "review_model", Provider: "opencode", Value: "provider/review#v1", Description: "model for the review agent", Preset: "default", Override: testModelString("provider/review#v1")},
+		{Key: "review-pr/address_model", Workflow: "review-pr", Input: "address_model", Provider: "opencode", Value: "provider/address", Description: "model for the address agent", Preset: "light", Override: testModelString("provider/address")},
+		{Key: "review-pr/claude_review_model", Workflow: "review-pr", Input: "claude_review_model", Provider: "claude", Value: "sonnet", Description: "model for the claude_review_model agent", Preset: "claude_default"},
+		{Key: "review-pr/claude_address_model", Workflow: "review-pr", Input: "claude_address_model", Provider: "claude", Value: "haiku", Description: "model for the claude_address_model agent", Preset: "claude_light"},
+		{Key: "tend-repo/model", Workflow: "tend-repo", Input: "model", Provider: "opencode", Value: "provider/learn", Description: "model for the learn agent", Preset: "default", Override: testModelString("provider/learn")},
 	}
 	if len(variables) != len(want) {
 		t.Fatalf("got %d variables, want %d: %+v", len(variables), len(want), variables)
@@ -372,8 +418,11 @@ func TestModelsGETMigratesCurrentDefaults(t *testing.T) {
 	const base = "opencode-go/hungerg-free"
 	const address = "opencode-go/hy4-flash-free"
 	values := map[string]string{}
-	for key := range testMatchingModelValues() {
+	for key, value := range testMatchingModelValues() {
 		values[key] = base
+		if strings.Contains(key, "claude_") {
+			values[key] = value // claude ids have their own syntax
+		}
 	}
 	values["review-pr/address_model"] = address
 	root := t.TempDir()
@@ -395,12 +444,18 @@ func TestModelsGETMigratesCurrentDefaults(t *testing.T) {
 		switch variable.Key {
 		case "ask-pr/model", "fix-ci/model", "reply-pr/model", "review-pr/address_model":
 			wantPreset = "light"
+		case "review-pr/claude_review_model":
+			wantPreset = "claude_default"
+		case "review-pr/claude_address_model":
+			wantPreset = "claude_light"
 		}
 		if variable.Preset != wantPreset {
 			t.Fatalf("variable %s preset = %q, want %q", variable.Key, variable.Preset, wantPreset)
 		}
 		wantValue := base
-		if variable.Key == "review-pr/address_model" {
+		if strings.Contains(variable.Key, "claude_") {
+			wantValue = values[variable.Key]
+		} else if variable.Key == "review-pr/address_model" {
 			wantValue = address
 			if variable.Override == nil || *variable.Override != address {
 				t.Fatalf("address override = %v, want %q", variable.Override, address)
@@ -889,10 +944,16 @@ func TestModelsEnforcesRoleMapping(t *testing.T) {
 		}, false, `must use "{{.inputs.model}}"`},
 		{"swapped review roles", "review-pr.yaml", func(s string) string {
 			return strings.NewReplacer(
-				`model: "{{.inputs.review_model}}"`, `model: "{{.inputs.address_model}}"`,
-				`model: "{{.inputs.address_model}}"`, `model: "{{.inputs.review_model}}"`,
+				`model: "{{.states.pick_review_model.Output}}"`, `model: "{{.states.pick_address_model.Output}}"`,
+				`model: "{{.states.pick_address_model.Output}}"`, `model: "{{.states.pick_review_model.Output}}"`,
 			).Replace(s)
-		}, false, `agent state "review" must use "{{.inputs.review_model}}"`},
+		}, false, `agent state "review" must use "{{.states.pick_review_model.Output}}"`},
+		{"claude input with the opencode pattern", "review-pr.yaml", func(s string) string {
+			return strings.Replace(s, models.ClaudePattern, models.Pattern, 1)
+		}, false, "validation pattern must match the model pattern of its provider"},
+		{"pick step ignores the claude model", "review-pr.yaml", func(s string) string {
+			return strings.Replace(s, "{{.inputs.claude_review_model}}'", "'", 1)
+		}, false, `step "pick_review_model" must read {{.inputs.claude_review_model}}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -962,8 +1023,8 @@ func TestModelsPUTPreservesFlowStyleDefaults(t *testing.T) {
 		"inputs: [{name: token, type: string, required: true}, {name: model, type: string, required: false, description: flow model, validation: {pattern: '" + models.Pattern + "'}, default: provider/old}]\n" +
 		"states: {initial: ask, ask: {type: agent, provider: opencode, options: {model: \"{{.inputs.model}}\"}, prompt: \"Keep this prompt.\"}, done: {type: terminal, status: success}, error: {type: terminal, status: failure}}\n"
 	review := "name: review-pr\n" +
-		"inputs: [{name: review_model, type: string, required: false, default: provider/review, validation: {pattern: '" + models.Pattern + "'}}, {name: address_model, type: string, required: false, default: provider/address, validation: {pattern: '" + models.Pattern + "'}}]\n" +
-		"states: {initial: review, review: {type: agent, options: {model: \"{{.inputs.review_model}}\"}}, address: {type: agent, options: {model: \"{{.inputs.address_model}}\"}}, done: {type: terminal}, error: {type: terminal}}\n"
+		"inputs: [{name: claude_review_model, type: string, required: false, default: sonnet, validation: {pattern: '" + models.ClaudePattern + "'}}, {name: claude_address_model, type: string, required: false, default: haiku, validation: {pattern: '" + models.ClaudePattern + "'}}, {name: provider, type: string, required: false, default: opencode}, {name: review_model, type: string, required: false, default: provider/review, validation: {pattern: '" + models.Pattern + "'}}, {name: address_model, type: string, required: false, default: provider/address, validation: {pattern: '" + models.Pattern + "'}}]\n" +
+		"states: {initial: pick_review_model, pick_review_model: {type: step, command: \"echo {{.inputs.provider}} {{.inputs.review_model}} {{.inputs.claude_review_model}}\"}, pick_address_model: {type: step, command: \"echo {{.inputs.provider}} {{.inputs.address_model}} {{.inputs.claude_address_model}}\"}, review: {type: agent, options: {model: \"{{.states.pick_review_model.Output}}\"}}, address: {type: agent, options: {model: \"{{.states.pick_address_model.Output}}\"}}, done: {type: terminal}, error: {type: terminal}}\n"
 	for file, body := range map[string]string{"ask-pr.yaml": ask, "review-pr.yaml": review} {
 		if err := os.WriteFile(filepath.Join(root, "workflows", file), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -1081,7 +1142,9 @@ func TestModelsPUTPropagatesPresets(t *testing.T) {
 
 	want := map[string]string{}
 	for key, value := range testMatchingModelValues() {
-		if value == "provider/light" {
+		if strings.Contains(key, "claude_") {
+			want[key] = value // claude models follow their own presets
+		} else if value == "provider/light" {
 			want[key] = presets["light"]
 		} else {
 			want[key] = presets["default"]
@@ -1189,8 +1252,8 @@ func TestModelsGETInvalidPresetConfig(t *testing.T) {
 		{"unknown root key", valid + "extra: true\n", "field extra not found"},
 		{"unsupported version", strings.Replace(valid, "version: 1", "version: 2", 1), "unsupported preset version"},
 		{"string version", strings.Replace(valid, "version: 1", `version: "1"`, 1), "cannot unmarshal"},
-		{"missing preset", "version: 1\npresets:\n  light: provider/light\n", "exactly light and default"},
-		{"unknown preset", valid + "  other: provider/other\n", "exactly light and default"},
+		{"missing preset", "version: 1\npresets:\n  light: provider/light\n", "light and default, and may add"},
+		{"unknown preset", valid + "  other: provider/other\n", "light and default, and may add"},
 		{"duplicate preset", "version: 1\npresets:\n  light: provider/light\n  light: provider/other\n  default: provider/default\n", "already defined"},
 		{"unknown role", valid + "overrides:\n  other/model: provider/other\n", "unknown model role"},
 		{"null unknown role", valid + "overrides:\n  other/model: null\n", "unknown model role"},

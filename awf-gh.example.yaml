@@ -15,9 +15,11 @@ repos:
 
   # review-pr's `provider` input defaults to opencode. Route a repository
   # whose work leans on Claude Code instead (set DOT_CLAUDE in bin/configure
-  # first) by overriding it here; needs an awf-gh build that carries the
-  # repos[].inputs field (not yet in an awf-project/awf-gh release at the time
-  # of writing, see AWF_GH_SRC in the Makefile).
+  # first) by overriding it here. The models then come from the claude presets
+  # (claude_review_model, claude_address_model), not the opencode ones. Needs an
+  # awf-gh build that carries the repos[].inputs field (not yet in an
+  # awf-project/awf-gh release at the time of writing, see AWF_GH_SRC in the
+  # Makefile).
   - repo: your-org/claude-routed-repo
     scope: local
     workflow: review-pr

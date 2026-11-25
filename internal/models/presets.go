@@ -17,7 +17,32 @@ const (
 	presetsFile   = "model-presets.yaml"
 )
 
-var presetNames = []string{"default", "light"}
+// Every preset the file may hold. light and default are required. The claude
+// pair is optional so a file written before per-provider presets stays valid;
+// a missing one takes the value in claudeDefaults.
+var (
+	presetNames     = []string{"default", "light", "claude_default", "claude_light"}
+	requiredPresets = []string{"default", "light"}
+	claudeDefaults  = map[string]string{"claude_default": "sonnet", "claude_light": "haiku"}
+)
+
+func presetPattern(name string) string {
+	if strings.HasPrefix(name, "claude_") {
+		return ClaudePattern
+	}
+	return Pattern
+}
+
+func (c *Configuration) fillDefaults() {
+	if c.Presets == nil {
+		c.Presets = map[string]string{}
+	}
+	for name, value := range claudeDefaults {
+		if _, ok := c.Presets[name]; !ok {
+			c.Presets[name] = value
+		}
+	}
+}
 
 // Configuration is the versioned content of model-presets.yaml.
 type Configuration struct {
@@ -107,10 +132,14 @@ func (s *Snapshot) PrepareUpdate(update Update) (*Plan, error) {
 
 	next := s.configuration.clone()
 	for _, name := range presetNames {
-		if err := validateModelID(update.Presets[name]); err != nil {
+		value, ok := update.Presets[name]
+		if !ok {
+			continue // an optional preset the request omits keeps its value
+		}
+		if err := validateModel(value, presetPattern(name)); err != nil {
 			return nil, fmt.Errorf("preset %q: %w", name, err)
 		}
-		next.Presets[name] = update.Presets[name]
+		next.Presets[name] = value
 	}
 	keys := make([]string, 0, len(update.Overrides))
 	for key := range update.Overrides {
@@ -126,7 +155,7 @@ func (s *Snapshot) PrepareUpdate(update Update) (*Plan, error) {
 			delete(next.Overrides, key)
 			continue
 		}
-		if err := validateModelID(*value); err != nil {
+		if err := validateRoleModel(key, *value); err != nil {
 			return nil, fmt.Errorf("override %q: %w", key, err)
 		}
 		copied := *value
@@ -178,6 +207,7 @@ func parseConfiguration(data []byte) (*Configuration, error) {
 		}
 		return nil, err
 	}
+	configuration.fillDefaults()
 	if err := configuration.validate(); err != nil {
 		return nil, err
 	}
@@ -200,7 +230,7 @@ func (c *Configuration) validate() error {
 		return err
 	}
 	for _, name := range presetNames {
-		if err := validateModelID(c.Presets[name]); err != nil {
+		if err := validateModel(c.Presets[name], presetPattern(name)); err != nil {
 			return fmt.Errorf("preset %q: %w", name, err)
 		}
 	}
@@ -214,25 +244,26 @@ func (c *Configuration) validate() error {
 			return fmt.Errorf("unknown model role %q", key)
 		}
 		if value := c.Overrides[key]; value != nil {
-			if err := validateModelID(*value); err != nil {
+			if err := validateRoleModel(key, *value); err != nil {
 				return fmt.Errorf("override %q: %w", key, err)
 			}
 		}
 	}
-	if c.resolve("review-pr/review_model") == c.resolve("review-pr/address_model") {
-		return errors.New("review-pr review_model and address_model must be different")
-	}
-	return nil
+	return distinctReviewModels(c.resolve)
 }
 
 func validatePresetKeys(presets map[string]string) error {
+	known := map[string]bool{}
+	for _, name := range presetNames {
+		known[name] = true
+	}
 	var unknown, missing []string
 	for key := range presets {
-		if key != "light" && key != "default" {
+		if !known[key] {
 			unknown = append(unknown, key)
 		}
 	}
-	for _, name := range presetNames {
+	for _, name := range requiredPresets {
 		if _, ok := presets[name]; !ok {
 			missing = append(missing, name)
 		}
@@ -240,7 +271,7 @@ func validatePresetKeys(presets map[string]string) error {
 	sort.Strings(unknown)
 	sort.Strings(missing)
 	if len(unknown) > 0 || len(missing) > 0 {
-		return fmt.Errorf("presets must contain exactly light and default (unknown: %s; missing: %s)", strings.Join(unknown, ", "), strings.Join(missing, ", "))
+		return fmt.Errorf("presets must contain light and default, and may add claude_light and claude_default (unknown: %s; missing: %s)", strings.Join(unknown, ", "), strings.Join(missing, ", "))
 	}
 	return nil
 }
@@ -277,8 +308,10 @@ func (c *Configuration) marshal() ([]byte, error) {
 	document := struct {
 		Version int `yaml:"version"`
 		Presets struct {
-			Light   string `yaml:"light"`
-			Default string `yaml:"default"`
+			Light         string `yaml:"light"`
+			Default       string `yaml:"default"`
+			ClaudeLight   string `yaml:"claude_light,omitempty"`
+			ClaudeDefault string `yaml:"claude_default,omitempty"`
 		} `yaml:"presets"`
 		Overrides map[string]*string `yaml:"overrides,omitempty"`
 	}{
@@ -287,6 +320,8 @@ func (c *Configuration) marshal() ([]byte, error) {
 	}
 	document.Presets.Light = c.Presets["light"]
 	document.Presets.Default = c.Presets["default"]
+	document.Presets.ClaudeLight = c.Presets["claude_light"]
+	document.Presets.ClaudeDefault = c.Presets["claude_default"]
 	return yaml.Marshal(document)
 }
 
@@ -332,8 +367,18 @@ func migrateConfiguration(snapshot *Snapshot) (*Configuration, error) {
 		},
 		Overrides: map[string]*string{},
 	}
+	if value := values["review-pr/claude_review_model"]; value != "" {
+		configuration.Presets["claude_default"] = value
+	}
+	if value := values["review-pr/claude_address_model"]; value != "" {
+		configuration.Presets["claude_light"] = value
+	}
+	configuration.fillDefaults()
 	for _, role := range roles {
 		value := values[role.key()]
+		if value == "" {
+			continue // a workflow that predates this input has nothing to keep
+		}
 		if value != configuration.Presets[role.preset] {
 			copied := value
 			configuration.Overrides[role.key()] = &copied
