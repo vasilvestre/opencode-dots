@@ -1,0 +1,15 @@
+[Unit]
+Description=opencode background service for the dots stack
+After=network-online.target
+
+# The service bin/configure looks for: it writes ~/.local/state/opencode/service.json,
+# which holds its address and password. It listens on loopback. Used by the deploy
+# scripts (ADR 0028); on a workstation the opencode you already run does the same job.
+
+[Service]
+ExecStart=%h/.opencode/bin/opencode serve --service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -83,14 +83,18 @@ server), and the v2 installer is a different URL, `https://opencode.ai/v2/instal
 checks the major version and stops if it is not 2.
 
 The bootstrap compiles nothing on the server. Building `awf` with `go install`
-froze the first server (1 vCPU, 1 GB). `awf` v0.12.0 and tower v0.1.0 publish
-Linux release archives for `x86_64` and `aarch64`, and the script downloads
-them and checks the published checksum before it installs anything. A failed
+froze the first server (1 vCPU, 1 GB). `awf` v0.12.0 publishes Linux release
+archives for `x86_64` and `aarch64`, and the script downloads the one for the
+machine and checks the published checksum before it installs anything. A failed
 check stops the script.
 
-Tower is part of the bootstrap. The README still describes a build from source
-for tower and says its `agent_memory` extension is not copied by the install.
-Whether the release archive carries that extension is not checked yet.
+Tower is part of the bootstrap, but its Linux release archives are empty: the
+`x86_64` and `aarch64` assets of v0.1.0 are 20-byte archives, and only the macOS
+one holds a binary (checked on 2026-11-26). Tower is therefore built on a
+workstation of the same architecture, as the README already says, and pushed to the
+server with its `agent_memory` extension by a command that runs on the workstation
+(`deploy/types/local/push.sh --tower`). The same command pushes `bin/repos` and
+`bin/dashboard`, which are Go builds the server does not make either.
 
 Secrets and private files never enter the repository. The tailnet auth key,
 `GH_TOKEN` and provider credentials are read from the environment or asked for
@@ -124,7 +128,7 @@ touched.
   repository, and it makes the key a thing to keep and back up: losing it loses
   the state.
 - A bootstrap that installs from the network (the `opencode` installer, the
-  `awf` and tower release archives) depends on those sources staying available.
+  `awf` release archive) depends on those sources staying available.
   The checksum check guards against a corrupted download, not against a release
   that was replaced upstream.
 
@@ -151,7 +155,8 @@ touched.
 
 - Where the tailnet auth key comes from at run time, and its lifetime.
 - Whether to support a distribution other than Debian 13 in the first version.
-- Whether the tower release archive carries the `agent_memory` extension.
-- Whether the Go builds that remain (`bin/repos`, the dashboard) are light enough
-  for the smallest machine, or should also come as binaries.
+- When tower publishes Linux release archives that are not empty, so the pushed
+  build can be replaced by a download with a checksum.
+- Whether a pushed binary should carry a version check, so the server refuses a
+  build that does not match the revision of the repository it runs.
 - How the state encryption key is stored and backed up.
