@@ -16,6 +16,9 @@ type Rule struct {
 	OnlyAuthors   []string
 	Labels        []string
 	Inputs        map[string]string
+	// IgnoreFirstContribution drops the events of an author whose first
+	// contribution to the repository this is (case A5).
+	IgnoreFirstContribution bool
 
 	// Executor names the awf serve that runs the task, from the executor
 	// feature; empty means the watcher's own awf_url.

@@ -158,6 +158,7 @@ func TestWatchRefusals(t *testing.T) {
 		{"label on review", "review: {label: dot}", "unknown option label"},
 		{"authors not a list", "review: {only_authors: me}", "only_authors must be a list"},
 		{"inputs not a map", "review: {inputs: [a]}", "inputs must be a mapping"},
+		{"first contribution not a bool", "review: {ignore_first_contribution: [a]}", "ignore_first_contribution must be true or false"},
 		{"empty list", "review: []", "at least one block"},
 		{"scalar", "review: yes please", "must be true, a block or a list"},
 	}
@@ -216,7 +217,7 @@ repos:
     checkout: /src/b
     tend: {auto_merge: true}
     provider: claude
-    review: {ignore_authors: [bot]}
+    review: {ignore_authors: [bot], ignore_first_contribution: true}
   c/d: {tend: true, fix_issue: {label: dot}}
 `), t.TempDir(), Settings{})
 	if err != nil {
@@ -230,6 +231,7 @@ repos:
     workflow: review-pr
     on: [pr-opened, pr-updated, checks-failed]
     ignore_authors: [bot]
+    ignore_first_contribution: true
     inputs:
       provider: claude
   - repo: c/d

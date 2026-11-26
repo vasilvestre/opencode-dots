@@ -186,6 +186,9 @@ func renderAwfGh(rules []Rule, s Settings) ([]byte, error) {
 		if len(r.OnlyAuthors) > 0 {
 			add(m, "only_authors", flow(r.OnlyAuthors))
 		}
+		if r.IgnoreFirstContribution {
+			add(m, "ignore_first_contribution", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+		}
 		if len(r.Labels) > 0 {
 			add(m, "labels", flow(r.Labels))
 		}
