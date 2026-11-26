@@ -36,7 +36,7 @@ fi
 
 echo "== user step, twice"
 su - dots -c "git config --global safe.directory '*'"
-run_user() { su - dots -c "DOTS_REPO=/src bash /src/deploy/types/local/user.sh"; }
+run_user() { su - dots -c "DOTS_REPO=/src DOTS_MEMORY_PROFILE=small bash /src/deploy/types/local/user.sh"; }
 run_user
 run_user
 run_as_dots() { su - dots -c "export PATH=\$HOME/.local/bin:\$HOME/.opencode/bin:\$PATH; $*"; }
@@ -52,6 +52,9 @@ check "awf unit runs the user's awf" grep -q '^ExecStart=%h/.local/bin/awf ' /ho
 check "units use the chosen directory" grep -q '%h/dots' /home/dots/.config/systemd/user/dots-awf.service
 check "dashboard waits for dots-awf" grep -q '^After=dots-awf.service' /home/dots/.config/systemd/user/dots-dashboard.service
 check "awf starts after opencode" grep -q 'dots-opencode.service' /home/dots/.config/systemd/user/dots-awf.service.d/10-after-opencode.conf
+check "opencode service limited to 750M" grep -q '^MemoryMax=750M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
+check "opencode service throttles at 600M" grep -q '^MemoryHigh=600M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
+check "awf limited to 200M" grep -q '^MemoryMax=200M' /home/dots/.config/systemd/user/dots-awf.service.d/20-memory.conf
 check "no secret file written" test ! -e /home/dots/dots/.env
 
 if [ "$fail" = 0 ]; then echo "deploy test: all checks passed"; else echo "deploy test: failures above" >&2; exit 1; fi

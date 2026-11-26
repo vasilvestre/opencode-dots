@@ -33,10 +33,17 @@ CGO_ENABLED=0 go build -o "$out/repos" ./cmd/repos
 go build -o "$out/dashboard" ./cmd/dashboard
 
 ssh_opts=(-o BatchMode=yes)
+# A binary that is running cannot be overwritten ("text file busy"), but it can be
+# renamed over: copy under a temporary name, then move it into place.
+send() { # send <local file> <remote path relative to the home directory>
+  scp -q "${ssh_opts[@]}" "$1" "$host:$2.new"
+  ssh "${ssh_opts[@]}" "$host" "chmod 755 '$2.new' && mv -f '$2.new' '$2'"
+}
+
 log "copying to $host:$remote"
 ssh "${ssh_opts[@]}" "$host" "mkdir -p '$remote/bin'"
-scp -q "${ssh_opts[@]}" "$out/repos" "$out/dashboard" "$host:$remote/bin/"
-ssh "${ssh_opts[@]}" "$host" "chmod 755 '$remote/bin/repos' '$remote/bin/dashboard'"
+send "$out/repos" "$remote/bin/repos"
+send "$out/dashboard" "$remote/bin/dashboard"
 
 if [ "$tower" = 1 ]; then
   command -v tower >/dev/null 2>&1 || die "tower is not installed here, build it first (see the README)"
@@ -44,7 +51,7 @@ if [ "$tower" = 1 ]; then
   [ -d "$ext/agent_memory" ] || die "no agent_memory extension in $ext"
   log "tower and its agent_memory extension"
   ssh "${ssh_opts[@]}" "$host" "mkdir -p ~/.local/bin ~/.local/share/tower/extensions"
-  scp -q "${ssh_opts[@]}" "$(command -v tower)" "$host:.local/bin/tower"
+  send "$(command -v tower)" ".local/bin/tower"
   scp -q -r "${ssh_opts[@]}" "$ext/agent_memory" "$host:.local/share/tower/extensions/"
 fi
 

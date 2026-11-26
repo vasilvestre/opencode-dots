@@ -92,6 +92,30 @@ render_units() {
   log "units written to $dst"
 }
 
+# A machine with under 2 GB of RAM (measured on a 1 GB one: the opencode service holds about
+# 300 MB at rest and a tend pass adds about 200 MB) gets limits, so a runaway run is stopped
+# by systemd and not by the kernel's OOM killer taking the SSH session with it.
+# DOTS_MEMORY_PROFILE=small forces them, none turns them off.
+memory_limits() {
+  local profile=${DOTS_MEMORY_PROFILE:-auto} total_kb dst="$HOME/.config/systemd/user"
+  total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+  if [ "$profile" = auto ]; then
+    if [ "$total_kb" -lt 2000000 ]; then profile=small; else profile=none; fi
+  fi
+  [ "$profile" = small ] || { log "memory limits: none ($profile, ${total_kb} kB)"; return; }
+  local unit high max
+  for unit in dots-opencode:600M:750M dots-awf::200M dots-dashboard::200M; do
+    IFS=: read -r name high max <<<"$unit"
+    mkdir -p "$dst/$name.service.d"
+    {
+      echo "[Service]"
+      [ -z "$high" ] || echo "MemoryHigh=$high"
+      echo "MemoryMax=$max"
+    } >"$dst/$name.service.d/20-memory.conf"
+  done
+  log "memory limits written (profile small, ${total_kb} kB of RAM)"
+}
+
 start_services() {
   if ! have_systemd_user; then
     warn "no systemd user manager here: units are written, nothing is started"
@@ -131,6 +155,7 @@ install_awf
 install_opencode
 clone_repo
 render_units
+memory_limits
 start_services
 configure_dots
 
