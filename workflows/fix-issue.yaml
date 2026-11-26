@@ -104,6 +104,64 @@ states:
       [ -f "$tend/lessons.md" ] && cp "$tend/lessons.md" "$d/lessons.md" || true
       [ -f "$tend/memory.md" ] && cp "$tend/memory.md" "$d/memory.md" || true
     timeout: 300
+    on_success: classify_check
+    on_failure: error
+
+  # Classification (ADR 0040) runs only under an autonomy ceiling. With no
+  # ceiling this step prints LEGACY and the run goes to route as before: no
+  # model call, no file.
+  classify_check:
+    type: step
+    command: |
+      set -eu
+      if [ -n "{{.inputs.autonomy}}" ]; then printf CLASSIFY; else printf LEGACY; fi
+    timeout: 30
+    transitions:
+      - when: 'states.classify_check.Output contains "CLASSIFY"'
+        goto: classify_text
+    on_success: route
+    on_failure: error
+
+  # Drop any earlier result first, so a failed classification reads as missing
+  # (level 3) and never as a stale lower level. Then print the item text: the
+  # text reaches the hidden workflow as an input, never a shell command.
+  classify_text:
+    type: step
+    command: |
+      set -eu
+      d=${STATE_DIR:-/state}/fix/{{.inputs.repo}}/issue-{{.inputs.issue}}
+      rm -f "${STATE_DIR:-/state}/classify/{{.inputs.repo}}/issue-{{.inputs.issue}}.json" "$d/item_class"
+      jq -r '"# \(.title)\n\n\(.body // "")\n\n" + ([.comments[]? | "--\n\(.body // "")"] | join("\n"))' \
+        "$d/issue.json" | head -c 8000
+    timeout: 60
+    on_success: classify
+    on_failure: level
+
+  classify:
+    type: call_workflow
+    workflow: _classify-item
+    inputs:
+      repo: "{{.inputs.repo}}"
+      key: "issue-{{.inputs.issue}}"
+      text: "{{.states.classify_text.Output}}"
+    timeout: 1000
+    on_success: level
+    on_failure: level
+
+  # The level the publish gate reads. A missing, unreadable or out-of-range
+  # result is level 3: with a ceiling set, an unclassified item fails closed.
+  level:
+    type: step
+    command: |
+      set -eu
+      d=${STATE_DIR:-/state}/fix/{{.inputs.repo}}/issue-{{.inputs.issue}}
+      f=${STATE_DIR:-/state}/classify/{{.inputs.repo}}/issue-{{.inputs.issue}}.json
+      lvl=$(jq -r '.level | select(type == "number") | tostring' "$f" 2>/dev/null || true)
+      case "$lvl" in 1|2|3) ;; *) echo "classification missing or invalid, treating as level 3"; lvl=3 ;; esac
+      mkdir -p "$d"
+      echo "$lvl" > "$d/item_class"
+      echo "item class $lvl"
+    timeout: 30
     on_success: route
     on_failure: error
 
@@ -172,6 +230,7 @@ states:
           # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
           grc=0
           if [ -n "{{.inputs.autonomy}}" ]; then
+            ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
             AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" \
               "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
             [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
@@ -224,6 +283,7 @@ states:
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
         git -C "$work" format-patch --stdout HEAD~1 > "$d/held.patch"
+        ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/held.patch" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: change not pushed (gate $grc)"; exit 0; }
@@ -273,6 +333,7 @@ states:
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
+        ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/fix.md" \
           "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; exit 0; }
@@ -304,6 +365,7 @@ states:
         # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
         grc=0
         if [ -n "{{.inputs.autonomy}}" ]; then
+          ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
           AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" \
             "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
           [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
