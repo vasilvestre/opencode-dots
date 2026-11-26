@@ -21,8 +21,8 @@ variable "zone" {
 
 variable "type" {
   type        = string
-  description = "Instance type."
-  default     = "STARDUST1-S"
+  description = "Instance type. The dot needs 2 GB: on a 1 GB machine (STARDUST1-S) an agent run froze the first server. DEV1-S has 2 GB; check that the type exists in the zone before applying."
+  default     = "DEV1-S"
 }
 
 variable "image" {

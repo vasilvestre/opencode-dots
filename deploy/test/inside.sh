@@ -62,6 +62,7 @@ check "hub keys are private" test "$(stat -c %a /home/dots/.config/dots/hub.env)
 check "hub keys survive a second run" test "$first_keys" = "$(su - dots -c 'md5sum < ~/.config/dots/hub.env')"
 check "hub keys are not the empty string" grep -Eq '^MERCURE_PUBLISHER_JWT_KEY=[0-9a-f]{64}$' /home/dots/.config/dots/hub.env
 check "hub unit points at the repository's Caddyfile" grep -q '%h/dots/deploy/hub/Caddyfile' /home/dots/.config/systemd/user/dots-hub.service
+check "tend restarts opencode first" grep -q "restart dots-opencode.service" /home/dots/.config/systemd/user/dots-tend.service.d/10-fresh-opencode.conf
 check "no secret file written" test ! -e /home/dots/dots/.env
 
 if [ "$fail" = 0 ]; then echo "deploy test: all checks passed"; else echo "deploy test: failures above" >&2; exit 1; fi

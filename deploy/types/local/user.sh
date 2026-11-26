@@ -88,15 +88,18 @@ render_units() {
       -e "s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |" \
       -e "s|=dots\\.service|=dots-awf.service|" "$src/$u" >"$dst/$u"
   done
-  mkdir -p "$dst/dots-awf.service.d" "$dst/dots-dashboard.service.d"
+  mkdir -p "$dst/dots-awf.service.d" "$dst/dots-dashboard.service.d" "$dst/dots-tend.service.d"
   printf '[Unit]\nAfter=dots-opencode.service\nWants=dots-opencode.service\n' >"$dst/dots-awf.service.d/10-after-opencode.conf"
+  # Every directory a run touches leaves an instance in the opencode service until it restarts
+  # (measured: 147 MB with none, 478 MB after three). A tend pass starts from a fresh service.
+  printf '[Service]\nExecStartPre=-/usr/bin/systemctl --user restart dots-opencode.service\nExecStartPre=/bin/sleep 8\n' >"$dst/dots-tend.service.d/10-fresh-opencode.conf"
   # The dashboard lists the models by running `opencode models`, and the installer puts opencode
   # in ~/.opencode/bin, which the user manager's PATH does not have: the list came up empty.
   printf '[Service]\nEnvironment=PATH=%%h/.local/bin:%%h/.opencode/bin:/usr/local/bin:/usr/bin:/bin\n' >"$dst/dots-dashboard.service.d/10-path.conf"
   log "units written to $dst"
 }
 
-# A machine with under 2 GB of RAM gets limits, so a runaway run is stopped by systemd and not by
+# A machine with under 1.5 GB of RAM (a 2 GB one reports about 1.9 GB) gets limits, so a runaway run is stopped by systemd and not by
 # a machine that thrashes until someone presses its power button. Measured on a 1 GB machine:
 # at rest the opencode service holds 448 MB (299 MB resident) out of 962, and a tend pass adds
 # 100 to 300 MB. A soft limit (MemoryHigh) made it worse: above it the kernel throttles the
@@ -108,7 +111,7 @@ memory_limits() {
   local profile=${DOTS_MEMORY_PROFILE:-auto} total_kb dst="$HOME/.config/systemd/user"
   total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
   if [ "$profile" = auto ]; then
-    if [ "$total_kb" -lt 2000000 ]; then profile=small; else profile=none; fi
+    if [ "$total_kb" -lt 1500000 ]; then profile=small; else profile=none; fi
   fi
   [ "$profile" = small ] || { log "memory limits: none ($profile, ${total_kb} kB)"; return; }
   local unit high max

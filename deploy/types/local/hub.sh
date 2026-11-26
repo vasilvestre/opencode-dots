@@ -74,7 +74,7 @@ write_unit() {
   esac
   [ -f "$DOTS_HOME/systemd/dots-hub.service" ] || die "$DOTS_HOME/systemd/dots-hub.service is missing: update the repository first"
   sed "s|%h/projects/perso/opencode-dots|$at|g" "$DOTS_HOME/systemd/dots-hub.service" >"$HOME/.config/systemd/user/dots-hub.service"
-  if [ "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -lt 2000000 ]; then
+  if [ "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -lt 1500000 ]; then
     mkdir -p "$HOME/.config/systemd/user/dots-hub.service.d"
     printf '[Service]\nMemoryMax=150M\n' >"$HOME/.config/systemd/user/dots-hub.service.d/20-memory.conf"
   fi

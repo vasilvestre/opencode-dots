@@ -51,7 +51,7 @@ lost. Never put it in a file here.
 | `ssh_public_key` | Admin public key, registered and given to `dots` | required |
 | `ssh_allowed_cidrs` | CIDR blocks allowed on port 22 | required |
 | `zone` | Availability zone | `pl-waw-2` |
-| `type` | Instance type | `STARDUST1-S` |
+| `type` | Instance type, 2 GB at least | `DEV1-S` |
 | `image` | Image label or UUID | `debian_trixie` |
 | `name` | Name of the instance and companions | `dots` |
 
@@ -65,8 +65,8 @@ a CIDR back.
 
 - No `plan` or `apply` was run: nothing here has touched the Scaleway API.
 - `tofu validate` only checks syntax and schema.
-- That `debian_trixie` is the right image label for `STARDUST1-S` in `pl-waw-2`.
-- That `STARDUST1-S` accepts a `routed_ipv4` flexible IP and a security group.
+- That `debian_trixie` is the right image label for `DEV1-S` in `pl-waw-2`.
+- That `DEV1-S` exists in `pl-waw-2` and accepts a `routed_ipv4` flexible IP and a security group.
 - That cloud-init runs on the image and that the IAM SSH key is also placed
   for root as expected.
 - The minimum version 1.7 for state encryption comes from the release notes as
