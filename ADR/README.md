@@ -41,6 +41,11 @@ your mind by writing a new one that supersedes it.
 | [0031](0031-executor-per-repository.md) | A repository names the executor that runs its tasks | accepted | 2026-11-26 |
 | [0032](0032-trust-levels-per-repository.md) | A repository has a trust level that limits the rest of its configuration | accepted | 2026-11-26 |
 | [0033](0033-hybrid-executors.md) | An executor can be a list, and what every executor runs is checked | proposed | 2026-11-26 |
+| [0034](0034-dot-identity-in-github.md) | The dot says who it is in GitHub, and the identity is a per-repository choice | proposed | 2026-11-26 |
+| [0035](0035-team-shapes-one-dot-per-person-or-team.md) | A dot serves a person or a team, and we name the shapes we support | proposed | 2026-11-26 |
+| [0036](0036-model-budgets-and-caps.md) | Model spending has a payer, a budget and a hard cap | proposed | 2026-11-26 |
+| [0037](0037-dashboard-users-and-roles.md) | The dashboard has users, roles and an audit trail | proposed | 2026-11-26 |
+| [0038](0038-what-two-dots-share.md) | Two dots on one repository share metadata and reviewed lessons, never code or raw memory | proposed | 2026-11-26 |
 
 ## When to write one
 
