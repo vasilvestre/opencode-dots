@@ -57,8 +57,7 @@ func Import(dir string) ([]byte, error) {
 	type block map[string]any
 	repoOrder := []string{}
 	blocks := map[string]map[string][]block{} // repo -> feature -> blocks
-	providers := map[string][]string{}        // repo -> provider input of each providerAware rule
-	providerAwareRules := map[string]int{}
+	providers := map[string][]string{}        // repo -> provider input of each providerAware rule, "" when absent
 	touch := func(repo string) {
 		if _, ok := blocks[repo]; !ok {
 			blocks[repo] = map[string][]block{}
@@ -101,11 +100,9 @@ func Import(dir string) ([]byte, error) {
 			inputs[k] = v
 		}
 		if w.providerAware {
-			providerAwareRules[r.Repo]++
-			if p, ok := inputs["provider"].(string); ok {
-				providers[r.Repo] = append(providers[r.Repo], p)
-				delete(inputs, "provider")
-			}
+			p, _ := inputs["provider"].(string)
+			providers[r.Repo] = append(providers[r.Repo], p)
+			delete(inputs, "provider")
 		}
 		if len(inputs) > 0 {
 			b["inputs"] = inputs
@@ -117,7 +114,7 @@ func Import(dir string) ([]byte, error) {
 	// repository's own `provider`; a mixed one stays in the rules' inputs.
 	repoProvider := map[string]string{}
 	for repo, list := range providers {
-		same := len(list) == providerAwareRules[repo]
+		same := list[0] != ""
 		for _, p := range list {
 			same = same && p == list[0]
 		}
@@ -128,7 +125,7 @@ func Import(dir string) ([]byte, error) {
 		for key, bs := range blocks[repo] {
 			if registry[key].(watch).providerAware {
 				for i, p := range list {
-					if i < len(bs) {
+					if i < len(bs) && p != "" {
 						in, _ := bs[i]["inputs"].(map[string]any)
 						if in == nil {
 							in = map[string]any{}
@@ -144,6 +141,9 @@ func Import(dir string) ([]byte, error) {
 	// defaults: the list option most blocks of a feature share.
 	defaults := map[string]map[string]any{}
 	for _, key := range importOrder {
+		if _, isWatch := registry[key].(watch); !isWatch {
+			continue
+		}
 		var all []block
 		for _, repo := range repoOrder {
 			all = append(all, blocks[repo][key]...)
