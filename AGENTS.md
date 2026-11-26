@@ -23,6 +23,7 @@ internal/      models/: model preset and default logic; repos/: the repository l
 model-presets.yaml  global model presets projected into workflow defaults
 docs/          workflow reference, memory-design rationale
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
+deploy/        a server as code (ADR 0028): providers/<name> (OpenTofu), types/local (system.sh, user.sh, push.sh), test/
 systemd/       user units and timers
 ui/            dashboard: index.html shell, ES modules, no build step
 state/         runtime state, gitignored: reviews, replies, tend, logs, clones
