@@ -68,4 +68,18 @@ else
   echo "FAIL  the agent flag is missing from an attempt"; cat "$STUB_LOG"; fail=1
 fi
 
+# The private server option: --standalone on every attempt when asked, and never otherwise.
+: >"$STUB_LOG"
+opencode run --model ok/a hi >/dev/null 2>&1
+if ! grep -q -- "--standalone" "$STUB_LOG"; then echo "ok    no --standalone by default"; else echo "FAIL  --standalone added without being asked"; fail=1; fi
+: >"$STUB_LOG"
+DOTS_OPENCODE_STANDALONE=1 opencode run --model ok/a hi >/dev/null 2>&1
+if grep -q -- "--agent dots-worker --standalone" "$STUB_LOG"; then echo "ok    --standalone on a plain run"; else echo "FAIL  --standalone missing from a plain run"; cat "$STUB_LOG"; fail=1; fi
+: >"$STUB_LOG"
+DOTS_OPENCODE_STANDALONE=1 opencode run hi >/dev/null 2>&1
+if grep -q -- "--standalone" "$STUB_LOG"; then echo "ok    --standalone on a run with no model"; else echo "FAIL  --standalone missing when there is no model argument"; fail=1; fi
+: >"$STUB_LOG"
+DOTS_OPENCODE_STANDALONE=1 DOTS_MODEL_FALLBACKS=ok/b opencode run --model quota/a hi >/dev/null 2>&1
+if [ "$(grep -c -- "--standalone" "$STUB_LOG")" = 2 ]; then echo "ok    --standalone on every fallback attempt"; else echo "FAIL  --standalone missing from a fallback attempt"; cat "$STUB_LOG"; fail=1; fi
+
 if [ "$fail" = 0 ]; then echo "shim test: all checks passed"; else echo "shim test: failures above" >&2; exit 1; fi

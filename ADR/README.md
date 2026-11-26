@@ -73,6 +73,9 @@ To supersede, write the new record and set both fields:
 ```bash
 bin/adr new drop-docker-mode   # create ADR/0004-drop-docker-mode.md
 bin/adr check                  # numbering, one index row per record (title, status, date), supersede links
+bin/adr proposed               # the records still waiting for a decision
+bin/adr accept 0023 0025       # proposed -> accepted in the record and the index; a record that supersedes
+                               # another one also marks the old one "superseded by"
 ```
 
 `bin/adr check` runs in `make adr` and in `make validate`.

@@ -8,6 +8,11 @@
 # again on the next model of the list. It only retries a run that wrote nothing to stdout
 # and whose error looks like a quota or rate limit, so work that already started is never
 # repeated and a real failure is never hidden. Without the variable nothing changes.
+#
+# Optional private server. With DOTS_OPENCODE_STANDALONE=1 each run gets `--standalone`: opencode
+# starts a private server for that run and stops it with the run, instead of using the long-lived
+# background service. Whatever the run loaded (a project's index, its watchers) goes away with it,
+# so memory does not pile up over days on a small machine. The price is a start per run.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 real=$(PATH=${PATH//"$here:"/} command -v opencode)
@@ -18,8 +23,10 @@ fi
 shift
 agent=${DOTS_AGENT:-dots-worker}
 fallbacks=${DOTS_MODEL_FALLBACKS:-}
+private=()
+if [ "${DOTS_OPENCODE_STANDALONE:-0}" = 1 ]; then private=(--standalone); fi
 if [ -z "$fallbacks" ]; then
-  exec "$real" run --agent "$agent" "$@"
+  exec "$real" run --agent "$agent" ${private[@]+"${private[@]}"} "$@"
 fi
 
 # Find the model of this run: `--model X`, `-m X` or `--model=X`. With none, there is
@@ -34,7 +41,7 @@ for i in "${!args[@]}"; do
   esac
 done
 if [ "$idx" -lt 0 ] || [ "$idx" -ge "${#args[@]}" ]; then
-  exec "$real" run --agent "$agent" "$@"
+  exec "$real" run --agent "$agent" ${private[@]+"${private[@]}"} "$@"
 fi
 if [ "$kind" = joined ]; then first=${args[$idx]#--model=}; else first=${args[$idx]}; fi
 
@@ -53,7 +60,7 @@ for n in "${!models[@]}"; do
   if [ "$kind" = joined ]; then args[idx]="--model=${models[$n]}"; else args[idx]=${models[$n]}; fi
   # A failing opencode must not stop the script here: its status is read from PIPESTATUS.
   set +eo pipefail
-  "$real" run --agent "$agent" "${args[@]}" 2>"$err" | tee "$out"
+  "$real" run --agent "$agent" ${private[@]+"${private[@]}"} "${args[@]}" 2>"$err" | tee "$out"
   rc=${PIPESTATUS[0]}
   set -eo pipefail
   cat "$err" >&2
