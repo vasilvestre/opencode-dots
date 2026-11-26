@@ -5,7 +5,7 @@
 # writes. Raising it again is a human act: `bin/breaker reset`.
 #
 #   bin/breaker check OWNER/REPO [SUBJECTS]   look, trip if needed (SUBJECTS: a,b,c)
-#   bin/breaker check-all                     check every line of $BREAKER_LIST
+#   bin/breaker check-all                     check every line of $BREAKER_LIST (no list or an empty one: exit 0)
 #   bin/breaker status                        what is tripped
 #   bin/breaker reset OWNER/REPO              a person raises the repository again
 #
@@ -17,6 +17,8 @@
 #   BREAKER_WHO    who resets (default the unix user), written to the log.
 #
 # Exit codes of check: 0 nothing (or already tripped), 3 tripped by this call, 1 cannot look.
+# check-all: 0 when nothing is wrong or there is nothing to check, 1 on a real error
+# (unreadable list, gh failing); a trip is not an error.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -119,15 +121,22 @@ case "${1:-}" in
     ;;
   check-all)
     list=${BREAKER_LIST:-breaker.list}
-    [ -r "$list" ] || { echo "breaker: no list at $list" >&2; exit 1; }
-    rc=0
+    # No list means the feature is off here: nothing to check is not a failure.
+    if [ ! -e "$list" ]; then
+      echo "breaker: nothing to check: no list at $list (no repository has circuit_breaker)"
+      exit 0
+    fi
+    [ -f "$list" ] && [ -r "$list" ] || { echo "breaker: cannot read the list at $list" >&2; exit 1; }
+    rc=0 n=0
     while IFS= read -r line; do
       line=${line%%#*}
       [ -n "${line// /}" ] || continue
       repo=${line%%=*}
       subs=""; [ "$repo" = "$line" ] || subs=${line#*=}
+      n=$((n + 1))
       check "$repo" "$subs" || { r=$?; [ "$r" = 3 ] || rc=1; }
     done < "$list"
+    [ "$n" -gt 0 ] || echo "breaker: nothing to check: $list lists no repository"
     exit "$rc"
     ;;
   status)

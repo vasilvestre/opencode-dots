@@ -147,3 +147,34 @@ func TestAutonomyArtifactCopyUnderHeld(t *testing.T) {
 		t.Fatalf("artifact: %d %s", rr.Code, rr.Body.String())
 	}
 }
+
+// publish-held moves the artifact copy next to the released record and leaves the
+// record's artifact line alone: the endpoint still finds it.
+func TestAutonomyArtifactOfReleasedRecord(t *testing.T) {
+	d := gateFixture(t)
+	name := "20261125T100000Z-comment-acme_app_2.txt"
+	old := filepath.Join(d.state, "held", "artifacts", name, "answer.md")
+	dir := filepath.Join(d.state, "held", "released", "artifacts", name)
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "answer.md"), []byte("released body"), 0o644)
+	rec := "action: comment\nref: acme/app#2\nautonomy: propose\nclass: 1\nartifact: " + old + "\nreason: r\n"
+	os.WriteFile(filepath.Join(d.state, "held", "released", name), []byte(rec), 0o644)
+
+	get := func(url string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		d.autonomyArtifact(rr, httptest.NewRequest("GET", url, nil))
+		return rr
+	}
+	if rr := get("http://127.0.0.1:8099/api/autonomy/artifact?kind=released&name=" + name); rr.Code != 200 || rr.Body.String() != "released body" {
+		t.Fatalf("released artifact: %d %s", rr.Code, rr.Body.String())
+	}
+	// A held lookup does not borrow the released copy.
+	if rr := get("http://127.0.0.1:8099/api/autonomy/artifact?kind=held&name=" + name); rr.Code != 404 {
+		t.Fatalf("held kind: %d", rr.Code)
+	}
+	list := httptest.NewRecorder()
+	d.autonomy(list, httptest.NewRequest("GET", "http://127.0.0.1:8099/api/autonomy", nil))
+	if !strings.Contains(list.Body.String(), `"readable":true`) {
+		t.Fatalf("released item not readable: %s", list.Body.String())
+	}
+}

@@ -125,5 +125,17 @@ pr 1 dotbot dotbot "Fix a" "$early" aaa | prs
 BREAKER_LIST=$work/list "$breaker" check-all 2>/dev/null || { echo "FAIL check-all"; fail=1; }
 "$breaker" check notarepo 2>/dev/null && { echo "FAIL bad repo accepted"; fail=1; }
 
+# check-all with nothing to check is a success; a real error is not
+out=$(BREAKER_LIST=$work/absent "$breaker" check-all 2>&1) || { echo "FAIL check-all without a list should exit 0"; fail=1; }
+case $out in *"nothing to check"*) ;; *) echo "FAIL check-all without a list: no 'nothing to check' line: $out"; fail=1 ;; esac
+printf '# only a comment\n\n' > "$work/empty"
+out=$(BREAKER_LIST=$work/empty "$breaker" check-all 2>&1) || { echo "FAIL check-all with an empty list should exit 0"; fail=1; }
+case $out in *"nothing to check"*) ;; *) echo "FAIL check-all with an empty list: no 'nothing to check' line: $out"; fail=1 ;; esac
+mkdir "$work/dirlist"
+BREAKER_LIST=$work/dirlist "$breaker" check-all 2>/dev/null && { echo "FAIL check-all on an unreadable list should exit 1"; fail=1; }
+printf 'acme/app\n' > "$work/list"
+clear_state
+PATH=$work/nogh:$PATH FAKE=$work/fake bash -c 'gh() { return 1; }; export -f gh; BREAKER_LIST=$0/list DOT_LOGIN=dotbot '"$breaker"' check-all' "$work" 2>/dev/null && { echo "FAIL check-all with gh failing should exit 1"; fail=1; }
+
 if [ "$fail" = 0 ]; then echo "breaker: all cells pass"; fi
 exit "$fail"

@@ -19,6 +19,10 @@ import (
 //
 // awf's run request takes inputs only, so RELEASED_BY cannot be set from here:
 // the workflow then names the account behind its own token in the log.
+//
+// Besides `id`, a file-issue record also passes `repo` (the repository it came
+// from) and `upstream` (that repository's upstream list), found from the record
+// and awf-gh.yaml (upstreamOf). Every other action passes `id` only.
 
 var releaseMu sync.Mutex
 
@@ -46,6 +50,7 @@ func (d *dash) releasedItems() []gateItem {
 			continue
 		}
 		if it, ok := parseGateFile(n, "released", text); ok {
+			_, it.Readable = resolveReleasedArtifact(d.state, it.Artifact)
 			out = append(out, it)
 		}
 	}

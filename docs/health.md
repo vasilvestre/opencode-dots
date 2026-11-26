@@ -55,3 +55,29 @@ cp systemd/dots-health*.* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now dots-health.timer
 ```
+
+## Install on a host
+
+Run these on the machine that hosts the dot, from the repository root.
+
+```bash
+make health                                  # builds bin/health
+mkdir -p ~/.config/systemd/user
+cp systemd/dots-health.service systemd/dots-health.timer systemd/dots-health-alert.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now dots-health.timer
+```
+
+`.env` (read by the units through `EnvironmentFile`) must define:
+
+- `GH_TOKEN`: the token the `github token` check tests (sent only to `api.github.com`).
+- `DOT_LOGIN`: the dot's GitHub login, shared with the breaker (`docs/breaker.md`).
+- `DISCORD_WEBHOOK`: where `dots-health-alert.service` posts when the dot is down. Unset, the alert does
+  nothing.
+
+### What to check after
+
+- `systemctl --user list-timers` shows `dots-health.timer` with a next run in at most 10 minutes.
+- `bin/health` prints the summary and exits 0 (healthy), 1 (degraded) or 2 (down).
+- `$STATE_DIR/health.json` exists and is fresh; the dashboard's health page reads it.
+- `bin/breaker status` (`docs/breaker.md`) if the breaker is installed too.

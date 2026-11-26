@@ -129,6 +129,21 @@ func resolveArtifact(state, recorded string) (string, bool) {
 	return "", false
 }
 
+// resolveReleasedArtifact is resolveArtifact for a released record. publish-held
+// moves the artifact copy from held/artifacts/ to held/released/artifacts/ and
+// leaves the record as it was, so a path under held/artifacts/ that is gone is
+// tried again under held/released/artifacts/.
+func resolveReleasedArtifact(state, recorded string) (string, bool) {
+	if real, ok := resolveArtifact(state, recorded); ok {
+		return real, true
+	}
+	const from, to = "held/artifacts/", "held/released/artifacts/"
+	if i := strings.Index(recorded, from); i >= 0 {
+		return resolveArtifact(state, recorded[:i]+to+recorded[i+len(from):])
+	}
+	return "", false
+}
+
 // readCapped reads at most limit bytes of a regular file, refusing a symlink.
 func readCapped(path string, limit int64) (string, bool) {
 	info, err := os.Lstat(path)
@@ -202,17 +217,24 @@ func (d *dash) autonomyArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, name := r.URL.Query().Get("kind"), r.URL.Query().Get("name")
-	if (kind != "notes" && kind != "held") || !autonomyNameRE.MatchString(name) {
+	if (kind != "notes" && kind != "held" && kind != "released") || !autonomyNameRE.MatchString(name) {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "bad kind or name"})
 		return
 	}
-	text, ok := readCapped(filepath.Join(d.state, kind, name), autonomyNoteCap)
+	dir := kind
+	if kind == "released" {
+		dir = filepath.Join("held", "released")
+	}
+	text, ok := readCapped(filepath.Join(d.state, dir, name), autonomyNoteCap)
 	if !ok {
 		writeJSONStatus(w, http.StatusNotFound, map[string]string{"error": "no such item"})
 		return
 	}
 	it, _ := parseGateFile(name, kind, text)
 	real, ok := resolveArtifact(d.state, it.Artifact)
+	if !ok && kind == "released" {
+		real, ok = resolveReleasedArtifact(d.state, it.Artifact)
+	}
 	if !ok {
 		writeJSONStatus(w, http.StatusNotFound, map[string]string{"error": "artifact is missing or outside the state directory"})
 		return

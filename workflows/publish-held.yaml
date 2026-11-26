@@ -139,6 +139,14 @@ states:
       st=${STATE_DIR:-/state}
       rmdir "$st/held/.release-$id" 2>/dev/null || true
       if [ -f "$st/held/released/$id" ] && [ ! -e "$st/held/$id" ]; then
+        # The artifact copy follows its record into held/released/artifacts/, and
+        # copies released over 30 days ago go (only directories one level down there).
+        if [ -d "$st/held/artifacts/$id" ] && [ ! -L "$st/held/artifacts/$id" ]; then
+          mkdir -p "$st/held/released/artifacts"
+          rm -rf "$st/held/released/artifacts/$id"
+          mv "$st/held/artifacts/$id" "$st/held/released/artifacts/$id" && touch "$st/held/released/artifacts/$id" || true
+        fi
+        find "$st/held/released/artifacts" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true
         echo "publish-held: $id released"
         exit 0
       fi
@@ -304,6 +312,14 @@ states:
 
       mkdir -p "$held/released"
       mv "$rec" "$held/released/$id"
+      # The artifact copy follows its record into held/released/artifacts/, and
+      # copies released over 30 days ago go (only directories one level down there).
+      if [ -d "$held/artifacts/$id" ] && [ ! -L "$held/artifacts/$id" ]; then
+        mkdir -p "$held/released/artifacts"
+        rm -rf "$held/released/artifacts/$id"
+        mv "$held/artifacts/$id" "$held/released/artifacts/$id" && touch "$held/released/artifacts/$id" || true
+      fi
+      find "$held/released/artifacts" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true
       printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$who" "$action" "$ref" "$id" >> "$held/released.log"
       echo "publish-held: $id released"
     timeout: 300

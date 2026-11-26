@@ -219,4 +219,27 @@ for f in notarget badtarget noart gone2 out2 ok2; do
   [ ! -d "$state/held/.release-$f.txt" ] || { echo "FAIL $f: lock left on a refusal"; fail=1; }
 done
 
+# The artifact copy follows the released record; old released copies are pruned.
+ra=$state/held/artifacts/ar.txt
+mkdir -p "$ra" "$state/held/released/artifacts/old.txt" "$state/held/released/artifacts/new.txt"
+printf 'copy\n' > "$ra/answer.md"
+touch -d '45 days ago' "$state/held/released/artifacts/old.txt"
+rec ar.txt "action: comment" "ref: o/r#7" "artifact: $ra/answer.md"
+ok ar.txt
+moved ar.txt
+[ -f "$state/held/released/artifacts/ar.txt/answer.md" ] && [ ! -e "$ra" ] || { echo "FAIL ar.txt: artifact copy should move to held/released/artifacts"; fail=1; }
+[ ! -e "$state/held/released/artifacts/old.txt" ] || { echo "FAIL ar.txt: a copy released 45 days ago should be pruned"; fail=1; }
+[ -d "$state/held/released/artifacts/new.txt" ] || { echo "FAIL ar.txt: a recent copy must stay"; fail=1; }
+# A refused release leaves the copy where it is.
+mkdir -p "$state/held/artifacts/keep.txt"
+printf 'c\n' > "$state/held/artifacts/keep.txt/answer.md"
+rec keep.txt "action: merge" "ref: o/r#7" "artifact: $state/held/artifacts/keep.txt/answer.md"
+nope keep.txt "not releasable"
+[ -f "$state/held/artifacts/keep.txt/answer.md" ] || { echo "FAIL keep.txt: a refused release moved the copy"; fail=1; }
+# file-issue: verify moves the copy of a record file-upstream released (fi.txt, above).
+mkdir -p "$state/held/artifacts/fi.txt"
+printf 'b\n' > "$state/held/artifacts/fi.txt/issue.md"
+fi_run verify fi.txt a/b "$L" || { echo "FAIL verify: released record with a copy"; fail=1; }
+[ -f "$state/held/released/artifacts/fi.txt/issue.md" ] || { echo "FAIL verify: file-issue copy not moved"; fail=1; }
+
 [ "$fail" = 0 ] && echo "ok: publish-held" || exit 1

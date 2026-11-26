@@ -44,8 +44,10 @@ wipes. So when the gate writes a held record it copies the artifact to
 path. `publish-held` reads `artifact:`, so a release works after the original is
 gone. A missing or empty artifact, or one above `GATE_ARTIFACT_CAP` bytes (default
 5 MiB), is not copied: the record keeps the original path and has no `source`
-line. The copy stays under `held/artifacts/` after the release; the record moves
-to `held/released/` and still points at it.
+line. After a release the copy moves to `held/released/artifacts/<record name>/` (the record
+moves to `held/released/` and keeps its `artifact:` line; the dashboard looks in both
+places), and the same step deletes copies there released over 30 days ago. Copies of
+notes under `notes/artifacts/` are not cleaned.
 
 A push from `fix-issue` or `tend-repo` names no `push-repo`: the release pushes to
 the repository of the `ref`, which is wrong for a fork the dot has no write access
