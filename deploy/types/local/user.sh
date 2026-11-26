@@ -83,7 +83,7 @@ render_units() {
     *) at=$DOTS_HOME ;;
   esac
   local src="$DOTS_HOME/systemd" dst="$HOME/.config/systemd/user" u
-  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer; do
+  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer dots-workspace-sync.service dots-workspace-sync.timer; do
     [ -f "$src/$u" ] || { warn "$src/$u is missing, skipped"; continue; }
     sed -e "s|%h/projects/perso/opencode-dots|$at|g" \
       -e "s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |" \
@@ -184,6 +184,11 @@ configure_dots() {
     if [ -x "$DOTS_HOME/bin/dashboard" ]; then systemctl --user enable --now dots-dashboard.service; fi
     if [ "${DOTS_ENABLE_TEND:-0}" = 1 ] && [ -s "$DOTS_HOME/tend.list" ]; then
       systemctl --user enable --now dots-tend.timer
+    fi
+    if [ -s "$HOME/.config/dots/workspace.env" ]; then
+      systemctl --user enable --now dots-workspace-sync.timer
+    else
+      warn "workspace sync stays off: copy systemd/dots-workspace.env.example to $HOME/.config/dots/workspace.env first"
     fi
   fi
 }

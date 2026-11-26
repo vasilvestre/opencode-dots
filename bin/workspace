@@ -3,12 +3,12 @@
 # repository per workspace, so a server and the machines you work on share it.
 #
 #   bin/workspace init                      clone (or create) the workspace repository
-#   bin/workspace publish                   WRITER: copy lessons.md, memory.md, raised.txt into it and push
+#   bin/workspace publish                   WRITER: copy lessons.md, memory.md, raised.txt and the worklogs into it and push
 #   bin/workspace pull                      fetch what the writer published
 #   bin/workspace install                   READER: put the published lessons into this machine's state
 #   bin/workspace note REPO SUBJECT TEXT    READER: append a note to this machine's inbox file
 #   bin/workspace release                   READER: commit and push the inbox
-#   bin/workspace checkout REPO             READER: pull, install, show where the lessons are
+#   bin/workspace checkout REPO             READER: pull, install, show where the lessons and worklogs are
 #   bin/workspace inbox [REPO]              WRITER: print the inbox notes, for tend to fold in
 #   bin/workspace archive                   WRITER: move the folded inbox notes aside
 #   bin/workspace sync                      pull, then publish (writer) or install and release (reader)
@@ -16,7 +16,8 @@
 # One writer: lessons.md is rewritten whole, so only the server (DOTS_WORKSPACE_ROLE=writer)
 # publishes it. A reader never edits it: it appends to inbox/<actor>-<host>-<date>.md, a file
 # no other machine writes, so nothing conflicts. Only lessons.md, memory.md and raised.txt of
-# state/tend/<owner>/<repo>/ are ever copied: no clone, no log, no secret.
+# state/tend/<owner>/<repo>/ are copied, plus the worklog of each pull request and issue the
+# dot worked on there, under tend/<owner>/<repo>/worklogs/: no clone, no log, no secret.
 #
 # Settings (environment):
 #   DOTS_WORKSPACE_REMOTE  the git remote, such as dots@server:workspaces/default.git (required)
@@ -76,6 +77,27 @@ cmd_init() {
   echo "workspace: cloned into $dir"
 }
 
+# The worklog of each pull request and issue the dot worked on for one repository,
+# as "source<TAB>name". reply-pr and fix-issue write it in their own run
+# directory, so the repository is in the path (fix) or in pr.json (replies).
+worklogs() { # $1 = owner/name
+  local f p n
+  for f in "$state"/fix/"$1"/issue-*/worklog.md; do
+    [ -f "$f" ] || continue
+    n=${f%/worklog.md}
+    n=${n##*/issue-}
+    printf '%s\tissue-%s.md\n' "$f" "$n"
+  done
+  for p in "$state"/replies/pr*/worklog.md; do
+    [ -f "$p" ] || continue
+    n=${p%/worklog.md}
+    n=${n##*/pr}
+    [ -f "$state/replies/pr$n/pr.json" ] || continue
+    grep -Fq -- "/$1/" "$state/replies/pr$n/pr.json" || continue
+    printf '%s\tpr%s.md\n' "$p" "$n"
+  done
+}
+
 cmd_publish() {
   need_role writer publish
   need_clone
@@ -92,6 +114,11 @@ cmd_publish() {
         cp "$d$f" "$dir/tend/$rel/$f"
       fi
     done
+    while IFS=$'\t' read -r src name; do
+      [ -n "$src" ] || continue
+      mkdir -p "$dir/tend/$rel/worklogs"
+      cp "$src" "$dir/tend/$rel/worklogs/$name"
+    done < <(worklogs "$rel")
   done
   g add -A tend
   if g diff --cached --quiet; then echo "workspace: nothing new to publish"; return; fi
@@ -117,6 +144,12 @@ cmd_install() {
         cp "$d$f" "$state/tend/$rel/$f"
         n=$((n + 1))
       fi
+    done
+    for f in "$d"worklogs/*.md; do
+      [ -f "$f" ] || continue
+      mkdir -p "$state/tend/$rel/worklogs"
+      cp "$f" "$state/tend/$rel/worklogs/"
+      n=$((n + 1))
     done
   done
   echo "workspace: installed $n files into $state/tend"
@@ -152,6 +185,7 @@ cmd_checkout() {
   cmd_pull
   cmd_install >/dev/null
   echo "lessons: $state/tend/$1/lessons.md"
+  echo "worklogs: $state/tend/$1/worklogs"
   echo "inbox:   $dir/inbox/$actor-$host-$(date -u +%F).md (bin/workspace note $1 SUBJECT TEXT, then release)"
 }
 

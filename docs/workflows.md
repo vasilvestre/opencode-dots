@@ -253,12 +253,16 @@ Steps:
 1. `survey` collects the pull requests updated since the cursor, the comments
    they received, the diffs of your commits, and the existing issues. It writes
    `material.md` in `$STATE_DIR/tend/<owner>/<repo>/` and adds a worktree of the
-   default branch.
+   default branch. It also writes `inbox.md` from `bin/workspace inbox`, the
+   notes other machines wrote about this repository, when this machine has a
+   workspace clone.
 2. `learn` asks the agent for five things: rewrite `lessons.md` (rules learned
    from mistakes), rewrite `memory.md` (durable facts about the repository that
    are not rules), write `findings.json`, optionally fix one mechanical defect
    in the worktree with a `pr.md` describing the pull request, and write
-   `promote.md` with the rules that hold beyond this repository.
+   `promote.md` with the rules that hold beyond this repository. A concrete
+   note in `inbox.md` is evidence of its own: the agent folds it into those two
+   files.
 3. `file` opens one issue, and only for the finding the agent marked
    `"confidence": "high"`. Every finding it files or skips goes into
    `raised.txt`, so a later pass treats that subject as decided.
@@ -269,6 +273,10 @@ Steps:
    `gh pr merge --auto --squash` only on a `merge` verdict.
 5. `notify` sends one digest and moves the cursor to today. A failed pass keeps
    the old cursor, so tomorrow replays the same window.
+
+`bin/tend` runs `bin/workspace sync` once the pass over every repository is over: on the server that
+publishes the lessons and the worklogs it wrote, on a workstation it installs what another machine
+published. A machine with no workspace clone logs that the sync failed and keeps the lessons local.
 
 ### Dry run
 

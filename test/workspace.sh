@@ -40,6 +40,14 @@ printf '{"x":1}\n' >"$w/prs.json"
 printf 'since\n' >"$w/since"
 printf '# lib lessons\n' >"$tmp/server/state/tend/acme/lib/lessons.md"
 
+# The worklog of one issue and one pull request on acme/app, one pull request on acme/lib.
+mkdir -p "$tmp/server/state/fix/acme/app/issue-7" "$tmp/server/state/replies/pr9" "$tmp/server/state/replies/pr10"
+printf '# worklog issue 7\n' >"$tmp/server/state/fix/acme/app/issue-7/worklog.md"
+printf '{"url":"https://github.com/acme/app/pull/9"}\n' >"$tmp/server/state/replies/pr9/pr.json"
+printf '# worklog pr 9\n' >"$tmp/server/state/replies/pr9/worklog.md"
+printf '{"url":"https://github.com/acme/lib/pull/10"}\n' >"$tmp/server/state/replies/pr10/pr.json"
+printf '# worklog pr 10\n' >"$tmp/server/state/replies/pr10/worklog.md"
+
 echo "== the writer"
 check "init creates the first commit on an empty remote" as server writer init
 check "publish succeeds" as server writer publish
@@ -50,6 +58,9 @@ refuses "a secret is never copied" test -e "$sw/tend/acme/app/.env"
 refuses "a clone is never copied" test -e "$sw/tend/acme/app/work"
 refuses "logs and json are never copied" test -e "$sw/tend/acme/app/prs.json"
 refuses "the cursor is never copied" test -e "$sw/tend/acme/app/since"
+check "the issue worklog is in the repository" test -f "$sw/tend/acme/app/worklogs/issue-7.md"
+check "the pull request worklog follows its repository" test -f "$sw/tend/acme/app/worklogs/pr9.md" -a -f "$sw/tend/acme/lib/worklogs/pr10.md"
+refuses "another repository's worklog does not land here" test -e "$sw/tend/acme/app/worklogs/pr10.md"
 check "publishing again says nothing new" as server writer publish
 refuses "a reader cannot publish" as ada reader publish
 
@@ -59,6 +70,7 @@ check "reader B inits" as grace reader init
 check "install puts the lessons in A's state" as ada reader install
 check "the lessons are the writer's" diff "$w/lessons.md" "$tmp/ada/state/tend/acme/app/lessons.md"
 check "the second repository comes too" test -f "$tmp/ada/state/tend/acme/lib/lessons.md"
+check "the worklogs are installed too" test -f "$tmp/ada/state/tend/acme/app/worklogs/issue-7.md" -a -f "$tmp/ada/state/tend/acme/app/worklogs/pr9.md"
 refuses "the writer cannot install over its own lessons" as server writer install
 refuses "a reader cannot overwrite through publish" as grace reader publish
 
