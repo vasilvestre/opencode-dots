@@ -88,6 +88,42 @@ routes to its failure state.
 ## Tests
 
 `bin/test-sandbox` covers `patch-guard` and the `sandbox-run` flags without docker.
-When docker and a local image starting with `dots-` exist (or `DOTS_TEST_IMAGE`)
-it also checks network, filesystem and timeout behaviour in a real container, and
-prints a skip message otherwise.
+Build the minimal test image from `deploy/sandbox/` and point the test at it:
+
+```bash
+docker build -t dots-sandbox-test deploy/sandbox
+DOTS_TEST_IMAGE=dots-sandbox-test bin/test-sandbox
+```
+
+Without docker or an image starting with `dots-` the real-container part prints a
+skip message.
+
+### Verified in a real container
+
+Run on a rootful docker 29 engine, cgroup v2, runc, no `/dev/kvm` needed or used.
+Each line is a check in `bin/test-sandbox` that passes:
+
+- no network: only `lo` exists, an outbound `wget` and a raw `nc` connect fail;
+- read-only root: writes to `/`, `/etc`, `/usr` fail;
+- capabilities: `CapEff` and `CapBnd` are zero, `chown` is refused;
+- `NoNewPrivs` is 1; the process runs as the caller's uid;
+- pids limit: 40 background sleepers fail to fork at 8 and succeed at 256;
+- memory limit: a 200 MB allocation under `DOTS_SANDBOX_MEMORY=32m` is killed (137);
+- `/tmp` is writable, `noexec`, and capped by `DOTS_SANDBOX_TMPFS_SIZE`;
+- `WORKDIR` is read-only by default (and the host directory stays untouched),
+  read-write with `DOTS_SANDBOX_WRITABLE=1`, and then it and `/tmp` are the only
+  writable places;
+- timeout: a `sleep 30` under `DOTS_SANDBOX_TIMEOUT=2` exits 124 and leaves no
+  container behind; the command's own exit status passes through;
+- an image outside the prefix is refused (exit 2), even when it exists locally.
+
+### Not verified
+
+- Rootless docker and podman: the machine used was rootful. `DOTS_SANDBOX_ENGINE=podman`
+  is untested. Under rootless, `--user` with the caller's uid and bind-mount
+  ownership may behave differently.
+- `gVisor` or any other runtime: not installed, not tried.
+- `--cpus` is set but no test measures CPU throttling.
+- A kernel or runtime escape: out of scope for a container.
+- Nothing is wired into a workflow, so the call sequence in the section above has not
+  run end to end.
