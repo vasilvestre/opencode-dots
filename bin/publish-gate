@@ -21,11 +21,20 @@
 #                  (docs/publish-held.md). A value is cut to one line, control characters dropped.
 #   GATE_TARGET   file-issue only: the upstream OWNER/REPO the issue is for. Written into a held
 #                  record as `target:` (ADR 0043, docs/upstream.md).
+#   GATE_REPO_SOURCE, GATE_UPSTREAM
+#                  file-issue only: the repository the finding comes from and the upstream
+#                  it is for. Written into a held record as `repo:` and `upstream:`, so
+#                  workflows/publish-held.yaml need not derive them.
 #   GATE_PR_AUTHOR login of the pull request author, for a merge at auto (ADR 0040).
 #   DOT_LOGIN      the dot's own login (default: the login `gh` is signed in as).
 #   GATE_MERGE_SCOPE  own (default) | all. At auto a merge is allowed for pull requests the dot
 #                  wrote or a dependency bot wrote (dependabot, renovate, github-actions);
 #                  `all` widens it to every author. An unknown author is not `own`.
+#   GATE_IDENTITY  off (or empty) | marker | signed: the repository's marking mode (ADR 0034,
+#                  docs/identity.md). With marking on, a pull request by DOT_LOGIN is the dot's own
+#                  only if its body carries the dot marker, which the caller checks and reports
+#                  as GATE_PR_BODY_MARKED=1; else it is a human's under the same login and a merge
+#                  at auto is refused. With marking off nothing changes.
 #
 # Exit codes, the reason always goes to stderr:
 #   0 allow      the step goes on.
@@ -95,7 +104,7 @@ record() { # DIR REASON
     printf 'reason: %s\n' "$2"
     if [ "$1" = held ]; then
       local pair key var val
-      for pair in branch:GATE_BRANCH base:GATE_BASE push-repo:GATE_PUSH_REPO title:GATE_TITLE closes:GATE_CLOSES target:GATE_TARGET; do
+      for pair in branch:GATE_BRANCH base:GATE_BASE push-repo:GATE_PUSH_REPO title:GATE_TITLE closes:GATE_CLOSES target:GATE_TARGET repo:GATE_REPO_SOURCE upstream:GATE_UPSTREAM; do
         key=${pair%%:*}
         var=${pair#*:}
         val=$(printf '%s' "${!var:-}" | head -n 1 | tr -d '\000-\037\177')
@@ -178,6 +187,16 @@ case "$level" in
           echo "publish-gate: merge on $ref refused: $author wrote it, not the dot or a dependency bot (GATE_MERGE_SCOPE=all widens it)" >&2
           exit 5
         fi
+        # Same login is not the same writer: with marking on, the dot's own pull request says so.
+        case "${GATE_IDENTITY:-off}" in
+          ""|off) ;;
+          marker|signed)
+            if [ "${GATE_PR_BODY_MARKED:-}" != 1 ]; then
+              echo "publish-gate: merge on $ref refused: $author is the dot's login but the pull request body has no dot marker, so it is treated as a human's (identity $GATE_IDENTITY; GATE_MERGE_SCOPE=all widens it)" >&2
+              exit 5
+            fi ;;
+          *) echo "publish-gate: unknown identity '$GATE_IDENTITY', merge refused" >&2; exit 5 ;;
+        esac
       fi
     fi
     ;;

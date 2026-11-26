@@ -180,6 +180,44 @@ rm -rf "$state/held" "$state/notes"
 STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=$state/src/answer.md "$gate" comment 2>/dev/null
 [ ! -e "$state/held" ] && [ ! -e "$state/notes" ] || { echo "FAIL legacy wrote a record"; fail=1; }
 
+# Identity (ADR 0034): the dot's login is not enough once marking is on.
+merge_id() { # IDENTITY MARKED AUTHOR SCOPE WANT
+  local got
+  AUTONOMY=auto STATE_DIR=$state GATE_REF=o/r#1 GATE_ARTIFACT=/x GATE_PR_AUTHOR=$3 DOT_LOGIN=me \
+    GATE_MERGE_SCOPE=$4 GATE_IDENTITY=$1 GATE_PR_BODY_MARKED=$2 "$gate" merge 2>"$state/err"
+  got=$?
+  [ "$got" = "$5" ] || { echo "FAIL merge identity='$1' marked='$2' author=$3 scope='$4': want $5, got $got"; fail=1; }
+}
+for id in "" off; do for m in "" 0 1; do merge_id "$id" "$m" me "" 0; done; done      # marking off: as before
+for id in marker signed; do
+  merge_id $id 1 me "" 0          # the dot's own, marked
+  merge_id $id "" me "" 5         # same login, no marker: a human's
+  merge_id $id 0 me "" 5
+  merge_id $id 0 me all 0         # the owner widened the scope
+  merge_id $id 0 stranger "" 5    # unchanged
+  merge_id $id 0 'dependabot[bot]' "" 0   # a dependency bot needs no marker
+  merge_id $id 1 stranger "" 5    # a marker does not make someone else's the dot's
+done
+merge_id bogus 1 me "" 5
+AUTONOMY=auto STATE_DIR=$state GATE_REF=o/r#1 GATE_PR_AUTHOR=me DOT_LOGIN=me GATE_IDENTITY=marker "$gate" merge 2>"$state/err"
+grep -q 'no dot marker' "$state/err" || { echo "FAIL the refusal does not name the missing marker"; fail=1; }
+# Marking never touches the other actions.
+for a in comment push open-pr; do
+  AUTONOMY=auto STATE_DIR=$state GATE_REF=o/r#1 GATE_IDENTITY=signed "$gate" $a 2>/dev/null || { echo "FAIL $a changed by identity"; fail=1; }
+done
+
+# A held file-issue record carries repo: and upstream:.
+rm -rf "$state/held"
+AUTONOMY=propose STATE_DIR=$state GATE_REF=up/tool GATE_ARTIFACT=/x GATE_TARGET=up/tool GATE_REPO_SOURCE=o/r GATE_UPSTREAM=up/tool \
+  "$gate" file-issue 2>/dev/null
+f=$(ls "$state"/held/*file-issue*)
+for l in 'target: up/tool' 'repo: o/r' 'upstream: up/tool'; do
+  grep -qx "$l" "$f" || { echo "FAIL file-issue record lacks '$l'"; fail=1; }
+done
+rm -rf "$state/held"
+AUTONOMY=propose STATE_DIR=$state GATE_REF=up/tool GATE_ARTIFACT=/x "$gate" file-issue 2>/dev/null
+! grep -Eq '^(repo|upstream):' "$state"/held/*file-issue* || { echo "FAIL unset repo/upstream written"; fail=1; }
+
 # An unwritable state dir never turns a hold into an allow.
 AUTONOMY=propose STATE_DIR=/proc/nope GATE_REF=o/r#7 "$gate" comment 2>/dev/null
 [ $? = 3 ] || { echo "FAIL unwritable state dir changed the exit code"; fail=1; }

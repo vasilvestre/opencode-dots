@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Sign what the dot writes to GitHub (ADR 0034). A shell step pipes a body through
+# it just before `gh ... --body-file`; the output is the body, signed or not.
+#
+#   bin/dot-sign WORKFLOW [RUN] < body > signed
+#
+# Environment:
+#   DOT_IDENTITY  off (or empty) | marker | signed. The effective mode of the repository.
+#                 off: the body comes out byte for byte as it went in, the legacy case.
+#                 marker: the invisible marker only, no visible footer.
+#                 signed: a short visible footer naming the dot, then the marker.
+#   DOT_NAME      the dot's name in the footer and the marker (default: dot).
+#   DOT_RUN       the run id, when RUN is not given (default: none).
+#
+# The marker is an HTML comment, `<!-- opencode-dots:dot=NAME:WORKFLOW:RUN -->`, the
+# one `bin/publish-gate` looks for on a pull request body to tell the dot's own pull
+# requests from a human's under the same login. The footer is the first sentence of
+# the one workflows/file-upstream.yaml puts on its upstream issues.
+#
+# A pure function of its inputs: no network, no file. A body that already carries a
+# marker is never signed twice. Exit 2 on an unknown mode.
+set -euo pipefail
+
+mode=${DOT_IDENTITY:-off}
+wf=$(printf '%s' "${1:-unknown}" | tr -cd 'A-Za-z0-9._@-')
+run=$(printf '%s' "${2:-${DOT_RUN:-none}}" | tr -cd 'A-Za-z0-9._@-')
+name=$(printf '%s' "${DOT_NAME:-dot}" | tr -cd 'A-Za-z0-9._@-')
+: "${wf:=unknown}" "${run:=none}" "${name:=dot}"
+
+case "$mode" in
+  off|marker|signed) ;;
+  *) echo "dot-sign: unknown identity mode '$mode' (off, marker, signed)" >&2; exit 2 ;;
+esac
+
+if [ "$mode" = off ]; then
+  exec cat
+fi
+
+# $(...) would eat the trailing newlines, so keep a sentinel.
+body=$(cat; printf x)
+body=${body%x}
+
+case "$body" in
+  *'<!-- opencode-dots:dot='*) printf '%s' "$body"; exit 0 ;;
+esac
+
+# Exactly one blank line between the body and what is added.
+while [ "${body%$'\n'}" != "$body" ]; do body=${body%$'\n'}; done
+[ -z "$body" ] || printf '%s\n\n' "$body"
+if [ "$mode" = signed ]; then
+  printf -- '---\n'
+  printf 'Filed by an automated agent (the dot `%s`) on behalf of its owner, not written by a person.\n\n' "$name"
+fi
+printf '<!-- opencode-dots:dot=%s:%s:%s -->\n' "$name" "$wf" "$run"

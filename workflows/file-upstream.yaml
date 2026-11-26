@@ -481,7 +481,7 @@ states:
       if [ ! -e "$w/released" ]; then
         grc=0
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$target" GATE_REPO="{{.inputs.repo}}" GATE_TARGET="$target" \
-        GATE_ARTIFACT="$w/issue.md" GATE_TITLE="$title" \
+        GATE_ARTIFACT="$w/issue.md" GATE_TITLE="$title" GATE_REPO_SOURCE="{{.inputs.repo}}" GATE_UPSTREAM="$target" \
           "${DOTS_HOME:-/work}/bin/publish-gate" file-issue || grc=$?
         case "$grc" in
           0) ;;
