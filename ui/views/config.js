@@ -60,6 +60,7 @@ export function mountConfig(el, arg) {
   const section = arg === "notifications" ? "notifications" : arg === "appearance" ? "appearance" : (!arg || arg === "models") ? "models" : "file";
   let notifBase = { webhook: "", enabled: false };
   let files = [];
+  let filesLoaded = false;
 
   const modelsPanel = h("div", { class: "card" },
     h("div", { class: "row between" },
@@ -167,7 +168,7 @@ export function mountConfig(el, arg) {
     const own = files.filter((f) => !f.generated);
     const generated = files.filter((f) => f.generated);
     mount(filesNav,
-      own.length ? own.map(item) : h("div", { class: "empty" }, "No local file."));
+      own.length ? own.map(item) : h("div", { class: "empty" }, filesLoaded ? "No local file." : "Loading…"));
     mount(generatedNav,
       generated.length ? h("h3", { class: "muted", style: { margin: "6px 0 4px" } }, "Generated from repos.yaml") : null,
       generated.length ? h("div", { class: "side-list" }, generated.map(item)) : null);
@@ -454,6 +455,7 @@ export function mountConfig(el, arg) {
       return;
     }
     if (destroyed) return;
+    filesLoaded = true;
     paintNav();
     if (section !== "file") return;
     const selected = files.find((f) => f.path === arg);

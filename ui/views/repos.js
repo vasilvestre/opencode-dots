@@ -254,12 +254,17 @@ export function mountRepos(el) {
       form: state.cfg.forms[key],
       rules: f.rules || [],
       onSave: async (rules) => {
-        if (JSON.stringify(rules) === JSON.stringify(f.rules)) return; // nothing changed
-        const res = await patch({ repo: row.name, key: "rules", feature: key, value: rules });
-        state.cfg = res.config;
-        render();
-        flash({ repo: row.name, key });
-        toast(`Saved the rules of ${labelOf(key)} on ${row.name}.`, { tone: "ok" });
+        const write = chain.then(async () => {
+          const current = state.cfg.repos.find((r) => r.name === row.name)?.features[key].rules;
+          if (JSON.stringify(rules) === JSON.stringify(current)) return; // nothing changed
+          const res = await patch({ repo: row.name, key: "rules", feature: key, value: rules });
+          state.cfg = res.config;
+          render();
+          flash({ repo: row.name, key });
+          toast(`Saved the rules of ${labelOf(key)} on ${row.name}.`, { tone: "ok" });
+        });
+        chain = write.catch(() => {});
+        await write;
       },
     });
   }

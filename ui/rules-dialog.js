@@ -69,7 +69,11 @@ export function openRulesDialog({ repo, featureLabel, form, rules, onSave }) {
       const input = h("input", { type: "text", value: rule.label || "", placeholder: "for example dot", class: "mono" });
       input.addEventListener("input", () => {
         const v = input.value.trim();
-        if (v) { rule.label = v; delete rule.on; } else delete rule.label;
+        if (v) {
+          rule.label = v;
+          delete rule.on;
+          for (const box of eventsBlock.querySelectorAll("input")) box.checked = false;
+        } else delete rule.label;
         eventsBlock.hidden = Boolean(v);
         refresh();
       });

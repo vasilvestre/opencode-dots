@@ -2,7 +2,7 @@ import { h, mount } from "../dom.js";
 import { awf, getJSON } from "../api.js";
 import { createEditor } from "../editor.js";
 import { renderFlow } from "../flow.js";
-import { navigate } from "../router.js";
+import { navigate, setLeaveGuard } from "../router.js";
 import { confirmDialog } from "../modal.js";
 
 // Workflows are read through awf, edited on disk. The list pairs each awf
@@ -46,6 +46,8 @@ export function mountWorkflows(el, arg) {
     });
   }
 
+  setLeaveGuard(leaveOk);
+
   function renderList() {
     const q = search.value.trim().toLowerCase();
     // A leading underscore marks a workflow only another workflow calls. Hide it
@@ -68,7 +70,6 @@ export function mountWorkflows(el, arg) {
         onclick: async (ev) => {
           if (ev.metaKey || ev.ctrlKey) return;
           ev.preventDefault();
-          if (w.name !== selected && !(await leaveOk())) return;
           navigate("workflows", w.name);
         },
       },
@@ -262,6 +263,7 @@ export function mountWorkflows(el, arg) {
   return {
     destroy() {
       destroyed = true;
+      setLeaveGuard(null);
       editor?.destroy();
       editor = null;
       document.title = "dots";

@@ -27,13 +27,27 @@ export function navigate(view, arg = "", { replace = false } = {}) {
   else location.hash = href;
 }
 
+let leaveGuard = null;
+
+// A view with unsaved work sets a guard; it runs before any route change and
+// answers false to stay where it is.
+export function setLeaveGuard(fn) {
+  leaveGuard = fn;
+}
+
 export function startRouter(onRoute) {
   let current = null;
-  const run = () => {
+  let currentRoute = null;
+  const run = async () => {
     const route = parseRoute();
     const key = `${route.view}/${route.arg}`;
     if (key === current) return;
+    if (currentRoute && leaveGuard && !(await leaveGuard(route))) {
+      history.replaceState(null, "", routeHref(currentRoute.view, currentRoute.arg));
+      return;
+    }
     current = key;
+    currentRoute = route;
     onRoute(route);
   };
   window.addEventListener("hashchange", run);
