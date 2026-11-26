@@ -1,0 +1,14 @@
+# Sensitive vocabulary floor for workflows/_classify-item.yaml (ADR 0040).
+#
+# One word per line. A word that starts a word of the item's own text (title
+# and prose, never code) forces level 3, so "auth" also matches
+# "authentication" and "authorization". Case is ignored. Blank lines and
+# lines starting with # are skipped. Letters, digits, space, - and _ only.
+# Edit freely: the next run reads it, nothing is cached.
+auth
+permission
+payment
+secret
+token
+migration
+network
