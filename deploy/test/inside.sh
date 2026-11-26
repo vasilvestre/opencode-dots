@@ -68,6 +68,8 @@ su - dots -c "DOTS_REPO=/src DOTS_MEMORY_PROFILE=medium bash /src/deploy/types/l
 check "medium caps the opencode service at 1200M" grep -q '^MemoryMax=1200M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
 check "medium leaves no stale cap on awf" test ! -e /home/dots/.config/systemd/user/dots-awf.service.d/20-memory.conf
 check "medium leaves no stale cap on the dashboard" test ! -e /home/dots/.config/systemd/user/dots-dashboard.service.d/20-memory.conf
+check "opencode unloads idle locations" grep -q '"location_idle_timeout": "5 minutes"' /home/dots/.config/opencode/opencode.jsonc
+check "that config is valid JSON with comments stripped" python3 -c 'import json,sys; json.load(open("/home/dots/.config/opencode/opencode.jsonc"))'
 check "no secret file written" test ! -e /home/dots/dots/.env
 
 if [ "$fail" = 0 ]; then echo "deploy test: all checks passed"; else echo "deploy test: failures above" >&2; exit 1; fi

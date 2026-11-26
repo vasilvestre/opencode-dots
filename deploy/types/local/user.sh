@@ -13,6 +13,7 @@
 #   DOTS_REPO         what to clone (default: the repository named in versions.env)
 #   DOTS_ENABLE_TEND  1 enables the daily tend timer once tend.list exists
 #   DOTS_HUB          1 also installs the Mercure hub for claims and events (hub.sh)
+#   DOTS_OPENCODE_IDLE  how long an idle project stays loaded in opencode (default: 5 minutes)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../../lib.sh
@@ -136,6 +137,22 @@ memory_limits() {
   log "memory limits written (profile $profile, ${total_kb} kB of RAM)"
 }
 
+# opencode keeps a "location" (a project directory and what it loaded: index, watchers) in memory until
+# it has been idle for experimental.location_idle_timeout, 60 minutes by default. Measured with
+# three directories opened: 428 MB stays at the default, and 242 MB with 1 minute (the floor is
+# 147 MB). Five minutes keeps a location loaded across the steps of one tend pass and gives the
+# memory back soon after. A config that already exists is never overwritten.
+opencode_config() {
+  local conf="$HOME/.config/opencode" idle=${DOTS_OPENCODE_IDLE:-5 minutes}
+  mkdir -p "$conf"
+  if [ -e "$conf/opencode.json" ] || [ -e "$conf/opencode.jsonc" ]; then
+    warn "an opencode config exists: add \"experimental\": {\"location_idle_timeout\": \"$idle\"} to it yourself"
+    return
+  fi
+  printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "experimental": { "location_idle_timeout": "%s" }\n}\n' "$idle" >"$conf/opencode.jsonc"
+  log "opencode config: idle locations are unloaded after $idle"
+}
+
 start_services() {
   if ! have_systemd_user; then
     warn "no systemd user manager here: units are written, nothing is started"
@@ -175,6 +192,7 @@ install_awf
 install_opencode
 clone_repo
 render_units
+opencode_config
 if [ "${DOTS_HUB:-0}" = 1 ]; then DOTS_HOME=$DOTS_HOME "$here/hub.sh"; fi
 memory_limits
 start_services

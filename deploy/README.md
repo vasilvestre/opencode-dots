@@ -52,3 +52,11 @@ reclaim in a loop. If the agent steps run on another machine (ADR 0031), 1 GB is
 3. Log in again on the new machine (`gh auth login`, `opencode auth login`): `bin/backup-server` leaves secrets out.
 4. Restore `state/tend` from the latest archive: `tar -xzf dots-<date>.tgz -C ~/dots`. Never copy `state/*/work`.
 5. Run one `bin/tend --dry-run`, enable `dots-tend.timer`, and only then retire the old server.
+
+## opencode memory over time
+
+`user.sh` writes `~/.config/opencode/opencode.jsonc` with `experimental.location_idle_timeout` at 5 minutes
+(`DOTS_OPENCODE_IDLE`), unless a config already exists. Measured with three project directories opened: 428 MB
+stays at the default of 60 minutes, 242 MB with 1 minute, and a server with no project is 147 MB. For a hard reset
+of what a run loaded, `DOTS_OPENCODE_STANDALONE=1` runs each step on a private server that stops with it: it
+frees everything, costs about 8 s a start and peaked at 744 MB on a large repository, so it is not the default.
