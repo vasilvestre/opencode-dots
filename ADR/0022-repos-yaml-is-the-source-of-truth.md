@@ -1,9 +1,9 @@
 # 0022. repos.yaml is the source of truth for the repository list
 
-- Status: accepted
+- Status: superseded by 0024
 - Date: 2026-11-25
 - Supersedes: none
-- Superseded by: none
+- Superseded by: 0024
 
 ## Context
 
