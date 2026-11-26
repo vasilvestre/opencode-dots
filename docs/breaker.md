@@ -56,7 +56,12 @@ breaker does not trip it again.
 ## Running it
 
 `bin/breaker check-all` reads `BREAKER_LIST` (default `breaker.list`), one `owner/repo` per line,
-optionally `owner/repo=subject,subject`, `#` for comments, and runs `check` on each. A timer runs
-it; see `systemd/`. Nothing generates that list yet.
+optionally `owner/repo=subject,subject`, `#` for comments, and runs `check` on each.
+
+`make repos` generates `breaker.list` from `repos.yaml`: every repository with `circuit_breaker`
+gets a line, with its `subjects` when it has any. The file is gitignored like `tend.list`; a
+repository without the key is not listed. The user timer `systemd/dots-breaker.timer` runs
+`bin/breaker check-all` every 15 minutes (`dots-breaker.service` reads `.env` for `DOT_LOGIN`,
+and sets `STATE_DIR`). Enable it with `systemctl --user enable --now dots-breaker.timer`.
 
 `bin/test-breaker` covers every trigger against a fake `gh`.

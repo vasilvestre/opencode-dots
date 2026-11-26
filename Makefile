@@ -29,7 +29,7 @@ image: build
 adr: ## check ADR numbering, index rows and supersede links
 	bin/adr check
 
-repos: ## regenerate awf-gh.yaml, tend.list, repos.map and sync.map from repos.yaml
+repos: ## regenerate awf-gh.yaml, tend.list, repos.map, sync.map and breaker.list from repos.yaml
 	go build -o bin/repos ./cmd/repos
 	bin/repos generate
 

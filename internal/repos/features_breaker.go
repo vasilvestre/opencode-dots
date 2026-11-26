@@ -7,6 +7,9 @@ import (
 	"unicode"
 )
 
+// FileBreaker is the file bin/breaker check-all reads: one line per repository.
+const FileBreaker = "breaker.list"
+
 func init() { Register(breaker{}) }
 
 // breaker is the optional circuit breaker of ADR 0040: when on, a revert of a
@@ -45,7 +48,22 @@ func (breaker) Check(v any) error {
 	return nil
 }
 
-func (breaker) Emit(*Resolved, *Output) error { return nil }
+// Emit adds the repository to breaker.list: `owner/repo`, or
+// `owner/repo=subject,subject` when subjects are given.
+func (breaker) Emit(r *Resolved, out *Output) error {
+	line := r.Name
+	if m, _ := r.Values["circuit_breaker"].(map[string]any); m != nil {
+		if list, _ := m["subjects"].([]any); len(list) > 0 {
+			parts := make([]string, len(list))
+			for i, e := range list {
+				parts[i] = strings.TrimSpace(e.(string))
+			}
+			line += "=" + strings.Join(parts, ",")
+		}
+	}
+	out.Files[FileBreaker] = append(out.Files[FileBreaker], line)
+	return nil
+}
 
 // Modify refuses the breaker below `auto`, where the dot never merges, and
 // hands the rules a `breaker` input: "on", or "on:" and the subjects joined by

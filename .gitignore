@@ -15,6 +15,7 @@ awf-gh.*.yaml
 !awf-gh.*.example.yaml
 repos.map
 sync.map
+breaker.list
 tend.list
 # The round trip fixtures of internal/repos carry the same names, with fake repos.
 !internal/repos/testdata/*

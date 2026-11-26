@@ -57,3 +57,25 @@ func TestBreakerInput(t *testing.T) {
 		t.Fatal("breaker input present while the feature is off")
 	}
 }
+
+func TestBreakerList(t *testing.T) {
+	doc, err := Parse([]byte("version: 1\nrepos:\n  acme/app:\n    autonomy: auto\n    circuit_breaker: {subjects: [security, db/migrate/]}\n  acme/lib:\n    autonomy: auto\n    circuit_breaker: true\n  acme/off:\n    autonomy: auto\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Generate(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(out.Files[FileBreaker], "\n")
+	if got != "acme/app=security,db/migrate/\nacme/lib" {
+		t.Fatalf("breaker.list lines = %q", got)
+	}
+	files, err := Render(out, Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(files[FileBreaker]), "acme/lib") {
+		t.Fatal("breaker.list not rendered")
+	}
+}

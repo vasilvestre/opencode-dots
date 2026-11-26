@@ -15,7 +15,7 @@ dashboard calls it when it saves `repos.yaml`. ADR 0022.
 | `features_trust.go` | `trust`: refuses a block that breaks the level of ADR 0032, after every other feature of the repository ran |
 | `store.go` | `ImportToStore`, `BuildFromStore`, `ExportYAML`, `DiffStoreAndFile`: repos.yaml and the database of `internal/store` (ADR 0024, step 1) |
 | `emit.go` | `Render`, `Write`, `Diff`, `Build`, settings merging |
-| `importer.go` | `Import`: builds a repos.yaml from awf-gh.yaml, tend.list, repos.map, sync.map |
+| `importer.go` | `Import`: builds a repos.yaml from awf-gh.yaml, tend.list, repos.map, sync.map (breaker.list is output only) |
 
 ## ADD A FEATURE
 

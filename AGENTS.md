@@ -121,6 +121,7 @@ cp systemd/* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now dots.service dots-awf.service dots-awf-gh.timer dots-dashboard.service
 systemctl --user enable --now dots-health.timer   # every 10 min, writes state/health.json
+systemctl --user enable --now dots-breaker.timer   # every 15 min, bin/breaker check-all
 systemctl --user enable --now dots-tend.timer   # optional, daily
 ```
 
