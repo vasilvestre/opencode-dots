@@ -60,6 +60,16 @@ shows it. No store table until a second period or a payer is needed.
    request (pick: note only, or note and comment)?
 3. May the payer wait until the first shared dot (yes or no)?
 
+### Settled in discussion (2026-11-26)
+
+- **Alone, the provider quota is the limit.** A solo developer needs no cap from the dot.
+- **In a team, it depends on who drives the work.** When developers launch the fixes themselves, each
+  one's own quota applies. When fixes are autonomous, the company pays and so must bound the spend: a
+  maximum per period on the company's card, set on the company profile
+  ([0035](0035-a-dot-is-an-engine-instance-with-a-policy-profile.md)) and applied to autonomous runs only.
+- So the cap is a property of a profile, not of the engine: the personal profile has none by default, the
+  company profile requires one before `act` or `auto` may run autonomously.
+
 ## Consequences
 
 Needs a check before dispatch and a clear message when a task is refused. It makes team use

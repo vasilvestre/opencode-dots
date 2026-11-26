@@ -78,6 +78,12 @@ the source event). Do not add polling for Sentry or Jira yet.
 2. Should an unmapped Sentry project be diagnosis-only, like Jira, or ignored (pick one)?
 3. Is the mapping kept in `repos.yaml` next to each repository (yes, or pick: a separate file)?
 
+### Settled in discussion (2026-11-26)
+
+- **First source wired end to end: advisories** (vulnerable dependencies).
+- **An unmapped Sentry project is diagnosis-only**, as an unmapped tracker project already is: the
+  adapter never invents a repository. The Jira mapping shape becomes the contract for every source.
+
 ## Consequences
 
 Easier: a CVE or a Sentry issue goes through the same workflows as an issue, and the dashboard shows

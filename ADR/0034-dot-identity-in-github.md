@@ -77,6 +77,15 @@ their body through it. No key yet: every repository is `signed`. Then add `ident
    for it (yes or no)?
 3. May `app` and `account` wait until a team member asks (yes or no)?
 
+### Settled in discussion (2026-11-26)
+
+- **No default mark.** `signed` is not the default everywhere. Marking the dot's actions is opt-in or
+  opt-out, set per repository or by a profile ([0035](0035-a-dot-is-an-engine-instance-with-a-policy-profile.md)):
+  a company profile may default to `signed` and a repository may opt out, a personal profile may leave it
+  off. Without a setting, behaviour stays as it is today.
+- Refusals stay: `silent` is refused at trust `client` and `strict`
+  ([0032](0032-trust-levels-per-repository.md)).
+
 ## Consequences
 
 Easier: the team cases (B1, B2), `/dots take` from the author of a pull request, telling dots

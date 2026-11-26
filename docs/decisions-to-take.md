@@ -1,5 +1,12 @@
 # Decisions to take
 
+## Answered (2026-11-26)
+
+- **0034**: `signed` is not the default everywhere; marking is opt-in or opt-out per repository or profile.
+- **0039**: advisories are wired end to end first; an unmapped Sentry project is diagnosis-only.
+- **0036**: alone, the provider quota is the limit; in a team, autonomous fixes need a company cap on the
+  company profile, developer-driven ones use the developer's own quota.
+
 One pass. Each line is a question, the record it unblocks and the recommended answer. Ordered by
 what blocks most. Every record stays `proposed` until you say so; the recommendation in each is the
 smallest step that can ship.
