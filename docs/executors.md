@@ -57,5 +57,7 @@ GitHub <- awf-gh (server) --POST--> 127.0.0.1:2512 (server) ==ssh tunnel==> awf 
   `max_per_run` events per pass.
 - The server's `GH_TOKEN` only has to read pull requests and issues. The steps
   that comment, push and open pull requests run on your machine with its token.
-- Run `--seed` before the first real pass, or the open pull requests of every
-  watched repository are dispatched at once.
+- `awf-gh` refuses to start without its seen file, so the first pass never
+  dispatches the backlog by accident. Run `--seed` to mark the open pull requests
+  as seen, or `touch` the file (`state/awf-gh/seen-<executor>.jsonl`) to let the
+  open pull requests be dispatched on that first pass.
