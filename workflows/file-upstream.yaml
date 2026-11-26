@@ -48,7 +48,7 @@ inputs:
     type: string
     required: false
     default: ""
-    description: path under STATE_DIR of the finding JSON
+    description: absolute path, inside STATE_DIR, of the finding JSON (a relative path is refused)
     validation:
       pattern: '^[A-Za-z0-9_./-]*$'
   - name: release
