@@ -36,8 +36,7 @@ forces `gh=local`.
 
 ```bash
 make build                                   # bin/awf-gh from $AWF_GH_SRC
-cp awf-gh.local.example.yaml awf-gh.yaml     # host paths, then list your repos
-bin/configure --awf=local --awf-gh=local     # rewrites awf_url and state_path in awf-gh.yaml
+bin/configure --awf=local --awf-gh=local     # regenerates awf-gh.yaml from repos.yaml with host paths
 systemctl --user edit dots-awf-gh.timer      # [Timer] Unit=dots-awf-gh-local.service
 ```
 
@@ -107,11 +106,12 @@ button; saving the config does not send a message.
 ## Tend: learn from what shipped
 
 `reply-pr` and `review-pr` react. `tend-repo` looks back. Once a day,
-`bin/tend` runs it for every repository in `tend.list`:
+`bin/tend` runs it for every repository with `tend` enabled in `repos.yaml`
+(it reads the generated `tend.list`):
 
 ```bash
-cp tend.list.example tend.list
-$EDITOR tend.list        # owner/repo auto_merge
+$EDITOR repos.yaml       # tend: true, or tend: {auto_merge: true}
+make repos
 bin/tend                 # or: systemctl --user start dots-tend.service
 ```
 
@@ -137,16 +137,35 @@ per repository:
 systemctl --user enable --now dots-tend.timer
 ```
 
-## Watch list
+## The list of repositories
 
-The repos the watcher polls are private names, and this repository is public.
-`awf-gh.yaml` is therefore gitignored and only `awf-gh.example.yaml` is
-versioned:
+One file says which repositories the dot works on and what it does on each:
+`repos.yaml`. The names are private and this repository is public, so it is
+gitignored and only `repos.example.yaml` is versioned:
 
 ```bash
-cp awf-gh.example.yaml awf-gh.yaml
-$EDITOR awf-gh.yaml     # add your private repos
+go build -o bin/repos ./cmd/repos
+bin/repos import        # existing install: builds repos.yaml from awf-gh.yaml, tend.list and repos.map
+cp repos.example.yaml repos.yaml   # new install only, never over an existing awf-gh.yaml
+$EDITOR repos.yaml      # one block per repository
+make repos              # writes awf-gh.yaml, tend.list, repos.map and sync.map
+make configure          # fits awf_url and state_path to local or docker mode
 ```
+
+A repository block holds feature keys: `review`, `reply`, `fix_issue`, `fix_ci`
+(the watcher rules), `tend`, `checkout`, `sync` and `provider`. `defaults`
+supply values to every repository that enables a feature (they never switch one
+on), and a `profiles` entry bundles keys a repository takes with `use`.
+`bin/repos features` lists the keys with what each does.
+
+`awf-gh.yaml`, `tend.list`, `repos.map` and `sync.map` are generated: do not edit
+them. The dashboard validates `repos.yaml` when it saves it, refuses a file that
+would not generate, and rewrites the four files. `make configure` regenerates
+`awf-gh.yaml` with the `awf_url` and `state_path` that fit local or docker mode.
+
+Coming from the four hand-written files, `bin/repos import` builds the first
+`repos.yaml` from them, and its test shows regenerating gives the same rules.
+See [ADR 0022](ADR/0022-repos-yaml-is-the-source-of-truth.md).
 
 ## What the workflows do
 
@@ -187,12 +206,13 @@ pull request branch into a clone and add a detached worktree for the run:
   local opencode server only reads host paths.
 - Each run works in its own worktree under `$STATE_DIR/replies/pr<N>/work`, so
   two pull requests on the same repository never share a working tree.
-- `repos.map` makes a run reuse an existing checkout instead of cloning. One
-  `owner/repo=/absolute/path` per line:
+- A repository's `checkout:` in `repos.yaml` (generated into `repos.map`) makes
+  a run reuse an existing checkout instead of cloning:
 
-```bash
-cp repos.map.example repos.map   # gitignored
-$EDITOR repos.map
+```yaml
+repos:
+  owner/repo:
+    checkout: /absolute/path
 ```
 
 The workflow only fetches objects into that checkout and adds a worktree. Your

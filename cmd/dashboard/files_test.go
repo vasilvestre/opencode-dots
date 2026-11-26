@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -91,5 +92,84 @@ func TestSaveFile(t *testing.T) {
 	}
 	if rec := save(`{"path":"tend.list","content":"x"}`, "http://127.0.0.1:8099"); rec.Code != 200 {
 		t.Fatalf("plain list save returned %d", rec.Code)
+	}
+}
+
+func saveTo(t *testing.T, d *dash, path, content string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"path": path, "content": content})
+	req := httptest.NewRequest(http.MethodPut, "/api/save", strings.NewReader(string(body)))
+	req.Host = "127.0.0.1:8099"
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	d.saveFile(rec, req)
+	return rec
+}
+
+// repos.yaml is the one file to edit. Saving it writes the files the other tools
+// read, and a repos.yaml that cannot generate never reaches the disk.
+func TestSavingReposYamlRegeneratesTheOtherFiles(t *testing.T) {
+	root := t.TempDir()
+	d := &dash{root: root}
+	good := "version: 1\nrepos:\n  a/b: {review: true, tend: true, checkout: /src/b}\n"
+
+	rec := saveTo(t, d, "repos.yaml", good)
+	if rec.Code != 200 {
+		t.Fatalf("save returned %d: %s", rec.Code, rec.Body)
+	}
+	var resp struct {
+		Generated []string `json:"generated"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Generated) != 3 {
+		t.Fatalf("response = %s, want the three generated files", rec.Body)
+	}
+	for file, want := range map[string]string{"tend.list": "a/b false", "repos.map": "a/b=/src/b", "awf-gh.yaml": "workflow: review-pr"} {
+		if got, _ := os.ReadFile(filepath.Join(root, file)); !strings.Contains(string(got), want) {
+			t.Errorf("%s = %q, want it to contain %q", file, got, want)
+		}
+	}
+
+	bad := saveTo(t, d, "repos.yaml", "version: 1\nrepos:\n  a/b: {reveiw: true}\n")
+	if bad.Code != http.StatusUnprocessableEntity || !strings.Contains(bad.Body.String(), `unknown key \"reveiw\"`) {
+		t.Fatalf("typo returned %d: %s, want 422 naming the key", bad.Code, bad.Body)
+	}
+	if got, _ := os.ReadFile(filepath.Join(root, "repos.yaml")); string(got) != good {
+		t.Fatalf("a repos.yaml that cannot generate reached the disk: %q", got)
+	}
+}
+
+func TestGeneratedFilesAreProtectedOnlyOnceReposYamlExists(t *testing.T) {
+	root := t.TempDir()
+	d := &dash{root: root}
+	if rec := saveTo(t, d, "tend.list", "a/b true\n"); rec.Code != 200 {
+		t.Fatalf("before the migration a hand edit returned %d, want 200", rec.Code)
+	}
+	if err := os.WriteFile(filepath.Join(root, "repos.yaml"), []byte("version: 1\nrepos:\n  a/b: {review: true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{"tend.list", "awf-gh.yaml", "repos.map", "sync.map"} {
+		rec := saveTo(t, d, file, "x\n")
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "edit repos.yaml") {
+			t.Errorf("%s: hand edit returned %d: %s, want 409 pointing at repos.yaml", file, rec.Code, rec.Body)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	d.files(rec, httptest.NewRequest(http.MethodGet, "/api/files", nil))
+	var list []editableFile
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	flags := map[string]bool{}
+	for _, f := range list {
+		flags[f.Path] = f.Generated
+	}
+	if v, ok := flags["repos.yaml"]; !ok || v {
+		t.Errorf("repos.yaml listed as %v/%v, want editable", ok, v)
+	}
+	for _, name := range []string{"awf-gh.yaml", "tend.list", "repos.map", "sync.map"} {
+		if !flags[name] {
+			t.Errorf("%s is not flagged generated", name)
+		}
 	}
 }

@@ -558,7 +558,7 @@ hits a shared rate limit within minutes and every agent step then fails with
 
 ```bash
 make validate                    # parse every workflow
-cp tend.list.example tend.list   # then list the repositories to tend
+$EDITOR repos.yaml; make repos  # tend: true on the repositories to tend
 bin/tend                         # one pass, by hand
 systemctl --user enable --now dots-tend.timer
 ```

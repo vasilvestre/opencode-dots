@@ -18,7 +18,7 @@ Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
 # gh must be on PATH. The user manager's default PATH has /usr/bin and
 # ~/.local/bin; add a line here if gh lives elsewhere.
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-# awf-gh.yaml here is a host-path config: see awf-gh.local.example.yaml.
+# awf-gh.yaml here is generated from repos.yaml with host paths (make configure).
 # Only GH_TOKEN is taken from .env: the watcher needs nothing else, and the rest
 # (DISCORD_WEBHOOK) must not reach its children.
 ExecStart=/bin/sh -c 'GH_TOKEN=$$(sed -n "s/^GH_TOKEN=//p" %h/projects/perso/opencode-dots/.env) && export GH_TOKEN && exec %h/projects/perso/opencode-dots/bin/awf-gh --config %h/projects/perso/opencode-dots/awf-gh.yaml'
