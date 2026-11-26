@@ -223,6 +223,9 @@ export function mountRepos(el) {
     const tr = h("tr", { class: open ? "open" : "" },
       h("td", {},
         h("b", {}, row.name),
+        row.trust && row.trust !== "open"
+          ? h("span", { class: "badge warn", title: "ADR 0032: what this repository may reach", style: { marginLeft: "6px" } }, row.trust)
+          : null,
         row.use?.length ? h("span", { class: "chips", style: { display: "inline-flex", marginLeft: "6px" } },
           row.use.map((u) => h("span", { class: "chip", title: "profile in repos.yaml" }, u))) : null),
       FEATURES.map(([key]) => featureCell(row, key)),

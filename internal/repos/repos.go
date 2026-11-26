@@ -35,6 +35,25 @@ type Settings struct {
 	// Executors maps a name to the awf serve that runs the tasks of the
 	// repositories naming it (ADR 0031). The watcher stays where it is.
 	Executors map[string]string `yaml:"executors"`
+	// Trust is what this machine may hold and what a client repository may use
+	// (ADR 0032). It is a machine setting, like awf_url.
+	Trust TrustSettings `yaml:"trust"`
+}
+
+// TrustSettings is settings.trust (ADR 0032). Host is the highest level this
+// machine may hold: open, client or strict. Allow names what a repository at
+// client or strict may reach.
+type TrustSettings struct {
+	Host  string     `yaml:"host"`
+	Allow TrustAllow `yaml:"allow"`
+}
+
+// TrustAllow is the allow-list of settings.trust.allow: the providers, the
+// models and the executors a client or strict repository may use.
+type TrustAllow struct {
+	Providers []string `yaml:"providers"`
+	Models    []string `yaml:"models"`
+	Executors []string `yaml:"executors"`
 }
 
 // Entry is one repository, in file order, with what its block says before any

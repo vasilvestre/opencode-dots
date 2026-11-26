@@ -260,3 +260,22 @@ func TestADocumentWithExecutorsIsReadable(t *testing.T) {
 		t.Errorf("review should be on: %+v", r.Features["review"])
 	}
 }
+
+func TestReposConfigShowsTheTrustLevel(t *testing.T) {
+	const data = `version: 1
+settings:
+  trust: {host: client, allow: {providers: [opencode], executors: [server]}}
+  executors: {server: http://127.0.0.1:2512}
+repos:
+  acme/client:
+    trust: client
+    executor: server
+  acme/open: {}
+`
+	if got := rowOf(t, data, "acme/client").Trust; got != "client" {
+		t.Fatalf("trust = %q, want client", got)
+	}
+	if got := rowOf(t, data, "acme/open").Trust; got != "" {
+		t.Fatalf("trust = %q, want empty for an open repository", got)
+	}
+}
