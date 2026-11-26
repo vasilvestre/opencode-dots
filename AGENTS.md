@@ -98,6 +98,7 @@ make down
 make awf-gh      # one polling pass, for testing by hand
 make repos       # regenerate awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
+make health      # go build ./cmd/health, then run it: exit 0 healthy, 1 degraded, 2 down
 bin/tend         # one tend-repo run per repository with tend enabled (tend.list)
 bin/claim start OWNER/REPO#N BRANCH   # hold the branch: the dot stops pushing to it (ADR 0026)
 bin/held REPO BRANCH                  # what a workflow step asks before a push: 0 free, 3 held
@@ -110,6 +111,7 @@ mkdir -p ~/.config/systemd/user
 cp systemd/* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now dots.service dots-awf.service dots-awf-gh.timer dots-dashboard.service
+systemctl --user enable --now dots-health.timer   # every 10 min, writes state/health.json
 systemctl --user enable --now dots-tend.timer   # optional, daily
 ```
 

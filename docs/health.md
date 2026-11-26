@@ -37,34 +37,21 @@ The token is sent only to `api.github.com` and is never printed.
 
 ## On a timer
 
-A unit that fails when the dot is not healthy makes `systemctl --user --failed`
-and any `OnFailure=` hook report it.
+`make health` builds `bin/health` and runs it. `systemd/dots-health.timer`
+starts `dots-health.service` 2 minutes after boot and every 10 minutes after
+that. The service writes the `--json` result to `$STATE_DIR/health.json`
+(replaced whole, so a reader never sees half a file) and keeps the exit code of
+`bin/health`. Exit 1 (degraded) is recorded but does not fail the unit; exit 2
+(down) fails it. The token is read from `.env` by the command and never printed.
 
-```ini
-# ~/.config/systemd/user/dots-health.service
-[Unit]
-Description=Is the dot alive?
-
-[Service]
-Type=oneshot
-WorkingDirectory=%h/projects/perso/opencode-dots
-ExecStart=%h/projects/perso/opencode-dots/bin/health
-SuccessExitStatus=1
-# SuccessExitStatus=1 tolerates "degraded"; remove it to fail on warnings too.
-
-# ~/.config/systemd/user/dots-health.timer
-[Timer]
-OnCalendar=*:0/15
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
+`OnFailure=` starts `dots-health-alert.service`, which posts one line to the
+`DISCORD_WEBHOOK` of `.env`, the destination the workflow `notify` steps use. It
+does nothing when the variable is unset. The dashboard's `notifications.json`
+(ADR 0017) is a separate destination that only the dashboard process reads, so
+the alert does not use it.
 
 ```bash
+cp systemd/dots-health*.* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now dots-health.timer
 ```
-
-For a push alert, add `OnFailure=` pointing at a unit that sends your
-notification; the health command itself sends nothing.

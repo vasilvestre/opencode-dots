@@ -1,0 +1,15 @@
+[Unit]
+Description=Is the dot alive? Writes state/health.json, alerts when down
+OnFailure=dots-health-alert.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
+# The token is read from .env by bin/health and never printed.
+EnvironmentFile=-%h/projects/perso/opencode-dots/.env
+# The dashboard reads health.json. The file is replaced whole, and the exit
+# code of bin/health stays the exit code of the unit.
+ExecStart=/bin/sh -c 'bin/health --json > "$STATE_DIR/health.json.tmp"; rc=$?; mv "$STATE_DIR/health.json.tmp" "$STATE_DIR/health.json"; exit $rc'
+# 1 is "degraded": recorded in the file, no alert. 2 is "down": the unit fails.
+SuccessExitStatus=1
