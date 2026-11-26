@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Which repositories does each machine's awf-gh watch? Read only: it changes nothing.
+#
+#   bin/watchers user@host        this machine against a server, over SSH (its ~/dots)
+#   bin/watchers /path/to/dir     this machine against another checkout, such as a copy
+#
+# A repository watched on both machines is dispatched twice for every event, and the two
+# machines may not agree on how to run it (issue #46). The list is read from the generated
+# awf-gh.yaml and awf-gh.<executor>.yaml files of each side. Exit status 0 when no repository
+# is watched twice, 1 when one is, 2 on an error. DOTS_WATCHERS_HERE names another directory
+# to stand for this machine (used by test/watchers.sh).
+set -euo pipefail
+
+[ $# -eq 1 ] || { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+other=$1
+here=${DOTS_WATCHERS_HERE:-$(cd "$(dirname "$0")/.." && pwd)}
+
+# repo<TAB>workflow<TAB>file for every rule of every watcher file in a directory.
+rules() { # rules <dir>
+  local f
+  for f in "$1"/awf-gh.yaml "$1"/awf-gh.*.yaml; do
+    [ -f "$f" ] || continue
+    case "$(basename "$f")" in awf-gh.*.example.yaml | awf-gh.yaml.* ) continue ;; esac
+    awk -v file="$(basename "$f")" '
+      /^[[:space:]]*-[[:space:]]*repo:/ { sub(/^[[:space:]]*-[[:space:]]*repo:[[:space:]]*/, ""); repo=$0 }
+      /^[[:space:]]+workflow:/ { sub(/^[[:space:]]+workflow:[[:space:]]*/, ""); if (repo != "") print repo "\t" $0 "\t" file }
+    ' "$f"
+  done
+}
+
+if [ -d "$other" ]; then
+  theirs=$(rules "$other")
+  where=$other
+else
+  theirs=$(ssh -o BatchMode=yes "$other" "$(declare -f rules); rules ~/dots") || { echo "watchers: cannot read $other" >&2; exit 2; }
+  where=$other
+fi
+mine=$(rules "$here")
+
+printf 'watched here:  %s repositories\n' "$(cut -f1 <<<"$mine" | sort -u | grep -c . || true)"
+printf 'watched there: %s repositories (%s)\n' "$(cut -f1 <<<"$theirs" | sort -u | grep -c . || true)" "$where"
+
+both=$(comm -12 <(cut -f1 <<<"$mine" | sort -u) <(cut -f1 <<<"$theirs" | sort -u))
+if [ -z "$both" ]; then
+  echo "no repository is watched on both machines"
+  exit 0
+fi
+echo "watched on BOTH (every event is dispatched twice):"
+while IFS= read -r repo; do
+  [ -n "$repo" ] || continue
+  printf '  %s\n    here:  %s\n    there: %s\n' "$repo" \
+    "$(awk -F'\t' -v r="$repo" '$1 == r {printf "%s ", $2}' <<<"$mine")" \
+    "$(awk -F'\t' -v r="$repo" '$1 == r {printf "%s ", $2}' <<<"$theirs")"
+done <<<"$both"
+exit 1
