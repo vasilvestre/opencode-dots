@@ -119,6 +119,21 @@ reaches the branch; a held answer survives the removal of `STATE_DIR/fix`; the
 record lines. Gate unit cases are in `bin/test-publish-gate`, the open-pr refusal
 in `bin/test-publish-held`, the dashboard path in `cmd/dashboard/autonomy_test.go`.
 
+## The shared clone race
+
+Every run on a repository shares one clone, and the clone has one fetch-head
+file. Two concurrent runs could fetch, then both read the file, so the second
+checked out the first one's commit and reviewed the wrong code. No workflow reads
+that file any more: each fetch step fetches into a private ref
+(`refs/dots/fetch/<workflow>-<pid>-<n>`), uses it for `worktree add`, `rebase`,
+`ls-tree` and `show`, and deletes it on exit. `review-pr` also fails (instead of
+warning) when the checkout is not the `sha` input and not the live pull request
+head either. Section `race` starts two `review-pr` runs at once on two pull
+requests of one clone, five times, with a git shim that sleeps after each fetch,
+and checks each run checked out its own commit, no `refs/dots` ref is left, and
+no workflow contains the fetch-head file name. `RACE_WF_DIR=<dir>` runs it
+against other workflows; against the old ones it fails.
+
 ## Not faked, not covered
 
 - The model: the stub writes canned files, so no prompt quality, no real tool
