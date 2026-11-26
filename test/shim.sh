@@ -33,7 +33,7 @@ export STUB_LOG=$work/log PATH="$shim:$work/stub:$PATH"
 fail=0
 run() { # run <name> <expected exit> <expected stdout substring> <expected log lines> -- env/args
   local name=$1 want_rc=$2 want_out=$3 want_calls=$4
-  shift 5
+  shift 4
   : >"$STUB_LOG"
   local out rc
   out=$(env "$@" 2>/dev/null)
