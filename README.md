@@ -97,7 +97,7 @@ cp notifications.example.json notifications.json
 
 Set `webhook` to a Discord channel URL of the form
 `https://discord.com/api/webhooks/<id>/<token>` and set `enabled` to `true`,
-either in the file or on the Config page. A save takes effect on the next
+either in the file or on the Settings page. A save takes effect on the next
 finished run without a restart. A dead webhook or a slow network only writes a
 line to the dashboard log. This setting is separate from `DISCORD_WEBHOOK`: the
 workflow `notify` steps keep using the environment variable. There is no test
@@ -339,21 +339,25 @@ It shows:
   when the answer names a next workflow, the message carries a button that
   opens the run dialog for it
 - the pull requests the watcher already saw
-- a Workflows tab: the success path of a workflow in order, each step stating
-  where it goes on success, on failure and on a branch, plus an editor that
+- a Workflows tab: a workflow drawn as a diagram, with a detail panel per step,
+  plus an editor linked to the diagram that
   saves, validates and runs the file without leaving the page
-- a Config tab: the local configs in the same editor, plus Model defaults for
-  global presets and per-role overrides, the Discord webhook and the desktop
-  notification switch
+- a Settings tab: the local configs in the same editor, plus Model defaults for
+  global presets and per-role overrides, the Discord webhook, the desktop
+  notification switch and the theme
 - a Cost tab: every pull request, issue and repository the runs touched, the
   total spent on it and which workflow spent what. The grouping comes from the
   run logs, so it covers the runs the dashboard recorded
 - a Memory tab: per repository, the rules in `state/tend/<owner>/<repo>/lessons.md`
   and the facts in `memory.md`, with the date the last pass covered
-- a Repos tab: every repository in `awf-gh.yaml`, the workflows that watch it,
-  their triggers and author filters, and the PRs the watcher already saw. A
-  warning marks the repositories Tower indexes whose `.towerignore` is missing
-  or lists no pattern.
+- a Repos tab: one row per repository in `repos.yaml`, with a checkbox for
+  review, reply, fix issue, fix CI, tend and sync and a select for the agent CLI.
+  A click edits `repos.yaml` at once (comments are kept, the previous file is
+  stamped as a backup) and the watcher files are regenerated; a change the
+  generator refuses is not written. The row's details show the watcher rules, the
+  PRs already seen and a warning when Tower indexes a repository whose
+  `.towerignore` is missing or lists no pattern. Custom rules (a block or a list)
+  show a gear and stay editable in the YAML editor.
 
 The page proxies `/awf/*` to `http://127.0.0.1:2511`, so it needs `awf serve`
 running (`make up`). It binds loopback only. It writes `state/logs/` (awf

@@ -149,6 +149,7 @@ func main() {
 	mux.HandleFunc("/api/logs", d.logs)
 	mux.HandleFunc("/api/repos", d.repos)
 	mux.HandleFunc("/api/repos/names", d.repoNames)
+	mux.HandleFunc("/api/repos/config", d.reposConfig)
 	mux.HandleFunc("/api/replay", d.replay)
 	mux.HandleFunc("/api/thread", d.thread)
 	mux.HandleFunc("/api/ask", d.ask)

@@ -3,13 +3,16 @@ import { getJSON, putJSON } from "../api.js";
 import { toast } from "../toast.js";
 import { createEditor } from "../editor.js";
 import { bytes, when } from "../format.js";
-import { navigate } from "../router.js";
+import { confirmDialog } from "../modal.js";
+import { setLeaveGuard } from "../router.js";
+import { setThemeMode, themeMode } from "../theme.js";
 import { desktopState, isDesktopEnabled, requestDesktopPermission, setDesktopEnabled } from "../notifications.js";
 
 const KIND_LABEL = {
   watcher: "watcher rules: which repository, which workflow, which events",
   list: "repositories visited by the daily pass, one per line",
   map: "host paths for the workflow shell steps",
+  repos: "every repository and what the dot does on it",
 };
 
 // Local configs are the files the agent stack reads from the repository root.
@@ -55,53 +58,126 @@ export function mountConfig(el, arg) {
     onclick: toggleDesktop,
   }, desktopLabel());
 
-  mount(el, h("div", { class: "stack" },
+  const section = arg === "notifications" ? "notifications" : arg === "appearance" ? "appearance" : (!arg || arg === "models") ? "models" : "file";
+  let notifBase = { webhook: "", enabled: false };
+  let files = [];
+  let filesLoaded = false;
+
+  const modelsPanel = h("div", { class: "card" },
     h("div", { class: "row between" },
-      h("div", {},
-        h("h1", {}, "Config"),
-        h("p", { class: "muted" }, "Files awf-gh and the workflows read at run time. Saves keep a stamped backup beside the file."),
-      ),
-      arg ? h("button", { class: "btn", onclick: () => navigate("config") }, "All files") : null,
+      h("h2", {}, "Model defaults"),
+      saveModelsBtn,
     ),
-    h("div", { class: "card" },
-      h("div", { class: "row between" },
-        h("h2", {}, "Model defaults"),
-        saveModelsBtn,
-      ),
-      h("p", { class: "muted", style: { marginTop: "6px" } },
-        "Set the global model presets, then override individual roles only when needed. opencode takes ",
+    h("p", { class: "muted", style: { marginTop: "6px" } },
+      "Set the global model presets, then override individual roles only when needed. opencode takes ",
         h("code", {}, "provider/model#variant"), ", for example ", h("code", {}, "local/helper#fast"),
         ". The claude CLI takes its own names, for example ", h("code", {}, "sonnet"), " or ", h("code", {}, "claude-haiku-4-5"),
         "; a repository routed to ", h("code", {}, "provider: claude"), " uses the claude presets. Changes apply to the next workflow run. Runs already in progress keep their current model."),
       modelsEl,
+  );
+  const notifPanel = h("div", { class: "card" },
+    h("div", { class: "row between" },
+      h("h2", {}, "Notifications"),
+      saveNotifBtn,
     ),
-    h("div", { class: "card" },
-      h("div", { class: "row between" },
-        h("h2", {}, "Notifications"),
-        saveNotifBtn,
-      ),
-      h("p", { class: "muted", style: { marginTop: "6px" } },
-        "The dashboard sends a Discord message when a run finishes. The browser only saves the URL here."),
-      h("div", { class: "field" },
-        h("label", { for: "notif-webhook" }, "Discord webhook URL"),
-        webhookInput,
-      ),
-      h("div", { class: "field" },
-        h("label", { for: "notif-enabled" }, "Enabled"),
-        enabledInput,
-      ),
-      h("div", { class: "field" },
-        h("span", {}, "Desktop notifications: "),
-        desktopStateEl,
-        desktopBtn,
-      ),
+    h("p", { class: "muted", style: { marginTop: "6px" } },
+      "The dashboard sends a Discord message when a run finishes. The browser only saves the URL here."),
+    h("div", { class: "field", style: { marginTop: "12px" } },
+      h("label", { for: "notif-webhook" }, "Discord webhook URL"),
+      webhookInput,
     ),
-    listEl,
-    h("div", { id: "config-editor" }),
-  ));
+    h("label", { class: "check", for: "notif-enabled" }, enabledInput, "Send a message when a run finishes"),
+    h("div", { class: "field" },
+      h("span", { class: "label" }, "Desktop notifications"),
+      h("div", { class: "row" }, desktopStateEl, desktopBtn),
+    ),
+  );
+  const themeSelect = h("select", {
+    id: "theme-mode",
+    onchange: () => { setThemeMode(themeSelect.value); toast("Theme saved in this browser.", { tone: "ok" }); },
+  }, [["auto", "Auto (follow the system)"], ["dark", "Dark"], ["light", "Light"]].map(([v, l]) =>
+    h("option", { value: v, selected: v === themeMode() }, l)));
+  const appearancePanel = h("div", { class: "card" },
+    h("h2", {}, "Appearance"),
+    h("p", { class: "muted", style: { marginTop: "6px" } }, "Applies at once and is kept in this browser only."),
+    h("div", { class: "field", style: { marginTop: "12px" } },
+      h("label", { for: "theme-mode" }, "Theme"), themeSelect),
+  );
+  const editorPanel = h("div", { id: "config-editor" },
+    h("div", { class: "empty" }, "loading file…"));
+
+  const navEl = h("nav", { class: "side-list", "aria-label": "Settings sections" });
+  const filesNav = h("div", { class: "side-list" });
+  const generatedNav = h("div", {});
+  const side = h("aside", { class: "side" },
+    h("h2", {}, "Settings"),
+    navEl,
+    h("h3", { class: "muted", style: { marginTop: "6px" } }, "Local files"),
+    filesNav,
+    generatedNav,
+  );
+  modelsPanel.hidden = section !== "models";
+  notifPanel.hidden = section !== "notifications";
+  appearancePanel.hidden = section !== "appearance";
+  editorPanel.hidden = section !== "file";
+  mount(el, h("div", { class: "split" }, side,
+    h("div", { class: "stack" },
+      h("p", { class: "muted" }, "Dashboard preferences and the local files the stack reads at run time. Saves keep a stamped backup beside the file."),
+      modelsPanel, notifPanel, appearancePanel, editorPanel)));
+
+  const modelsDirty = () => modelInputs.some((i) => i.value !== i.dataset.initial)
+    || modelRoles.some((r) => r.checkbox.checked !== (r.checkbox.dataset.initial === "1"));
+  const notifDirty = () => webhookInput.value !== notifBase.webhook || enabledInput.checked !== notifBase.enabled;
+  const anyDirty = () => modelsDirty() || notifDirty() || Boolean(editor?.isDirty());
+  async function leaveOk() {
+    if (!anyDirty()) return true;
+    return confirmDialog({
+      title: "Discard unsaved changes?",
+      message: "This section has edits that are not saved. Leaving drops them.",
+      confirm: "Discard",
+      danger: true,
+    });
+  }
+  const beforeUnload = (ev) => { if (anyDirty()) { ev.preventDefault(); ev.returnValue = ""; } };
+  window.addEventListener("beforeunload", beforeUnload);
+  setLeaveGuard(leaveOk);
+
+  function navItem(href, current, title, sub, dirty, warn) {
+    return h("a", {
+      class: "side-item",
+      href,
+      "aria-current": current ? "true" : null,
+    },
+    h("b", {}, title,
+      dirty ? h("span", { class: "dirty-dot", style: { marginLeft: "6px" }, title: "Unsaved changes" }) : null,
+      warn ? h("span", { class: "warn-dot", title: "Missing on disk" }, " ●") : null),
+    sub ? h("span", {}, sub) : null);
+  }
+  function paintNav() {
+    mount(navEl,
+      navItem("#config/models", section === "models", "Model defaults", "which model each role uses", modelsDirty()),
+      navItem("#config/notifications", section === "notifications", "Notifications", "Discord and desktop", notifDirty()),
+      navItem("#config/appearance", section === "appearance", "Appearance", "light or dark theme", false));
+    const item = (f) => navItem(`#config/${f.path}`, section === "file" && arg === f.path, f.path,
+      f.generated ? "generated, read only" : KIND_LABEL[f.kind] || f.kind,
+      section === "file" && arg === f.path && editor?.isDirty(), !f.exists);
+    // repos.yaml is the file to edit; the files it generates stay readable.
+    const own = files.filter((f) => !f.generated);
+    const generated = files.filter((f) => f.generated);
+    mount(filesNav,
+      own.length ? own.map(item) : h("div", { class: "empty" }, filesLoaded ? "No local file." : "Loading…"));
+    mount(generatedNav,
+      generated.length ? h("h3", { class: "muted", style: { margin: "6px 0 4px" } }, "Generated from repos.yaml") : null,
+      generated.length ? h("div", { class: "side-list" }, generated.map(item)) : null);
+  }
+  modelsEl.addEventListener("input", () => { updateModelsSave(); paintNav(); });
+  webhookInput.addEventListener("input", () => { updateNotifSave(); paintNav(); });
+  enabledInput.addEventListener("change", () => { updateNotifSave(); paintNav(); });
+  paintNav();
 
   function updateModelsSave() {
-    saveModelsBtn.disabled = modelLoading || modelSaving || modelConflicts || modelRoles.length === 0;
+    saveModelsBtn.disabled = modelLoading || modelSaving || modelConflicts || modelRoles.length === 0 || !modelsDirty();
+    saveModelsBtn.title = saveModelsBtn.disabled && !modelLoading && !modelConflicts ? "No changes to save" : "";
   }
 
   function modelField(id, value, dataset, list = null) {
@@ -162,11 +238,15 @@ export function mountConfig(el, arg) {
           onchange: () => {
             input.disabled = !checkbox.checked;
             if (checkbox.checked && !input.value) input.value = v.value || "";
+            updateModelsSave();
+            paintNav();
           },
         });
         return { variable: v, input, checkbox };
       });
       modelInputs = [...Object.values(presetInputs), ...modelRoles.map((role) => role.input)];
+      modelInputs.forEach((input) => { input.dataset.initial = input.value; });
+      modelRoles.forEach(({ checkbox }) => { checkbox.dataset.initial = checkbox.checked ? "1" : "0"; });
       const roleField = (v, i) => {
         const role = modelRoles[i];
         const details = `model-role-${i}-details`;
@@ -231,7 +311,9 @@ export function mountConfig(el, arg) {
       if (destroyed) return;
       modelInputs = [];
       modelRoles = [];
-      mount(modelsEl, h("div", { class: "empty" }, `Cannot load model defaults (${err.body?.error || err.message}).`));
+      mount(modelsEl, h("div", { class: "empty" },
+        `Cannot load model defaults (${err.body?.error || err.message}). `,
+        h("button", { class: "btn sm", onclick: () => loadModels() }, "Retry")));
       toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
     } finally {
       modelLoading = false;
@@ -240,7 +322,7 @@ export function mountConfig(el, arg) {
   }
 
   async function saveModels() {
-    if (modelLoading || modelSaving || modelConflicts || modelRoles.length === 0) return;
+    if (modelLoading || modelSaving || modelConflicts || modelRoles.length === 0 || !modelsDirty()) return;
     modelSaving = true;
     updateModelsSave();
     modelInputs.forEach((input) => { input.disabled = true; });
@@ -271,7 +353,8 @@ export function mountConfig(el, arg) {
   }
 
   function updateNotifSave() {
-    saveNotifBtn.disabled = notifLoading || notifSaving;
+    saveNotifBtn.disabled = notifLoading || notifSaving || !notifDirty();
+    saveNotifBtn.title = saveNotifBtn.disabled && !notifLoading ? "No changes to save" : "";
   }
 
   async function loadNotifications() {
@@ -283,9 +366,11 @@ export function mountConfig(el, arg) {
       const discord = res?.discord || {};
       webhookInput.value = discord.webhook || "";
       enabledInput.checked = Boolean(discord.enabled);
+      notifBase = { webhook: webhookInput.value, enabled: enabledInput.checked };
     } catch (err) {
       if (destroyed) return;
-      toast(`Cannot load notification settings (${err.body?.error || err.message}).`, { tone: "err", timeout: 8000 });
+      toast(`Cannot load notification settings (${err.body?.error || err.message}). The form below shows empty values, not your saved ones.`, { tone: "err", timeout: 8000 });
+      saveNotifBtn.disabled = true;
     } finally {
       notifLoading = false;
       if (!destroyed) updateNotifSave();
@@ -293,7 +378,7 @@ export function mountConfig(el, arg) {
   }
 
   async function saveNotifications() {
-    if (notifLoading || notifSaving) return;
+    if (notifLoading || notifSaving || !notifDirty()) return;
     notifSaving = true;
     updateNotifSave();
     webhookInput.disabled = true;
@@ -302,7 +387,11 @@ export function mountConfig(el, arg) {
       await putJSON("/api/notifications", {
         discord: { enabled: enabledInput.checked, webhook: webhookInput.value },
       });
-      if (!destroyed) toast("Saved notification settings.", { tone: "ok" });
+      if (!destroyed) {
+        notifBase = { webhook: webhookInput.value, enabled: enabledInput.checked };
+        paintNav();
+        toast("Saved notification settings.", { tone: "ok" });
+      }
     } catch (err) {
       if (!destroyed) toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
     } finally {
@@ -355,57 +444,42 @@ export function mountConfig(el, arg) {
   }
 
   async function load() {
-    let files;
     try {
       files = (await getJSON("/api/files")).filter((f) => f.kind !== "workflow");
     } catch (err) {
-      mount(listEl, h("div", { class: "empty" }, `Cannot list files (${err.message}).`));
+      mount(filesNav, h("div", { class: "empty" }, `Cannot list files (${err.message}).`));
+      if (section === "file") mount(editorPanel, h("div", { class: "empty" }, "Cannot list the local files."));
       return;
     }
+    if (destroyed) return;
+    filesLoaded = true;
+    paintNav();
+    if (section !== "file") return;
     const selected = files.find((f) => f.path === arg);
-    if (selected) {
-      showEditor(selected);
-      mount(listEl, h("div", { class: "chips" }, files.map((f) =>
-        h("a", {
-          class: "chip",
-          href: `#config/${f.path}`,
-          "aria-current": f.path === selected.path ? "true" : null,
-        }, f.path))));
+    if (!selected) {
+      mount(editorPanel, h("div", { class: "empty" }, `No local config named ${arg}.`));
       return;
     }
-    editor?.destroy();
-    editor = null;
-    el.querySelector("#config-editor").replaceChildren();
-    mount(listEl, h("div", { class: "kpis" }, files.map((f) => h("a", {
-      class: "card",
-      href: `#config/${f.path}`,
-      style: { textDecoration: "none", color: "inherit" },
-    },
-    h("div", { class: "row between" },
-      h("b", { class: "mono" }, f.path),
-      f.exists ? h("span", { class: "badge ok" }, "on disk") : h("span", { class: "badge warn" }, "missing"),
-    ),
-    h("p", { class: "muted", style: { marginTop: "6px", fontSize: "12px" } }, KIND_LABEL[f.kind] || f.kind),
-    h("div", { class: "file-meta", style: { marginTop: "10px" } },
-      f.exists ? h("span", {}, bytes(f.size)) : null,
-      f.exists ? h("span", {}, `edited ${when(f.mod_time)}`) : null,
-      h("span", {}, "not in git"),
-    ),
-    ))));
+    await showEditor(selected);
   }
 
   async function showEditor(file) {
     editor?.destroy();
     editor = await createEditor({ path: file.path, kind: file.kind, readOnly: Boolean(file.generated) });
     if (destroyed) { editor.destroy(); return; }
-    if (arg !== file.path) return;
-    mount(el.querySelector("#config-editor"), h("div", { class: "card" },
+    mount(editorPanel, h("div", { class: "card" },
       h("div", { class: "row between", style: { marginBottom: "10px" } },
         h("h2", {}, file.path),
-        h("span", { class: "muted", style: { fontSize: "12px" } }, KIND_LABEL[file.kind] || file.kind),
+        h("span", { class: "muted", style: { fontSize: "12px" } },
+          file.exists ? `${bytes(file.size)} · edited ${when(file.mod_time)} · not in git` : "missing on disk: saving creates it"),
       ),
+      file.generated
+        ? h("p", { class: "warning", style: { marginBottom: "10px" } },
+          "This file is written from repos.yaml. Change repos.yaml instead: saving it regenerates this file, and a hand edit here would be overwritten.")
+        : null,
       editor.el,
     ));
+    paintNav();
   }
 
   loadModels();
@@ -415,6 +489,8 @@ export function mountConfig(el, arg) {
   return {
     destroy() {
       destroyed = true;
+      window.removeEventListener("beforeunload", beforeUnload);
+      setLeaveGuard(null);
       editor?.destroy();
       editor = null;
     },
