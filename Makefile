@@ -8,7 +8,7 @@ COMPOSE ?= docker compose
 # local clone is the only source.
 AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
-.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test shim-test workspace-test held-test watchers-test script-tests
+.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test shim-test workspace-test held-test watchers-test tend-test script-tests
 
 configure: ## choose local or image for opencode, awf, gh, awf-gh and (optional) claude; writes .env
 	bin/configure
@@ -41,6 +41,9 @@ workspace-test: ## run bin/workspace against a local bare repository (nothing le
 
 held-test: ## check bin/held exit codes against a stub
 	test/held.sh
+
+tend-test: ## check what bin/tend posts to awf serve, with a fake curl
+	test/tend.sh
 
 shim-test: ## run the opencode shim against a stub (no model is called)
 	test/shim.sh
