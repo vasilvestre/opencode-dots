@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Opens opencode on a dot server's own opencode service, from this machine (P2).
+#
+#   bin/remote user@host                  the TUI on the server's ~/dots
+#   bin/remote user@host /some/dir        the TUI on that directory of the SERVER
+#   bin/remote user@host run "message"    one run on the server (cwd is read on the server)
+#
+# It opens an SSH tunnel to the service's loopback port, reads the service password over SSH
+# without printing or storing it, passes it to opencode in OPENCODE_SERVER_PASSWORD, and
+# closes the tunnel when opencode exits. Nothing is exposed on a network and no provider key
+# sits on this machine: the server's own credentials do the work.
+#
+# The directory is read on the server. For `run`, opencode sends this machine's current
+# directory, so run it from one that exists on both, such as /tmp.
+set -euo pipefail
+
+[ $# -ge 1 ] || { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+host=$1
+shift
+command -v opencode >/dev/null 2>&1 || { echo "remote: opencode is not on PATH" >&2; exit 1; }
+
+read_service() { # read_service <python expression over the parsed service.json>
+  ssh -o BatchMode=yes "$host" "python3 -I -c 'import json,os;d=json.load(open(os.path.expanduser(\"~/.local/state/opencode/service.json\")));print($1)'"
+}
+port=$(read_service 'd["url"].rsplit(":",1)[1]') || { echo "remote: no opencode service on $host (service.json missing)" >&2; exit 1; }
+password=$(read_service 'd["password"]')
+remote_home=$(ssh -o BatchMode=yes "$host" 'printf %s "$HOME"')
+
+# A free local port: the first one nothing listens on.
+local_port=
+for p in $(seq 49400 49440); do
+  if ! (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then local_port=$p; break; fi
+done
+[ -n "$local_port" ] || { echo "remote: no free local port in 49400-49440" >&2; exit 1; }
+
+ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -N -L "127.0.0.1:$local_port:127.0.0.1:$port" "$host" &
+tunnel=$!
+trap 'kill "$tunnel" 2>/dev/null || true' EXIT
+for _ in $(seq 1 30); do
+  (exec 3<>"/dev/tcp/127.0.0.1/$local_port") 2>/dev/null && break
+  sleep 0.2
+done
+
+export OPENCODE_SERVER_PASSWORD=$password
+url=http://127.0.0.1:$local_port
+if [ "${1:-}" = run ]; then
+  shift
+  opencode run --server "$url" "$@"
+elif [ $# -eq 0 ]; then
+  opencode --server "$url" "$remote_home/dots"
+else
+  opencode --server "$url" "$@"
+fi
