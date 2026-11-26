@@ -63,6 +63,11 @@ check "hub keys survive a second run" test "$first_keys" = "$(su - dots -c 'md5s
 check "hub keys are not the empty string" grep -Eq '^MERCURE_PUBLISHER_JWT_KEY=[0-9a-f]{64}$' /home/dots/.config/dots/hub.env
 check "hub unit points at the repository's Caddyfile" grep -q '%h/dots/deploy/hub/Caddyfile' /home/dots/.config/systemd/user/dots-hub.service
 check "tend restarts opencode first" grep -q "restart dots-opencode.service" /home/dots/.config/systemd/user/dots-tend.service.d/10-fresh-opencode.conf
+echo "== a resized machine: the medium profile replaces the small one"
+su - dots -c "DOTS_REPO=/src DOTS_MEMORY_PROFILE=medium bash /src/deploy/types/local/user.sh" >/dev/null 2>&1
+check "medium caps the opencode service at 1200M" grep -q '^MemoryMax=1200M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
+check "medium leaves no stale cap on awf" test ! -e /home/dots/.config/systemd/user/dots-awf.service.d/20-memory.conf
+check "medium leaves no stale cap on the dashboard" test ! -e /home/dots/.config/systemd/user/dots-dashboard.service.d/20-memory.conf
 check "no secret file written" test ! -e /home/dots/dots/.env
 
 if [ "$fail" = 0 ]; then echo "deploy test: all checks passed"; else echo "deploy test: failures above" >&2; exit 1; fi

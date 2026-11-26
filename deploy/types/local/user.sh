@@ -106,25 +106,34 @@ render_units() {
 # whole cgroup and reclaims in a loop, which is what froze the first server ("Under memory
 # pressure, flushing caches", then a forced power off). So only hard limits are set here, below
 # what the machine can give, and the service restarts. 1 GB is tight: 2 GB is the size to take
-# if agent runs live on the server. DOTS_MEMORY_PROFILE=small forces the limits, none turns them off.
+# if agent runs live on the server. DOTS_MEMORY_PROFILE is small (under 1.5 GB), medium (under 4 GB,
+# the opencode service only) or none.
 memory_limits() {
-  local profile=${DOTS_MEMORY_PROFILE:-auto} total_kb dst="$HOME/.config/systemd/user"
+  local profile=${DOTS_MEMORY_PROFILE:-auto} total_kb dst="$HOME/.config/systemd/user" name
   total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
   if [ "$profile" = auto ]; then
-    if [ "$total_kb" -lt 1500000 ]; then profile=small; else profile=none; fi
+    if [ "$total_kb" -lt 1500000 ]; then profile=small
+    elif [ "$total_kb" -lt 4000000 ]; then profile=medium
+    else profile=none; fi
   fi
-  [ "$profile" = small ] || { log "memory limits: none ($profile, ${total_kb} kB)"; return; }
-  local unit high max
-  for unit in dots-opencode::600M dots-awf::200M dots-dashboard::200M; do
-    IFS=: read -r name high max <<<"$unit"
+  # Start from nothing, so a profile that changed (a machine that was resized) leaves no stale cap.
+  for name in dots-opencode dots-awf dots-dashboard; do rm -f "$dst/$name.service.d/20-memory.conf"; done
+  local caps=
+  case "$profile" in
+    small) caps="dots-opencode:600M dots-awf:200M dots-dashboard:200M" ;;
+    medium) caps="dots-opencode:1200M" ;; # measured: 448 MB at rest, instances pile up, 2 GB machine
+    none) ;;
+    *) die "DOTS_MEMORY_PROFILE: small, medium or none, got '$profile'" ;;
+  esac
+  if [ -z "$caps" ]; then log "memory limits: none (profile $profile, ${total_kb} kB)"; return; fi
+  local cap max
+  for cap in $caps; do
+    name=${cap%%:*}
+    max=${cap##*:}
     mkdir -p "$dst/$name.service.d"
-    {
-      echo "[Service]"
-      [ -z "$high" ] || echo "MemoryHigh=$high"
-      echo "MemoryMax=$max"
-    } >"$dst/$name.service.d/20-memory.conf"
+    printf '[Service]\nMemoryMax=%s\n' "$max" >"$dst/$name.service.d/20-memory.conf"
   done
-  log "memory limits written (profile small, ${total_kb} kB of RAM)"
+  log "memory limits written (profile $profile, ${total_kb} kB of RAM)"
 }
 
 start_services() {

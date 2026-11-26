@@ -42,7 +42,7 @@ leaves the originals alone.
 Take at least **2 GB**. A 1 GB machine (Scaleway's STARDUST1-S) froze for a minute under a tend pass and had to be
 powered off: at rest the opencode service holds 448 MB of the 962, and every project directory a run opens leaves an
 instance in it until it restarts (147 MB with none, 478 MB after three). `user.sh` restarts the service before each
-tend pass and, under 1.5 GB, sets a hard `MemoryMax`; it never sets a soft `MemoryHigh`, which makes the kernel
+tend pass and sets a hard `MemoryMax` (600 MB on the opencode service under 1.5 GB, 1200 MB under 4 GB); it never sets a soft `MemoryHigh`, which makes the kernel
 reclaim in a loop. If the agent steps run on another machine (ADR 0031), 1 GB is enough for the rest.
 
 ## Moving to a bigger server

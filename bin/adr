@@ -96,8 +96,57 @@ check() {
   echo "adr: ${prev} record(s) ok"
 }
 
+# set_row <number> <new status>: the status column of the index row.
+set_row() {
+  awk -v n="$1" -v st="$2" -F'|' -v OFS='|' '
+    $0 ~ "^\\| \\[" n "\\]" { $4 = " " st " " }
+    { print }
+  ' "$readme" > "$readme.tmp"
+  mv "$readme.tmp" "$readme"
+}
+
+record() { find "$dir" -maxdepth 1 -name "$1-*.md" | head -1; }
+
+# accept <number>...: proposed -> accepted, in the record and in the index. A record that
+# supersedes another one also marks the old one "superseded by", as the README asks.
+accept() {
+  [ $# -gt 0 ] || die "usage: bin/adr accept <number>..."
+  local n f status old of
+  for n in "$@"; do
+    n=$(printf '%04d' "$((10#$n))")
+    f=$(record "$n")
+    [ -n "$f" ] || die "no record $n"
+    status=$(sed -n 's/^- Status: //p' "$f")
+    [ "$status" = proposed ] || die "$n is '$status', only a proposed record can be accepted"
+    sed -i 's/^- Status: proposed$/- Status: accepted/' "$f"
+    set_row "$n" accepted
+    old=$(sed -n 's/^- Supersedes: //p' "$f" | grep -o '[0-9]\{4\}' | head -1 || true)
+    if [ -n "$old" ]; then
+      of=$(record "$old")
+      [ -n "$of" ] || die "$n supersedes $old, no such record"
+      sed -i -e "s/^- Status: .*/- Status: superseded by $n/" -e "s/^- Superseded by: .*/- Superseded by: $n/" "$of"
+      set_row "$old" "superseded by $n"
+      echo "adr: $old is now superseded by $n"
+    fi
+    echo "adr: $n accepted"
+  done
+  check
+}
+
+# proposed: the records still waiting for a decision.
+proposed() {
+  local f n
+  for f in $(find "$dir" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.md' | sort); do
+    [ "$(sed -n 's/^- Status: //p' "$f")" = proposed ] || continue
+    n=$(basename "$f" | cut -c1-4)
+    printf '%s  %s\n' "$n" "$(sed -n "1s/^# $n\\. //p" "$f")"
+  done
+}
+
 case ${1:-check} in
   new) shift; new "$@" ;;
   check) check ;;
-  *) die "usage: bin/adr [new <slug>|check]" ;;
+  accept) shift; accept "$@" ;;
+  proposed) proposed ;;
+  *) die "usage: bin/adr [new <slug>|check|accept <number>...|proposed]" ;;
 esac
