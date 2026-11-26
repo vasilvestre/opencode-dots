@@ -14,6 +14,13 @@ inputs:
     type: boolean
     required: false
     description: merge the pull request when review-pr returns merge
+  - name: autonomy
+    type: string
+    required: false
+    default: ""
+    description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
+    validation:
+      pattern: '^(observe|propose|act|auto)?$'
   - name: dry_run
     type: boolean
     required: false
@@ -267,6 +274,13 @@ states:
           echo "would file: $title"
           continue
         fi
+        # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+        if [ -n "{{.inputs.autonomy}}" ]; then
+          grc=0
+          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/findings.json" \
+            "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
+          [ "$grc" = 0 ] || { echo "autonomy: issue not filed (gate $grc): $title"; continue; }
+        fi
         url=$(gh issue create --repo "$repo" --title "$title" --body "$body" | tail -1)
         printf '%s\t%s\n' "$title" "$url" | tee -a "$d/issues-created.txt"
         printf 'filed\t%s\n' "$title" >> "$d/raised.txt"
@@ -329,6 +343,14 @@ states:
           *) echo "held: the claim check failed, pushing anyway" ;;
         esac
       fi
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/held.patch" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; git -C "$work" checkout -- .; git -C "$work" clean -fdq; exit 0; }
+      fi
       login=$(gh api user --jq .login)
       uid=$(gh api user --jq .id)
       git -C "$work" config user.name "$login"
@@ -344,6 +366,13 @@ states:
           printf '\n\nCloses %s\n' "$url" >> "$d/pr.md"
         fi
       fi
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; exit 0; }
+      fi
       url=$(gh pr create --repo "$repo" --head "$branch" --base "$(cat "$d/default_branch")" \
         --title "$title" --body-file "$d/pr.md" | tail -1)
       echo "$url" | tee "$d/pr-url"
@@ -352,12 +381,22 @@ states:
         # Auto-merge only after our own review says merge: the pull request is
         # opened and checked by the same agent that wrote it.
         sha=$(git -C "$work" rev-parse HEAD)
+        aut="{{.inputs.autonomy}}"
         awf run review-pr --input repo="$repo" --input pr="$num" \
-          --input sha="$sha" --input event=tend \
+          --input sha="$sha" --input event=tend ${aut:+--input "autonomy=$aut"} \
           || echo "review failed, the pull request waits"
         verdict=$(cat "${STATE_DIR:-/state}/reviews/pr$num-$sha/verdict.txt" 2>/dev/null || echo hold)
         if [ "$verdict" = "merge" ]; then
-          gh pr merge "$url" --squash --auto || echo "auto-merge refused, the pull request waits"
+          # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+          grc=0
+          if [ -n "{{.inputs.autonomy}}" ]; then
+            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" \
+              "${DOTS_HOME:-/work}/bin/publish-gate" merge || grc=$?
+            [ "$grc" = 0 ] || echo "autonomy: not merging (gate $grc)"
+          fi
+          if [ "$grc" = 0 ]; then
+            gh pr merge "$url" --squash --auto || echo "auto-merge refused, the pull request waits"
+          fi
         else
           echo "review says $verdict, the pull request waits"
         fi

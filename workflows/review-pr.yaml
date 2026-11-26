@@ -33,6 +33,13 @@ inputs:
   # Per-repo routing: a repos[].inputs.provider entry in awf-gh.yaml picks the
   # agent CLI for this run. The provider decides which model pair is used:
   # review_model and address_model for opencode, the claude_ pair for claude.
+  - name: autonomy
+    type: string
+    required: false
+    default: ""
+    description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
+    validation:
+      pattern: '^(observe|propose|act|auto)?$'
   - name: provider
     type: string
     required: false
@@ -602,6 +609,13 @@ states:
           } > "$body"
         fi
       fi
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$body" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: review not published (gate $grc)"; touch "$d/gated"; exit 0; }
+      fi
       gh pr comment {{.inputs.pr}} --repo {{.inputs.repo}} \
         --body-file "$body"
     timeout: 120
@@ -792,6 +806,14 @@ states:
         echo "pull request conflicts with its base, no push"
         exit 0
       fi
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: fix not pushed (gate $grc)"; exit 0; }
+      fi
       title=$(head -1 "$d/fixmsg.md")
       body=$(tail -n +2 "$d/fixmsg.md")
       login=$(gh api user --jq .login)
@@ -842,6 +864,13 @@ states:
       esac
       jq -e '.body | test("Closes #[0-9]+")' "$d/meta.json" >/dev/null \
         || { echo "automerge: body has no Closes #N"; exit 0; }
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/verdict.txt" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" merge || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: not merging (gate $grc)"; exit 0; }
+      fi
       # A repository with no checks never satisfies --watch, so ask first: no
       # check means nothing to wait for. jq prints nothing on an empty stdin,
       # hence the [] default.
@@ -890,6 +919,9 @@ states:
       <$url>"
         [ -s "$d/fix.patch" ] && msg="$msg
       Correctif proposé, non poussé : $d/fix.patch"
+      elif [ -e "$d/gated" ]; then
+        echo "review held back by the autonomy ceiling, no notification"
+        exit 0
       elif [ "$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)" = "merge" ]; then
         msg="Review postée sur {{.inputs.repo}}#{{.inputs.pr}} : $title
       <$url>"

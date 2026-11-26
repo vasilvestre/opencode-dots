@@ -18,6 +18,13 @@ inputs:
   - name: event
     type: string
     required: false
+  - name: autonomy
+    type: string
+    required: false
+    default: ""
+    description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
+    validation:
+      pattern: '^(observe|propose|act|auto)?$'
   - name: model
     type: string
     required: false
@@ -296,6 +303,14 @@ states:
         echo "pull request conflicts with its base, no push"
         exit 0
       fi
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: change not pushed (gate $grc)"; git checkout -- .; git clean -fdq; exit 0; }
+      fi
       # Commit as the account that holds the token, otherwise GitHub renders the
       # bot identity with no avatar and the commit looks unattributed.
       login=$(gh api user --jq .login)
@@ -333,6 +348,13 @@ states:
         printf '\n\nPushed `%s` on `%s`.\n' \
           "$(cat "$d/pushed.sha")" "$(jq -r '.headRefName' "$d/pr.json")" >> "$d/reply.md"
       fi
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/reply.md" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: reply not published (gate $grc)"; touch "$d/gated"; exit 0; }
+      fi
       gh pr comment {{.inputs.pr}} --repo {{.inputs.repo}} --body-file "$d/reply.md"
     timeout: 120
     on_success: notify
@@ -360,6 +382,9 @@ states:
         msg="Bloqué, arrêt du travail sur {{.inputs.repo}}#{{.inputs.pr}} : $title
       $(cat "$d/stuck.md")
       <$pr_url>"
+      elif [ -e "$d/gated" ]; then
+        echo "reply held back by the autonomy ceiling, no notification"
+        exit 0
       elif [ -s "$d/reply.md" ]; then
         if [ -z "${DISCORD_WEBHOOK:-}" ]; then
           echo "DISCORD_WEBHOOK unset, no notification"
