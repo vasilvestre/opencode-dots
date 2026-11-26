@@ -5,17 +5,21 @@
 //	repos check      exit 1 when a generated file is out of date, write nothing
 //	repos import     build a first repos.yaml from the three existing files
 //	repos features   list the keys a repository accepts
+//	repos db         the database side of repos.yaml: import, export, check, list (ADR 0024)
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"opencode-dots/internal/repos"
+	"opencode-dots/internal/store"
 )
 
 func main() {
@@ -24,11 +28,23 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	sub := ""
+	if cmd == "db" {
+		// `repos db import -workspace x`: the flags follow the subcommand.
+		if len(args) == 0 {
+			usage()
+			os.Exit(2)
+		}
+		sub, args = args[0], args[1:]
+	}
 	fs := flag.NewFlagSet("repos "+cmd, flag.ExitOnError)
 	dir := fs.String("dir", ".", "repository root: holds repos.yaml and receives the generated files")
 	awfURL := fs.String("awf-url", "", "awf_url of the generated awf-gh.yaml (default: keep the current one)")
 	statePath := fs.String("state-path", "", "state_path of the generated awf-gh.yaml (default: keep the current one)")
 	force := fs.Bool("force", false, "import: overwrite an existing repos.yaml")
+	dbPath := fs.String("db", "", "db: the database file (default: $STATE_DIR/dots.db, else <dir>/state/dots.db)")
+	workspace := fs.String("workspace", "default", "db: the workspace of the projects")
+	prune := fs.Bool("prune", false, "db import: delete the projects the file omits, unless work items name them")
 	fs.Usage = func() { usage(); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -42,6 +58,8 @@ func main() {
 		fail(generate(*dir, override, cmd == "check"))
 	case "import":
 		fail(importFiles(*dir, *force))
+	case "db":
+		fail(dbCommand(sub, *dir, *dbPath, *workspace, *prune))
 	default:
 		usage()
 		os.Exit(2)
@@ -50,6 +68,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: repos generate|check|import|features [-dir DIR] [-awf-url URL] [-state-path PATH] [-force]")
+	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
 }
 
 func fail(err error) {
@@ -126,5 +145,80 @@ func warnStaleWatchers(dir string, files map[string][]byte) {
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "repos: %s is no longer generated; it is left as it is and still drives awf-gh: remove it to stop that watcher\n", name)
+	}
+}
+
+// dbCommand is the database side of repos.yaml (ADR 0024, step 1). repos.yaml stays the
+// source: `import` loads it, `check` compares what the database would generate with what
+// the file generates, `export` and `list` read the database back.
+func dbCommand(sub, dir, dbPath, workspace string, prune bool) error {
+	if dbPath == "" {
+		state := os.Getenv("STATE_DIR")
+		if state == "" {
+			state = filepath.Join(dir, "state")
+		}
+		dbPath = filepath.Join(state, "dots.db")
+	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ctx := context.Background()
+	switch sub {
+	case "import":
+		data, err := os.ReadFile(filepath.Join(dir, repos.SourceFile))
+		if err != nil {
+			return err
+		}
+		res, err := repos.ImportToStore(ctx, st, workspace, data, prune)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("repos: %d added, %d updated, %d unchanged in workspace %q (%s)\n", res.Added, res.Updated, res.Unchanged, workspace, dbPath)
+		if len(res.Pruned) > 0 {
+			fmt.Println("repos: pruned", strings.Join(res.Pruned, ", "))
+		}
+		if len(res.Kept) > 0 {
+			fmt.Println("repos: kept, work items name them:", strings.Join(res.Kept, ", "))
+		}
+		return nil
+	case "export":
+		out, err := repos.ExportYAML(ctx, st, workspace)
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(out)
+		return err
+	case "check":
+		data, err := os.ReadFile(filepath.Join(dir, repos.SourceFile))
+		if err != nil {
+			return err
+		}
+		differ, err := repos.DiffStoreAndFile(ctx, st, workspace, data, dir)
+		if err != nil {
+			return err
+		}
+		if len(differ) > 0 {
+			return fmt.Errorf("the database and repos.yaml generate different files: %s (run `repos db import`)", strings.Join(differ, ", "))
+		}
+		fmt.Println("repos: the database and repos.yaml generate the same files")
+		return nil
+	case "list":
+		projects, err := st.Projects(ctx, workspace)
+		if err != nil {
+			return err
+		}
+		for _, p := range projects {
+			keys := make([]string, 0, len(p.Features))
+			for k := range p.Features {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			fmt.Printf("%s\t%s\n", p.Repo, strings.Join(keys, ","))
+		}
+		return nil
+	default:
+		return fmt.Errorf("repos db: unknown subcommand %q (import, export, check, list)", sub)
 	}
 }

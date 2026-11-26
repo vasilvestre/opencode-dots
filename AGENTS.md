@@ -19,7 +19,7 @@ agent/         opencode config mounted into the container: AGENTS.md, agents/ass
 bin/           configure (mode chooser), tend (daily dispatch), adr (records)
 cmd/dashboard/ Go server for the activity page
 cmd/repos/     CLI that generates awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
-internal/      models/: model preset and default logic; repos/: the repository list and its features
+internal/      models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite)
 model-presets.yaml  global model presets projected into workflow defaults
 docs/          workflow reference, memory-design rationale
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue

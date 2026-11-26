@@ -12,6 +12,7 @@ dashboard calls it when it saves `repos.yaml`. ADR 0022.
 | `features_builtin.go` | `checkout`, `tend`, `review`, `reply`, `fix_ci`, `fix_issue`, `provider` |
 | `features_sync.go` | `sync`: a feature that owns one extra generated file |
 | `features_executor.go` | `executor`: tags rules so `Render` writes one `awf-gh.<name>.yaml` per executor (ADR 0031) |
+| `store.go` | `ImportToStore`, `BuildFromStore`, `ExportYAML`, `DiffStoreAndFile`: repos.yaml and the database of `internal/store` (ADR 0024, step 1) |
 | `emit.go` | `Render`, `Write`, `Diff`, `Build`, settings merging |
 | `importer.go` | `Import`: builds a repos.yaml from awf-gh.yaml, tend.list, repos.map, sync.map |
 

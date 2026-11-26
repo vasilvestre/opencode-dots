@@ -278,6 +278,12 @@ func Build(data []byte, dir string, override Settings) (map[string][]byte, error
 	if err != nil {
 		return nil, err
 	}
+	return BuildDocument(doc, dir, override)
+}
+
+// BuildDocument is Build for a document that is already parsed, such as one made from the
+// database (ADR 0024).
+func BuildDocument(doc *Document, dir string, override Settings) (map[string][]byte, error) {
 	if err := checkExecutors(doc.Settings); err != nil {
 		return nil, err
 	}
