@@ -96,10 +96,14 @@ render_units() {
   log "units written to $dst"
 }
 
-# A machine with under 2 GB of RAM (measured on a 1 GB one: the opencode service holds about
-# 300 MB at rest and a tend pass adds about 200 MB) gets limits, so a runaway run is stopped
-# by systemd and not by the kernel's OOM killer taking the SSH session with it.
-# DOTS_MEMORY_PROFILE=small forces them, none turns them off.
+# A machine with under 2 GB of RAM gets limits, so a runaway run is stopped by systemd and not by
+# a machine that thrashes until someone presses its power button. Measured on a 1 GB machine:
+# at rest the opencode service holds 448 MB (299 MB resident) out of 962, and a tend pass adds
+# 100 to 300 MB. A soft limit (MemoryHigh) made it worse: above it the kernel throttles the
+# whole cgroup and reclaims in a loop, which is what froze the first server ("Under memory
+# pressure, flushing caches", then a forced power off). So only hard limits are set here, below
+# what the machine can give, and the service restarts. 1 GB is tight: 2 GB is the size to take
+# if agent runs live on the server. DOTS_MEMORY_PROFILE=small forces the limits, none turns them off.
 memory_limits() {
   local profile=${DOTS_MEMORY_PROFILE:-auto} total_kb dst="$HOME/.config/systemd/user"
   total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
@@ -108,7 +112,7 @@ memory_limits() {
   fi
   [ "$profile" = small ] || { log "memory limits: none ($profile, ${total_kb} kB)"; return; }
   local unit high max
-  for unit in dots-opencode:600M:750M dots-awf::200M dots-dashboard::200M; do
+  for unit in dots-opencode::600M dots-awf::200M dots-dashboard::200M; do
     IFS=: read -r name high max <<<"$unit"
     mkdir -p "$dst/$name.service.d"
     {

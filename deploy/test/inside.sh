@@ -53,8 +53,8 @@ check "awf unit runs the user's awf" grep -q '^ExecStart=%h/.local/bin/awf ' /ho
 check "units use the chosen directory" grep -q '%h/dots' /home/dots/.config/systemd/user/dots-awf.service
 check "dashboard waits for dots-awf" grep -q '^After=dots-awf.service' /home/dots/.config/systemd/user/dots-dashboard.service
 check "awf starts after opencode" grep -q 'dots-opencode.service' /home/dots/.config/systemd/user/dots-awf.service.d/10-after-opencode.conf
-check "opencode service limited to 750M" grep -q '^MemoryMax=750M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
-check "opencode service throttles at 600M" grep -q '^MemoryHigh=600M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
+check "opencode service limited to 600M" grep -q '^MemoryMax=600M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
+check "no soft limit that makes the kernel thrash" test "$(grep -c MemoryHigh /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf)" = 0
 check "awf limited to 200M" grep -q '^MemoryMax=200M' /home/dots/.config/systemd/user/dots-awf.service.d/20-memory.conf
 check "dashboard finds opencode on its PATH" grep -q ".opencode/bin" /home/dots/.config/systemd/user/dots-dashboard.service.d/10-path.conf
 check "hub binary installed" run_as_dots 'mercure version | grep -q 1.1'

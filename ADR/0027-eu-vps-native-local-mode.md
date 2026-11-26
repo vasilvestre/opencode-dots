@@ -116,7 +116,12 @@ stay as fallbacks if Stardust proves too small.
 
 ## Open questions
 
-- Whether Stardust (1 vCPU, 1 GB, 10 GB, as stated by the owner) is enough for awf, tower and tend, or a larger type is needed. Disk for clones is the tight part.
+- Whether Stardust (1 vCPU, 1 GB) is enough for awf, tower and tend, or a larger type is needed.
+  Measured, and not enough with margin: at rest the opencode service holds 448 MB of the 962 MB (299 MB
+  resident), `tailscaled` 49 MB, awf 41 MB and the dashboard 27 MB, and a tend pass adds 100 to 300 MB. A
+  tend pass run through systemd froze the machine for about a minute ("Under memory pressure, flushing
+  caches" in the journal) until it was powered off. A 2 GB type, or running the agent steps on another
+  machine (ADR 0031), is the way out; limits only turn a freeze into a restart of one service.
 - The confirmed memory, price, IPv4 fee, VAT and backups for Scaleway Stardust, and the EU region to use.
 - Whether `opencode --server` authentication holds up from other devices.
 - Which backup target, and how often.
