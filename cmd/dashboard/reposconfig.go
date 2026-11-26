@@ -59,6 +59,8 @@ type repoRow struct {
 	// ProviderSource is "repo", "default" or "" (the built-in opencode).
 	ProviderSource string `json:"provider_source,omitempty"`
 	Checkout       string `json:"checkout,omitempty"`
+	// Trust is the level of ADR 0032, empty for the default `open`.
+	Trust string `json:"trust,omitempty"`
 }
 
 type reposConfig struct {
@@ -181,6 +183,9 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 		}
 		if v, _ := res.Value("checkout"); v != nil {
 			row.Checkout, _ = v.(string)
+		}
+		if v, _ := res.Value("trust"); v != nil {
+			row.Trust, _ = v.(string)
 		}
 		cfg.Repos = append(cfg.Repos, row)
 	}

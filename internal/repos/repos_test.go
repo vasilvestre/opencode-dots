@@ -631,3 +631,70 @@ func TestWatcherFileNames(t *testing.T) {
 		}
 	}
 }
+
+const trustSettings = `settings:
+  trust:
+    host: %s
+    allow:
+      providers: [opencode]
+      models: [mistral/small-latest]
+      executors: [server]
+  executors:
+    server: http://127.0.0.1:2512
+`
+
+func trustDoc(host, block string) string {
+	return "version: 1\n" + fmt.Sprintf(trustSettings, host) + "repos:\n  acme/app:\n    " + block + "\n"
+}
+
+func TestTrustRefusesWhatTheLevelForbids(t *testing.T) {
+	allowed := "trust: client\n    executor: server\n    review: {inputs: {review_model: mistral/small-latest}}"
+	cases := []struct{ name, host, block, want string }{
+		{"an allowed client block", "client", allowed, ""},
+		{"auto_merge", "client", allowed + "\n    tend: {auto_merge: true}", "auto_merge is refused on a client repository"},
+		{"no executor", "client", "trust: client", "must name an executor"},
+		{"an unlisted executor", "client", "trust: client\n    executor: laptop", "executor \"laptop\" is not in settings.trust.allow.executors"},
+		{"an unlisted model", "client", allowed + "\n    reply: {inputs: {model: mistral/big-latest}}", "model \"mistral/big-latest\" is not in settings.trust.allow.models"},
+		{"a provider that is not allowed", "client", "trust: client\n    provider: claude\n    executor: server", "provider \"claude\" is not in settings.trust.allow.providers"},
+		{"a client repository on an open host", "open", allowed, "settings.trust.host is open"},
+		{"a strict repository on a client host", "client", "trust: strict\n    executor: server", "settings.trust.host is client"},
+		{"a checkout on a strict repository", "strict", "trust: strict\n    executor: server\n    checkout: /tmp/acme", "keeps no local checkout"},
+		{"open takes anything", "open", "trust: open\n    tend: {auto_merge: true}\n    checkout: /tmp/acme\n    review: {inputs: {review_model: anything/at-all}}", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, err := Parse([]byte(trustDoc(c.host, c.block)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = Generate(doc)
+			switch {
+			case c.want == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)):
+				t.Fatalf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}
+
+func TestTrustRefusesAnUnknownLevelAndABadSetting(t *testing.T) {
+	if got := buildErr(t, "version: 1\nrepos:\n  a/b:\n    trust: secret\n"); !strings.Contains(got, "must be one of open, client, strict") {
+		t.Fatalf("error = %q", got)
+	}
+	for _, c := range []struct{ name, settings, want string }{
+		{"a host nobody knows", "trust: {host: banana}", `settings.trust.host: "banana"`},
+		{"an empty entry", "trust: {allow: {models: ['']}}", "settings.trust.allow.models"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			src := "version: 1\nsettings:\n  " + c.settings + "\nrepos:\n  a/b:\n    tend: true\n"
+			doc, err := Parse([]byte(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := BuildDocument(doc, t.TempDir(), Settings{}); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}

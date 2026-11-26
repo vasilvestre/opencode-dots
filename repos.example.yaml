@@ -9,11 +9,21 @@ version: 1
 # `make configure` writes the ones that fit local or docker mode.
 settings:
   max_per_run: 6
-  # Optional. A name for an awf serve that runs the tasks of the repositories
-  # which name it with `executor:`. The watcher stays on this machine and writes
-  # one awf-gh.<name>.yaml per executor (ADR 0031).
-  # executors:
-  #   workstation: http://127.0.0.1:2512
+  # A name for an awf serve that runs the tasks of the repositories which name
+  # it with `executor:`. The watcher stays on this machine and writes one
+  # awf-gh.<name>.yaml per executor (ADR 0031).
+  executors:
+    server: http://127.0.0.1:2512
+  # ADR 0032. `host` is the highest trust level this machine may hold: open (the
+  # default), client or strict. A repository at client or strict must stay
+  # inside the allow-list below: its provider, the models it sets on a rule, and
+  # the executor that holds its code.
+  trust:
+    host: client
+    allow:
+      providers: [opencode]
+      models: [mistral/mistral-small-latest]
+      executors: [server]
 
 # Values every enabled feature inherits. A default never switches a feature on:
 # `review:` below only gives the repositories that enable review their
@@ -55,6 +65,16 @@ repos:
     reply: true
     fix_ci:
       only_authors: ["your-login"]
+
+  # Another party's code (ADR 0032). Uncomment settings.executors and
+  # settings.trust above first. The generator then refuses a block that breaks
+  # the level: the executor has to be listed, the provider and the models it
+  # sets have to be listed, and auto_merge is refused. `strict` also refuses a
+  # local checkout and needs settings.trust.host: strict.
+  client-org/client-repo:
+    trust: client
+    executor: server
+    review: true
 
   # One feature several times: the review runs on pull requests, and `/dots take`
   # from me only runs it on demand. A list holds one block per rule.

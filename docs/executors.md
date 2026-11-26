@@ -49,6 +49,9 @@ GitHub <- awf-gh (server) --POST--> 127.0.0.1:2512 (server) ==ssh tunnel==> awf 
 
 ## Behaviour
 
+- A repository at `trust: client` or `trust: strict` must name an executor from
+  `settings.trust.allow.executors`, because its code has to stay on a machine you
+  named for it (ADR 0032).
 - The tunnel opens a port on the server's loopback only (sshd keeps
   `GatewayPorts` off). Nothing listens on your machine, and the `awf` API, which
   has no authentication, is reachable only from the server.
