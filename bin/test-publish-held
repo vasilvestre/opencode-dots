@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# The release step of workflows/publish-held.yaml, offline: record parsing,
+# refusals and the moves, with fake gh and git on PATH. No network.
+#
+#   bin/test-publish-held
+set -uo pipefail
+cd "$(dirname "$0")/.."
+wf=$PWD/workflows/publish-held.yaml
+root=$(mktemp -d)
+trap 'rm -rf "$root"' EXIT
+fail=0
+
+# The shell of the release step.
+script=$root/release.sh
+awk '/^  release:/{s=1} s&&/^    command: \|/{c=1;next} c&&/^    timeout:/{exit} c{sub(/^      /,""); print}' "$wf" > "$script"
+[ -s "$script" ] || { echo "FAIL: cannot extract the release step"; exit 1; }
+
+bin=$root/bin
+mkdir -p "$bin" "$root/dots/bin"
+cat > "$bin/gh" <<'EOS'
+#!/bin/sh
+echo "gh $*" >> "$CALLS"
+case "$1 $2" in
+  "api user") case "$*" in *.id*) echo 42 ;; *) echo tester ;; esac ;;
+  "api repos/"*) echo main ;;
+  "issue comment") [ -z "${GH_FAIL:-}" ] || exit 1 ;;
+  "pr create") echo https://github.com/o/r/pull/9 ;;
+  "pr view") [ -z "${PRVIEW_FAIL:-}" ] || exit 1
+    echo '{"headRefName":"fix/1-x","headRepository":{"nameWithOwner":"o/fork"},"state":"'"${PRSTATE:-OPEN}"'"}' ;;
+esac
+exit 0
+EOS
+cat > "$bin/git" <<'EOS'
+#!/bin/sh
+[ "$1" != -C ] || shift 2
+echo "git $*" >> "$CALLS"
+case "$1" in
+  clone) [ -z "${CLONE_FAIL:-}" ] || case "$*" in *"--branch $CLONE_FAIL "*) exit 128 ;; esac
+         for a; do d=$a; done; mkdir -p "$d" ;;
+  push) [ -z "${PUSH_FAIL:-}" ] || exit 1 ;;
+esac
+exit 0
+EOS
+printf '#!/bin/sh\nexit ${HELD_RC:-0}\n' > "$root/dots/bin/held"
+chmod +x "$bin/gh" "$bin/git" "$root/dots/bin/held"
+
+# run ID [ENV=VAL...]: the step with a fresh calls file; output in $root/out
+run() {
+  local id=$1; shift
+  : > "$root/calls"
+  sed "s|{{.inputs.id}}|$id|" "$script" > "$root/step.sh"
+  env PATH="$bin:$PATH" CALLS="$root/calls" STATE_DIR="$state" DOTS_HOME="$root/dots" "$@" \
+    sh "$root/step.sh" > "$root/out" 2>&1
+}
+# rec NAME LINES...: a record under held/, one line per argument
+rec() { local n=$1; shift; mkdir -p "$state/held"; printf '%s\n' "$@" > "$state/held/$n"; }
+ok()   { run "$@" || { echo "FAIL $1: expected release, got: $(tail -2 "$root/out" | tr '\n' ' ')"; fail=1; }; }
+nope() { # ID WANT_TEXT [ENV=VAL...]
+  local id=$1 want=$2; shift 2
+  if run "$id" "$@"; then echo "FAIL $id: expected a refusal"; fail=1; return; fi
+  grep -q -- "$want" "$root/out" || { echo "FAIL $id: no '$want' in: $(tail -2 "$root/out" | tr '\n' ' ')"; fail=1; }
+}
+has()  { grep -q -- "$2" "$root/calls" || { echo "FAIL $1: expected call '$2'"; fail=1; }; }
+lacks(){ ! grep -q -- "$2" "$root/calls" || { echo "FAIL $1: unexpected call '$2'"; fail=1; }; }
+stays(){ [ -f "$state/held/$1" ] || { echo "FAIL $1: record should stay"; fail=1; }; }
+moved(){ { [ -f "$state/held/released/$1" ] && [ ! -f "$state/held/$1" ]; } || { echo "FAIL $1: record should be released"; fail=1; }; }
+
+state=$root/state
+mkdir -p "$state"
+printf 'prepared text\n\nbody\n' > "$state/a.md"
+printf 'diff --git a/f b/f\n' > "$state/p.patch"
+printf 'From abc\nSubject: x\n' > "$state/mail.patch"
+printf 'outside\n' > "$root/outside.md"
+
+# Refusals that touch nothing.
+nope absent.txt "no held record"
+nope '../x' "bad record id"
+nope 'a/b' "bad record id"
+nope '.hidden' "bad record id"
+rec nofields.txt "garbage"
+nope nofields.txt "unknown action"
+rec merge.txt "action: merge" "ref: o/r#7" "artifact: $state/a.md"
+nope merge.txt "not releasable"; stays merge.txt
+rec badref.txt "action: comment" "ref: o/r" "artifact: $state/a.md"
+nope badref.txt "bad ref"
+rec badref2.txt "action: comment" 'ref: o/r#7; rm -rf /' "artifact: $state/a.md"
+nope badref2.txt "bad ref"
+rec noart.txt "action: comment" "ref: o/r#7" "artifact: none"
+nope noart.txt "no artifact"
+rec gone.txt "action: comment" "ref: o/r#7" "artifact: $state/gone.md"
+nope gone.txt "missing or empty"
+rec out.txt "action: comment" "ref: o/r#7" "artifact: $root/outside.md"
+nope out.txt "outside the state"
+rec badbr.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" 'branch: -x; ls'
+nope badbr.txt "bad branch"
+for f in nofields merge badref badref2 noart gone out badbr; do
+  nope $f.txt "refused" >/dev/null 2>&1 || true
+  lacks $f.txt "gh issue"; lacks $f.txt "git push"; stays $f.txt
+done
+mkdir -p "$state/held/released"
+rec done.txt "action: comment" "ref: o/r#7" "artifact: $state/a.md"
+cp "$state/held/done.txt" "$state/held/released/done.txt"
+nope done.txt "already released"; lacks done.txt "gh issue"
+rec busy.txt "action: comment" "ref: o/r#7" "artifact: $state/a.md"
+mkdir "$state/held/.release-busy.txt"
+nope busy.txt "already running"; rmdir "$state/held/.release-busy.txt"
+
+# comment
+rec c.txt "action: comment" "ref: o/r#7" "artifact: $state/a.md"
+ok c.txt RELEASED_BY=owner
+has c.txt "gh issue comment 7 --repo o/r --body-file $state/a.md"; moved c.txt
+grep -q "owner	comment	o/r#7	c.txt" "$state/held/released.log" || { echo "FAIL c.txt: log line"; fail=1; }
+rec c2.txt "action: comment" "ref: o/r#7" "artifact: $state/a.md"
+ok c2.txt
+grep -q "tester	comment" "$state/held/released.log" || { echo "FAIL c2.txt: who falls back to the token account"; fail=1; }
+rec c3.txt "action: comment" "ref: o/r#7" "artifact: $state/a.md"
+nope c3.txt "" GH_FAIL=1; stays c3.txt
+
+# push: fresh checkout, claim, guards
+rec p1.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" "branch: fix/7-a" "title: Fix seven"
+ok p1.txt
+has p1.txt "git clone --quiet --branch fix/7-a --single-branch https://github.com/o/r.git"
+has p1.txt "apply --index $state/p.patch"; has p1.txt "commit --quiet -m Fix seven"
+has p1.txt "push --quiet https://github.com/o/r.git HEAD:fix/7-a"; moved p1.txt
+rec p2.txt "action: push" "ref: o/r#7" "artifact: $state/mail.patch" "branch: fix/7-b"
+ok p2.txt
+has p2.txt "am --quiet $state/mail.patch"; lacks p2.txt "apply --index"
+rec p3.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" "branch: fix/7-c"
+nope p3.txt "holds a claim" HELD_RC=3
+lacks p3.txt "git clone"; lacks p3.txt "git push"; stays p3.txt
+rec p4.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" "branch: main"
+nope p4.txt "never a push to main"; lacks p4.txt "git push"
+rec p5.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" "branch: fix/7-d"
+nope p5.txt "" PUSH_FAIL=1; stays p5.txt
+rec p6.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" "branch: fix/7-e"
+ok p6.txt HELD_RC=1; has p6.txt "git push"
+rec p7.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch"
+ok p7.txt
+has p7.txt "HEAD:fix/1-x"; has p7.txt "https://github.com/o/fork.git"
+rec p8.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch"
+nope p8.txt "not a pull request" PRVIEW_FAIL=1; lacks p8.txt "git push"
+rec p9.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch"
+nope p9.txt "is not open" PRSTATE=MERGED; lacks p9.txt "git push"
+rec p10.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" "branch: fix/7-n" "base: trunk" "push-repo: me/r"
+ok p10.txt CLONE_FAIL=fix/7-n
+has p10.txt "checkout --quiet -b fix/7-n"; has p10.txt "--branch trunk"
+has p10.txt "https://github.com/me/r.git HEAD:fix/7-n"
+rec p11.txt "action: push" "ref: o/r#7" "artifact: $state/p.patch" "branch: fix/7-m"
+nope p11.txt "no base" CLONE_FAIL=fix/7-m; lacks p11.txt "git push"
+
+# open-pr
+rec o1.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md" "branch: fix/7-a" "closes: 7"
+ok o1.txt
+has o1.txt "pr create --repo o/r --head fix/7-a --base main --title prepared text --body-file"; moved o1.txt
+rec o2.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md"
+nope o2.txt "no branch"; lacks o2.txt "pr create"
+rec o3.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md" "branch: main"
+nope o3.txt "never a pull request from main"
+
+[ "$fail" = 0 ] && echo "ok: publish-held" || exit 1

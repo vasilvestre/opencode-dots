@@ -1,0 +1,184 @@
+# Release one held item: publish exactly what a workflow prepared and the gate
+# held at the `propose` ceiling (ADR 0040, docs/publish-held.md).
+#
+# Started by a person (the dashboard, later) with the id of one record under
+# STATE_DIR/held/. There is no agent step: the release is shell only (ADR 0002),
+# and the text of the record and of the artifact is data. Releasing is the
+# owner's explicit approval, so it publishes whatever the repository ceiling is.
+# A `merge` record is never released this way.
+name: publish-held
+version: "1.0.0"
+inputs:
+  - name: id
+    type: string
+    required: true
+    description: file name of one record under STATE_DIR/held/
+    validation:
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+
+states:
+  initial: release
+
+  release:
+    type: step
+    command: |
+      set -eu
+      id={{.inputs.id}}
+      state=${STATE_DIR:-/state}
+      held=$state/held
+      die() { echo "publish-held: $*" >&2; exit 1; }
+
+      case "$id" in
+        ""|*/*|.*|*..*|*[!A-Za-z0-9._-]*) die "refused: bad record id" ;;
+      esac
+      rec=$held/$id
+      [ ! -e "$held/released/$id" ] || die "refused: $id is already released"
+      [ -f "$rec" ] || die "refused: no held record $id"
+
+      # One line, one field, first one wins. Values are data: each is checked
+      # against a strict pattern before use and never reaches a shell as code.
+      field() {
+        awk -v k="$1" 'index($0, k ": ") == 1 { sub(/\r$/, ""); print substr($0, length(k) + 3); exit }' "$rec"
+      }
+      action=$(field action)
+      ref=$(field ref)
+      artifact=$(field artifact)
+      branch=$(field branch)
+      base=$(field base)
+      push_repo=$(field push-repo)
+      title=$(field title)
+      closes=$(field closes)
+
+      case "$action" in
+        comment|push|open-pr) ;;
+        merge) die "refused: a merge is not releasable this way" ;;
+        *) die "refused: malformed record, unknown action" ;;
+      esac
+      printf '%s' "$ref" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[0-9]+$' \
+        || die "refused: malformed record, bad ref"
+      repo=${ref%%#*}
+      num=${ref##*#}
+      [ -n "$artifact" ] && [ "$artifact" != none ] || die "refused: malformed record, no artifact"
+      [ -s "$artifact" ] || die "refused: the artifact is missing or empty"
+      art=$(realpath "$artifact")
+      case "$art" in
+        "$(realpath "$state")"/*) ;;
+        *) die "refused: the artifact is outside the state directory" ;;
+      esac
+      safe_branch() { # NAME VALUE
+        printf '%s' "$2" | grep -Eq '^[A-Za-z0-9._/:-]+$' || die "refused: malformed record, bad $1"
+        case "$2" in
+          -*|*..*) die "refused: malformed record, bad $1" ;;
+        esac
+      }
+      [ -z "$branch" ] || safe_branch branch "$branch"
+      [ -z "$base" ] || safe_branch base "$base"
+      if [ -n "$push_repo" ]; then
+        printf '%s' "$push_repo" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
+          || die "refused: malformed record, bad push-repo"
+      fi
+      if [ -n "$closes" ]; then
+        printf '%s' "$closes" | grep -Eq '^[0-9]+$' || die "refused: malformed record, bad closes"
+      fi
+
+      # Who released it: the dashboard may set RELEASED_BY, else the token account.
+      who=$(printf '%s' "${RELEASED_BY:-}" | tr -cd 'A-Za-z0-9._@-')
+      [ -n "$who" ] || who=$(gh api user --jq .login 2>/dev/null | tr -cd 'A-Za-z0-9._@-' || true)
+      [ -n "$who" ] || who=unknown
+
+      lock=$held/.release-$id
+      mkdir "$lock" 2>/dev/null || die "refused: a release of $id is already running"
+      tmp=$(mktemp -d)
+      trap 'rm -rf "$tmp" "$lock"' EXIT
+
+      echo "publish-held: $id: $action on $ref, released by $who (the ceiling is not consulted)"
+
+      # A human claim is a veto on a branch (ADR 0026); same reading as the
+      # workflows: 3 refuses, a check that cannot run is logged and not a stop.
+      claim() { # BRANCH
+        rc=0
+        if [ -x "${DOTS_HOME:-/work}/bin/held" ]; then
+          "${DOTS_HOME:-/work}/bin/held" "$repo" "$1" || rc=$?
+        else
+          rc=1
+        fi
+        case $rc in
+          0) ;;
+          3) die "refused: a human holds a claim on $1, nothing pushed" ;;
+          *) echo "held: the claim check failed, going on" ;;
+        esac
+      }
+
+      case "$action" in
+        comment)
+          gh issue comment "$num" --repo "$repo" --body-file "$art"
+          ;;
+
+        push)
+          if [ -z "$branch" ]; then
+            pr=$(gh pr view "$num" --repo "$repo" --json headRefName,headRepository,state 2>/dev/null) \
+              || die "refused: the record names no branch and $ref is not a pull request"
+            [ "$(printf '%s' "$pr" | jq -r .state)" = OPEN ] || die "refused: $ref is not open"
+            branch=$(printf '%s' "$pr" | jq -r .headRefName)
+            [ -n "$push_repo" ] || push_repo=$(printf '%s' "$pr" | jq -r '.headRepository.nameWithOwner // empty')
+            safe_branch branch "$branch"
+          fi
+          [ -n "$push_repo" ] || push_repo=$repo
+          case "$branch" in
+            main|master) die "refused: never a push to $branch" ;;
+          esac
+          claim "$branch"
+          gh auth setup-git
+          push_url=https://github.com/$push_repo.git
+          work=$tmp/work
+          if git clone --quiet --branch "$branch" --single-branch "$push_url" "$work" 2>/dev/null; then
+            :
+          elif [ -n "$base" ]; then
+            git clone --quiet --branch "$base" --single-branch "https://github.com/$repo.git" "$work"
+            git -C "$work" checkout --quiet -b "$branch"
+          else
+            die "refused: branch $branch not found and the record names no base"
+          fi
+          login=$(gh api user --jq .login)
+          uid=$(gh api user --jq .id)
+          git -C "$work" config user.name "$login"
+          git -C "$work" config user.email "$uid+$login@users.noreply.github.com"
+          if head -1 "$art" | grep -q '^From '; then
+            git -C "$work" am --quiet "$art"
+          else
+            git -C "$work" apply --index "$art"
+            git -C "$work" commit --quiet -m "${title:-Apply the held change on $ref}"
+          fi
+          git -C "$work" push --quiet "$push_url" "HEAD:$branch"
+          ;;
+
+        open-pr)
+          [ -n "$branch" ] || die "refused: malformed record, no branch to open the pull request from"
+          case "$branch" in
+            main|master) die "refused: never a pull request from $branch" ;;
+          esac
+          [ -n "$base" ] || base=$(gh api "repos/$repo" --jq .default_branch)
+          prtitle=$(head -1 "$art")
+          cp "$art" "$tmp/body.md"
+          [ -z "$closes" ] || printf '\n\nCloses #%s\n' "$closes" >> "$tmp/body.md"
+          url=$(gh pr create --repo "$repo" --head "$branch" --base "$base" \
+            --title "$prtitle" --body-file "$tmp/body.md" | tail -1)
+          echo "opened $url"
+          ;;
+      esac
+
+      mkdir -p "$held/released"
+      mv "$rec" "$held/released/$id"
+      printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$who" "$action" "$ref" "$id" >> "$held/released.log"
+      echo "publish-held: $id released"
+    timeout: 300
+    on_success: done
+    on_failure: error
+
+  done:
+    type: terminal
+    status: success
+
+  error:
+    type: terminal
+    status: failure
