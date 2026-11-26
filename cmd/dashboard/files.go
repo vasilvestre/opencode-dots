@@ -191,6 +191,7 @@ func (d *dash) saveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rel := strings.TrimPrefix(filepath.Clean(req.Path), "./")
+	auditTarget(r, rel)
 	if generatedFile(rel) {
 		if _, err := os.Stat(filepath.Join(d.root, repos.SourceFile)); err == nil {
 			writeJSONStatus(w, http.StatusConflict, map[string]string{"error": rel + " is generated from repos.yaml: edit repos.yaml and save it"})

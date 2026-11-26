@@ -24,6 +24,7 @@ func (e heldError) Error() string { return e.msg }
 type dbClaim struct {
 	ID, WorkItem, Ref, Machine string
 	Repo, Branch, Actor        string
+	Name, Capabilities         string // db worker (ADR 0042)
 	TTL                        time.Duration
 }
 

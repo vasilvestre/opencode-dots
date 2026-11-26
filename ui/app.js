@@ -11,6 +11,7 @@ import { mountCosts } from "./views/costs.js";
 import { mountMemory } from "./views/memory.js";
 import { mountAutonomy } from "./views/autonomy.js";
 import { mountHealth } from "./views/health.js";
+import { mountAudit } from "./views/audit.js";
 import { startNotifications } from "./notifications.js";
 import { openPalette } from "./palette.js";
 
@@ -23,6 +24,7 @@ const VIEWS = {
   memory: { mount: (el) => mountMemory(el), title: "Memory" },
   autonomy: { mount: (el) => mountAutonomy(el), title: "Autonomy" },
   health: { mount: (el) => mountHealth(el), title: "Health" },
+  audit: { mount: (el) => mountAudit(el), title: "Audit" },
 };
 
 const viewEl = $("#view");
@@ -103,8 +105,8 @@ document.addEventListener("keydown", (ev) => {
       ),
     });
   }
-  if (!typing && /^[1-8]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-    const view = ["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health"][Number(ev.key) - 1];
+  if (!typing && /^[1-9]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    const view = ["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit"][Number(ev.key) - 1];
     location.hash = `#${view}`;
   }
 });

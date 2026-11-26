@@ -67,6 +67,14 @@ dashboard. Pulling tasks is the next step, once we know how a laptop really beha
 3. May the cost a worker incurs on its owner's account stay invisible until 0036 is decided (yes or
    no)?
 
+### First step built
+
+Presence only: a `worker` table (name, machine, capabilities as JSON, registered, renewed and
+expiry times, a `bot` actor), `bin/repos db worker register|heartbeat|list|expire` with the
+claim time to live (90 s, at most one hour, server clock), a read-only `GET /api/workers` and a
+Workers card on the Repos view. No task is pulled and no protocol or authentication exists yet,
+so the card lists machines that cannot do anything. This ADR stays proposed. See `docs/workers.md`.
+
 ## Consequences
 
 Easier: no tunnel to maintain, no open port on a laptop, and a laptop that sleeps simply stops

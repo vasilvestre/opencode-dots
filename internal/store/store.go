@@ -122,6 +122,28 @@ var migrations = []string{
 	);
 	CREATE UNIQUE INDEX claim_one_live_per_machine ON claim(work_item_id, machine) WHERE released_at = '';
 	CREATE INDEX claim_work_item ON claim(work_item_id);`,
+	// 3: the audit log of dashboard writes (ADR 0037). Append only: the triggers refuse an
+	// update or a delete, so a bug cannot rewrite history.
+	`CREATE TABLE audit (
+		id       INTEGER PRIMARY KEY AUTOINCREMENT,
+		at       TEXT NOT NULL,
+		endpoint TEXT NOT NULL,
+		target   TEXT NOT NULL DEFAULT '',
+		caller   TEXT NOT NULL,
+		outcome  INTEGER NOT NULL
+	);
+	CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append only'); END;
+	CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append only'); END;`,
+	// 4: workers (ADR 0042). Presence only: a bot actor that heartbeats, like a claim.
+	`CREATE TABLE worker (
+		name          TEXT PRIMARY KEY,
+		actor_id      TEXT NOT NULL REFERENCES actor(id),
+		machine       TEXT NOT NULL,
+		capabilities  TEXT NOT NULL DEFAULT '{}',
+		registered_at TEXT NOT NULL,
+		renewed_at    TEXT NOT NULL,
+		expires_at    TEXT NOT NULL
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
