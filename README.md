@@ -302,9 +302,10 @@ runs on the host, so it finds `tower` on `PATH`. `tower init` in a repository
 scaffolds `.towerignore` and `.tower/config.toml`; without `tower init` the
 daemon warns and indexes every non-hidden file.
 
-The image build keeps `WITH_TOWER=0` for `DOT_OPENCODE=docker` until the
-tarballs carry a binary. Tower is a bonus, never a requirement: the workflows
-write their own memory of a thread to
+The image build keeps `WITH_TOWER=0` by default. Since v0.1.2 the release
+tarball carries the binary and its extensions, so `WITH_TOWER=1` yields a
+working tower. The default stays off because tower is a bonus, never a
+requirement: the workflows write their own memory of a thread to
 `state/replies/pr<N>/worklog.md` and `state/fix/<repo>/issue-<N>/worklog.md`,
 and the agent reads and rewrites that file on every run. When tower memory is
 reachable, the same agent also stores one `session_summary` record per run with
