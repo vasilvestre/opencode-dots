@@ -128,7 +128,8 @@ func TestPruneKeepsAProjectThatHasWorkItems(t *testing.T) {
 	two := []byte("version: 1\nrepos:\n  acme/a: {tend: true}\n  acme/b: {tend: true}\n")
 	ImportToStore(ctx, st, "default", two, false)
 	who, _ := st.EnsureActor(ctx, store.Actor{Kind: "human", DisplayName: "Ada"})
-	b, _ := st.ProjectByRepo(ctx, "default", "acme/b")
+	bs, _ := st.Projects(ctx, "default", "acme/b")
+	b := bs[0]
 	if _, err := st.CreateWorkItem(ctx, b.ID, "t", who.ID); err != nil {
 		t.Fatal(err)
 	}

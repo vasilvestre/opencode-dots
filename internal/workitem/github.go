@@ -52,13 +52,14 @@ func Observe(ctx context.Context, st *store.Store, workspace string, ev GitHubEv
 	if ev.Repo == "" || ev.Number <= 0 || ev.Actor == "" {
 		return res, errors.New("workitem: an event needs a repository, a number and an actor")
 	}
-	project, err := st.ProjectByRepo(ctx, workspace, ev.Repo)
-	if errors.Is(err, store.ErrNotFound) {
-		return res, fmt.Errorf("%w: %s", ErrUnknownProject, ev.Repo)
-	}
+	projects, err := st.Projects(ctx, workspace, ev.Repo)
 	if err != nil {
 		return res, err
 	}
+	if len(projects) == 0 {
+		return res, fmt.Errorf("%w: %s", ErrUnknownProject, ev.Repo)
+	}
+	project := projects[0]
 	who, err := actorFor(ctx, st, ev.Actor)
 	if err != nil {
 		return res, err

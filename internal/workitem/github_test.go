@@ -55,7 +55,8 @@ func TestTheSameEventAgainChangesNothing(t *testing.T) {
 	if err != nil || again.Created || len(again.Attached) != 0 || again.WorkItem.ID != first.WorkItem.ID {
 		t.Fatalf("second observation = %+v, %v", again, err)
 	}
-	p, _ := st.ProjectByRepo(ctx, "default", "acme/app")
+	ps, _ := st.Projects(ctx, "default", "acme/app")
+	p := ps[0]
 	if items, _ := st.WorkItemsByProject(ctx, p.ID); len(items) != 1 {
 		t.Errorf("%d work items, want 1", len(items))
 	}

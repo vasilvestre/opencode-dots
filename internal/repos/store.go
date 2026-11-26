@@ -68,13 +68,16 @@ func ImportToStore(ctx context.Context, st *store.Store, workspace string, data 
 	inFile := map[string]bool{}
 	for i, r := range resolved {
 		inFile[r.Name] = true
-		_, lookup := st.ProjectByRepo(ctx, workspace, r.Name)
+		known, err := st.Projects(ctx, workspace, r.Name)
+		if err != nil {
+			return res, err
+		}
 		_, changed, err := st.UpsertProject(ctx, workspace, r.Name, i, r.Values)
 		if err != nil {
 			return res, fmt.Errorf("%s: %w", r.Name, err)
 		}
 		switch {
-		case errors.Is(lookup, store.ErrNotFound):
+		case len(known) == 0:
 			res.Added++
 		case changed:
 			res.Updated++

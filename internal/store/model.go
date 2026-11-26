@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -165,7 +166,7 @@ func (s *Store) UpsertProject(ctx context.Context, workspace, repo string, posit
 	if err := tx.Commit(); err != nil {
 		return Project{}, false, err
 	}
-	p, err := s.ProjectByRepo(ctx, workspace, repo)
+	p, err := s.projectByRepo(ctx, workspace, repo)
 	return p, changed, err
 }
 
@@ -176,8 +177,8 @@ func nonNilAny(m map[string]any) map[string]any {
 	return m
 }
 
-// Projects lists a workspace's projects in file order.
-func (s *Store) Projects(ctx context.Context, workspace string) ([]Project, error) {
+// Projects lists a workspace's projects in file order, or only the named repositories.
+func (s *Store) Projects(ctx context.Context, workspace string, repos ...string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, workspace, repo, position, features, created_at, updated_at
 		FROM project WHERE workspace = ? ORDER BY position, repo`, workspace)
@@ -191,13 +192,15 @@ func (s *Store) Projects(ctx context.Context, workspace string) ([]Project, erro
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, p)
+		if len(repos) == 0 || slices.Contains(repos, p.Repo) {
+			out = append(out, p)
+		}
 	}
 	return out, rows.Err()
 }
 
-// ProjectByRepo returns one project, or ErrNotFound.
-func (s *Store) ProjectByRepo(ctx context.Context, workspace, repo string) (Project, error) {
+// projectByRepo returns one project, or ErrNotFound.
+func (s *Store) projectByRepo(ctx context.Context, workspace, repo string) (Project, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, workspace, repo, position, features, created_at, updated_at
 		FROM project WHERE workspace = ? AND repo = ?`, workspace, repo)

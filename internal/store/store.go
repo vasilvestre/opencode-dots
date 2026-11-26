@@ -32,7 +32,11 @@ var (
 )
 
 // Store is an open database.
-type Store struct{ db *sql.DB }
+type Store struct {
+	db *sql.DB
+	// clock is the time of this server. Claims never take a time from a client; tests set it.
+	clock func() time.Time
+}
 
 // Open opens the database at path, creating the file and its directory, and brings the
 // schema up to date. The file holds private names, so it is created with mode 0600.
@@ -52,7 +56,7 @@ func Open(path string) (*Store, error) {
 	}
 	// One writer: a single connection keeps SQLite from answering "database is locked".
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, clock: time.Now}
 	if err := s.migrate(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -104,6 +108,20 @@ var migrations = []string{
 		attached_at  TEXT NOT NULL
 	);
 	CREATE INDEX work_item_project ON work_item(project_id);`,
+	// 2: claims (ADR 0026). Every time is the server's own clock.
+	`CREATE TABLE claim (
+		id           TEXT PRIMARY KEY,
+		work_item_id TEXT NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
+		actor_id     TEXT NOT NULL REFERENCES actor(id),
+		machine      TEXT NOT NULL,
+		branch       TEXT NOT NULL DEFAULT '',
+		created_at   TEXT NOT NULL,
+		renewed_at   TEXT NOT NULL,
+		expires_at   TEXT NOT NULL,
+		released_at  TEXT NOT NULL DEFAULT ''
+	);
+	CREATE UNIQUE INDEX claim_one_live_per_machine ON claim(work_item_id, machine) WHERE released_at = '';
+	CREATE INDEX claim_work_item ON claim(work_item_id);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -155,6 +173,8 @@ func newID(prefix string) string {
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+
+func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 func parseTime(s string) time.Time {
 	t, _ := time.Parse(time.RFC3339Nano, s)

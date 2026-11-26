@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -31,7 +32,7 @@ func main() {
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	sub := ""
-	if cmd == "db" {
+	if cmd == "db" || cmd == "events" {
 		// `repos db import -workspace x`: the flags follow the subcommand.
 		if len(args) == 0 {
 			usage()
@@ -56,6 +57,12 @@ func main() {
 	fs.StringVar(&ev.Branch, "branch", "", "db observe: the head branch of a pull request")
 	fs.StringVar(&ev.Actor, "actor", "", "db observe: the GitHub login that caused the event")
 	fs.StringVar(&ev.Title, "title", "", "db observe: the title, kept on a new work item")
+	var cl dbClaim
+	fs.StringVar(&cl.ID, "claim", "", "db heartbeat, db release: the claim id")
+	fs.StringVar(&cl.WorkItem, "work-item", "", "db claim, db claims: the work item id")
+	fs.StringVar(&cl.Ref, "ref", "", "db claim: a reference of the work item, such as github:owner/repo#12")
+	fs.StringVar(&cl.Machine, "machine", "", "db claim: the machine that holds the claim")
+	fs.DurationVar(&cl.TTL, "ttl", 0, "db claim, db heartbeat: time to live (default 90s, at most 1h)")
 	fs.Usage = func() { usage(); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -69,13 +76,22 @@ func main() {
 		fail(generate(*dir, override, cmd == "check", *fromDB, *dbPath, *workspace))
 	case "import":
 		fail(importFiles(*dir, *force))
+	case "events":
+		fail(eventsCommand(sub, fs.Args()))
 	case "db":
 		nums, err := parseNumbers(*linked)
 		if err != nil {
 			fail(err)
 		}
 		ev.LinkedIssues = nums
-		fail(dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev))
+		cl.Branch, cl.Actor, cl.Repo = ev.Branch, ev.Actor, ev.Repo
+		err = dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev, cl)
+		var held heldError
+		if errors.As(err, &held) {
+			fmt.Println(held.Error())
+			os.Exit(exitClaimed)
+		}
+		fail(err)
 	default:
 		usage()
 		os.Exit(2)
@@ -86,6 +102,10 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: repos generate|check|import|features [-dir DIR] [-awf-url URL] [-state-path PATH] [-force]")
 	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list|work-items [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
 	fmt.Fprintln(os.Stderr, "       repos db observe -repo R -kind K -number N -actor LOGIN [-branch B] [-linked 12,13] [-title T]")
+	fmt.Fprintln(os.Stderr, "       repos db claim -actor LOGIN -machine M (-work-item ID | -ref REF) [-branch B] [-ttl 90s]")
+	fmt.Fprintln(os.Stderr, "       repos db heartbeat|release -claim ID    repos db claims -work-item ID")
+	fmt.Fprintln(os.Stderr, "       repos db claimed -repo R -branch B      exit 0 when free, 10 when a human holds the branch")
+	fmt.Fprintln(os.Stderr, "       repos events publish TOPIC DATA | subscribe TOPIC...   (DOTS_MERCURE_URL, DOTS_MERCURE_SECRET)")
 	fmt.Fprintln(os.Stderr, "       repos generate|check -from-db   build the files from the database (ADR 0024, step 2)")
 }
 
@@ -180,7 +200,7 @@ func warnStaleWatchers(dir string, files map[string][]byte) {
 // dbCommand is the database side of repos.yaml (ADR 0024, step 1). repos.yaml stays the
 // source: `import` loads it, `check` compares what the database would generate with what
 // the file generates, `export` and `list` read the database back.
-func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHubEvent) error {
+func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHubEvent, cl dbClaim) error {
 	dbPath = resolveDB(dir, dbPath)
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -256,6 +276,8 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 			}
 		}
 		return nil
+	case "claim", "heartbeat", "release", "claims", "claimed":
+		return claimCommand(ctx, st, sub, workspace, cl)
 	case "list":
 		projects, err := st.Projects(ctx, workspace)
 		if err != nil {
