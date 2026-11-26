@@ -1,0 +1,4 @@
+#!/bin/sh
+# No network in e2e: record the attempt and fail.
+echo "curl $*" >> "${FAKE_DIR:-/dev/null}/net.log"
+exit 7

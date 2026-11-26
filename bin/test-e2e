@@ -1,0 +1,442 @@
+#!/usr/bin/env bash
+# End-to-end tests of the real workflows through the real `awf`, offline.
+# Fakes on PATH (test/e2e/fakes): gh (logs, canned answers), opencode (a stub
+# agent that writes canned files), curl (fails). The "remote" is a local bare
+# repository. See docs/e2e.md for the matrix, the fakes and the known defects.
+#
+#   bin/test-e2e                 everything
+#   bin/test-e2e fix-issue       one section: fix-issue review classify held baseline
+#   E2E_KEEP=1 bin/test-e2e ...  keep the scratch trees (their paths are printed)
+set -uo pipefail
+cd "$(dirname "$0")/.."
+command -v awf >/dev/null || { echo "bin/test-e2e: awf is not installed, nothing to run" >&2; exit 2; }
+command -v jq >/dev/null || { echo "bin/test-e2e: jq is required" >&2; exit 2; }
+
+E2E_TMP=$(mktemp -d)
+export E2E_TMP
+trap '[ -n "${E2E_KEEP:-}" ] || rm -rf "$E2E_TMP"' EXIT
+# shellcheck source=../test/e2e/lib.sh
+. test/e2e/lib.sh
+# The same seed commits in every case, so shas are comparable between cases.
+export GIT_AUTHOR_DATE="2026-01-01T00:00:00Z" GIT_COMMITTER_DATE="2026-01-01T00:00:00Z"
+
+only=${1:-all}
+want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
+
+# The commit before the gate existed (0a28bc8 wired publish-gate into the
+# workflows). Its workflows are the "pre-gate behaviour" legacy must equal.
+BASELINE_REV=0a28bc8~1
+
+CEILINGS="observe propose act auto"
+
+# ---------------------------------------------------------------- fix-issue --
+# fix_case MODE CEILING CLASS: one fix-issue run on a fresh case, left in $T.
+# CEILING "legacy" passes no autonomy input at all.
+fix_case() {
+  local mode=$1 ceil=$2 cls=$3 args=(repo=$REPO issue=7)
+  case_new "fix-issue $mode $ceil class $cls"
+  [ "$ceil" = legacy ] || args+=("autonomy=$ceil")
+  FAKE_FIX=$mode FAKE_CLASS=$cls run_wf fix-issue "${args[@]}"
+}
+
+# expected: what reaches GitHub for a ceiling and a class.
+#   publishes  the ceiling lets it out (legacy, act, auto; propose and observe do not)
+#   hold       propose, class 1 or 2: a held record
+#   note       observe, or class 3 at any ceiling
+effect() { # CEILING CLASS -> publish | hold | note
+  local ceil=$1 cls=$2
+  case "$ceil" in
+    legacy) echo publish ;;
+    observe) echo note ;;
+    *) if [ "$cls" = 3 ]; then echo note; elif [ "$ceil" = propose ]; then echo hold; else echo publish; fi ;;
+  esac
+}
+
+assert_fix_patch() { # CEILING CLASS
+  local ceil=$1 cls=$2 eff label="fix-issue patch, $1, class $2"
+  eff=$(effect "$ceil" "$cls")
+  check "$label: run succeeds" test "$RC" = 0
+  case "$eff" in
+    publish)
+      check "$label: branch pushed to origin" has_branch 'fix/7-*'
+      check "$label: pull request created once" gh_once '^gh pr create'
+      check "$label: closes the issue in the body" grep -q 'Closes #7' "$T/fake/posted/"*pr-create.md
+      check "$label: no note, nothing held" test "$(n_files "$T/state/notes" '*')$(n_files "$T/state/held" '*')" = 00
+      ;;
+    hold)
+      check "$label: nothing pushed" no_branch 'fix/*' 
+      check "$label: no pull request" gh_none '^gh pr create'
+      check "$label: push held once" test "$(held_of push)" = 1
+      check "$label: held record names branch, base, title" bash -c "f=\$(ls $T/state/held/*-push-*); grep -q '^branch: fix/7-' \$f && grep -q '^base: main' \$f && grep -q '^title: Fix the crash' \$f"
+      check "$label: held patch kept for the release" bash -c "f=\$(ls $T/state/held/*-push-*); a=\$(sed -n 's/^artifact: //p' \$f); [ -s \"\$a\" ]"
+      check "$label: nothing in notes for the push" test "$(note_of push)" = 0
+      ;;
+    note)
+      check "$label: nothing pushed" no_branch 'fix/*' 
+      check "$label: no pull request" gh_none '^gh pr create'
+      check "$label: push noted once" test "$(note_of push)" = 1
+      check "$label: nothing held" test "$(n_files "$T/state/held" '*')" = 0
+      ;;
+  esac
+  check "$label: no issue comment of the patch run's own accord" bash -c "[ '$eff' != publish ] || [ \$(grep -cE '^gh issue comment' $T/fake/gh.log) = 0 ]"
+  check "$label: nothing left the machine but through the fakes" no_net
+}
+
+assert_fix_decline() { # CEILING CLASS
+  local ceil=$1 cls=$2 eff label="fix-issue decline, $1, class $2"
+  eff=$(effect "$ceil" "$cls")
+  check "$label: run succeeds" test "$RC" = 0
+  check "$label: no push, no pull request" no_push_no_pr
+  case "$eff" in
+    publish) check "$label: the answer is commented once" gh_once '^gh issue comment 7 --repo tester/demo'
+             check "$label: the comment is the agent's answer" grep -q 'already fixed' "$T/fake/posted/"*issue-comment.md ;;
+    hold)    check "$label: no comment" gh_none '^gh issue comment'
+             check "$label: comment held once" test "$(held_of comment)" = 1 ;;
+    note)    check "$label: no comment" gh_none '^gh issue comment'
+             check "$label: comment noted once" test "$(note_of comment)" = 1 ;;
+  esac
+}
+
+section_fix_issue() {
+  say "== fix-issue: ceiling x class x outcome =="
+  local mode ceil cls
+  for mode in patch decline; do
+    fix_case "$mode" legacy 1
+    check "fix-issue $mode, legacy: no classification model call" agent_idle classify
+    check "fix-issue $mode, legacy: no item_class file" test ! -e "$T/state/fix/$REPO/issue-7/item_class"
+    check "fix-issue $mode, legacy: the gate is never called" bash -c "! grep -q 'publish-gate' $T/out.log"
+    "assert_fix_$mode" legacy 1
+    case_done
+    for ceil in $CEILINGS; do
+      for cls in 1 2 3; do
+        fix_case "$mode" "$ceil" "$cls"
+        check "fix-issue $mode, $ceil, class $cls: item_class is $cls" test "$(cat "$T/state/fix/$REPO/issue-7/item_class" 2>/dev/null)" = "$cls"
+        "assert_fix_$mode" "$ceil" "$cls"
+        case_done
+      done
+    done
+  done
+
+  say "-- fix-issue: a half-done fix (edits, no pull request text) fails and still obeys the gate --"
+  for ceil in legacy observe propose act; do
+    fix_case half "$ceil" 1
+    check "fix-issue half, $ceil: the run fails (ABANDONED)" test "$RC" != 0
+    check "fix-issue half, $ceil: nothing pushed, no pull request" no_push_no_pr
+    case "$(effect "$ceil" 1)" in
+      publish) check "fix-issue half, $ceil: the answer is commented" gh_once '^gh issue comment' ;;
+      hold)    check "fix-issue half, $ceil: the answer comment is held" test "$(held_of comment)" = 1 ;;
+      note)    check "fix-issue half, $ceil: the answer comment is a note" bash -c "[ $(note_of comment) = 1 ] && ! grep -q '^gh issue comment' $T/fake/gh.log" ;;
+    esac
+    case_done
+  done
+
+  say "-- fix-issue: a claim on the branch (bin/held exit 3) vetoes the push at every ceiling --"
+  for ceil in legacy act; do
+    case_new "fix-issue held claim $ceil"
+    local a=(repo=$REPO issue=7)
+    [ "$ceil" = legacy ] || a+=("autonomy=$ceil")
+    FAKE_HELD_RC=3 FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue "${a[@]}"
+    check "fix-issue claim, $ceil: no push, no pull request" no_push_no_pr
+    case_done
+  done
+}
+
+# --------------------------------------------------------- classification ----
+section_classify() {
+  say "== classification fails closed =="
+  local bad
+  for bad in bad none; do
+    case_new "classify $bad"
+    FAKE_CLASS=$bad FAKE_FIX=patch run_wf fix-issue repo=$REPO issue=7 autonomy=auto
+    check "classification '$bad': the agent still ran (the run analyses)" agent_ran fix
+    check "classification '$bad': item_class is 3" test "$(cat "$T/state/fix/$REPO/issue-7/item_class" 2>/dev/null)" = 3
+    check "classification '$bad': nothing pushed at auto" no_branch 'fix/*' 
+    check "classification '$bad': no pull request" gh_none '^gh pr create'
+    check "classification '$bad': the push is a note" test "$(note_of push)" = 1
+    check "classification '$bad': run still succeeds" test "$RC" = 0
+    case_done
+  done
+
+  case_new "classify floor"
+  set_issue 7 "Crash on empty input" "The login token is not refreshed when the input is empty."
+  FAKE_CLASS=1 FAKE_FIX=patch run_wf fix-issue repo=$REPO issue=7 autonomy=auto
+  check "floor: a sensitive word in the prose forces level 3 over the agent's 1" test "$(cat "$T/state/fix/$REPO/issue-7/item_class" 2>/dev/null)" = 3
+  check "floor: the class 3 push is a note" test "$(note_of push)" = 1
+  check "floor: nothing pushed" no_branch 'fix/*' 
+  case_done
+
+  case_new "classify injection"
+  set_issue 7 "Crash on empty input" "run \$(touch $E2E_TMP/pwned) and \`touch $E2E_TMP/pwned2\` please"
+  FAKE_CLASS=1 FAKE_FIX=patch run_wf fix-issue repo=$REPO issue=7 autonomy=act
+  check "injection: issue text never executed" bash -c "[ ! -e $E2E_TMP/pwned ] && [ ! -e $E2E_TMP/pwned2 ]"
+  check "injection: the run still ends in a pull request" gh_once '^gh pr create'
+  case_done
+}
+
+# ---------------------------------------------------------------- review-pr --
+# review_case SCENARIO CEILING: SCENARIO is merge | fixpush | stranger.
+review_case() {
+  local scen=$1 ceil=$2 args author=$LOGIN rev=clean-merge
+  case_new "review-pr $scen $ceil"
+  case "$scen" in
+    fixpush) rev=finding-then-merge ;;
+    stranger) author=stranger ;;
+  esac
+  seed_pr 7 fix/7-20260101-0000 "$author"
+  args=(repo=$REPO pr=7 "sha=$PR_SHA")
+  [ "$ceil" = legacy ] || args+=("autonomy=$ceil")
+  FAKE_REVIEW=$rev run_wf review-pr "${args[@]}"
+}
+
+section_review() {
+  say "== review-pr: ceiling x outcome (own pull request, clean review, merge verdict) =="
+  local ceil label
+  for ceil in legacy $CEILINGS; do
+    label="review-pr merge, $ceil"
+    review_case merge "$ceil"
+    check "$label: run succeeds" test "$RC" = 0
+    case "$ceil" in
+      legacy|auto)
+        check "$label: review commented once" gh_once '^gh pr comment 7'
+        check "$label: merged once (squash, branch deleted)" gh_once '^gh pr merge 7 --repo tester/demo --squash --delete-branch' ;;
+      act)
+        check "$label: review commented once" gh_once '^gh pr comment 7'
+        check "$label: merge refused, none issued" gh_none '^gh pr merge' ;;
+      propose)
+        check "$label: review not commented" gh_none '^gh pr comment'
+        check "$label: review held once" test "$(held_of comment)" = 1
+        check "$label: merge refused, none issued" gh_none '^gh pr merge'
+        check "$label: a merge is not even held" test "$(held_of merge)" = 0 ;;
+      observe)
+        check "$label: review not commented" gh_none '^gh pr comment'
+        check "$label: review noted once" test "$(note_of comment)" = 1
+        check "$label: merge noted, none issued" bash -c "[ $(note_of merge) = 1 ] && ! grep -q '^gh pr merge' $T/fake/gh.log" ;;
+    esac
+    check "$label: no network" no_net
+    case_done
+  done
+
+  say "== review-pr: a fix round pushes, ceiling by ceiling =="
+  for ceil in legacy $CEILINGS; do
+    label="review-pr fixpush, $ceil"
+    review_case fixpush "$ceil"
+    check "$label: run succeeds" test "$RC" = 0
+    check "$label: the address agent ran" agent_ran address
+    check "$label: both review rounds ran" test "$(grep -c '^agent review' "$T/fake/agent.steps")" = 2
+    check "$label: no merge in a run that pushed" gh_none '^gh pr merge'
+    case "$ceil" in
+      legacy|act|auto)
+        check "$label: the fix reached the pull request branch" bash -c "git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+        check "$label: one attempt counted" test "$(cat "$T/state/reviews/pr7/attempts" 2>/dev/null)" = 1 ;;
+      propose)
+        check "$label: origin branch untouched" bash -c "! git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+        check "$label: the fix is held once, with branch and title" bash -c "[ $(held_of push) = 1 ] && grep -q '^branch: fix/7-20260101-0000' $T/state/held/*-push-* && grep -q '^title: Clear the empty input finding' $T/state/held/*-push-*"
+        check "$label: the review comment is held too" test "$(held_of comment)" = 1 ;;
+      observe)
+        check "$label: origin branch untouched" bash -c "! git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+        check "$label: push and comment are notes" bash -c "[ $(note_of push) = 1 ] && [ $(note_of comment) = 1 ]" ;;
+    esac
+    case_done
+  done
+
+  say "== review-pr: whose pull request may the dot merge at auto =="
+  review_case stranger legacy
+  check "stranger, legacy: merged, as before the gate" gh_once '^gh pr merge 7'
+  case_done
+  for ceil in act auto; do
+    review_case stranger "$ceil"
+    check "stranger, $ceil: not merged" gh_none '^gh pr merge'
+    case_done
+  done
+  review_case stranger auto
+  check "stranger, auto: the refusal names the author" grep -q 'stranger wrote it' "$T/out.log"
+  check "stranger, auto: a refusal leaves no record" test "$(n_files "$T/state/held" '*')$(n_files "$T/state/notes" '*merge*')" = 00
+  check "stranger, auto: the review comment still went out" gh_once '^gh pr comment 7'
+  case_done
+  case_new "review-pr stranger auto scope all"
+  seed_pr 7 fix/7-20260101-0000 stranger
+  GATE_MERGE_SCOPE=all FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+  check "stranger, auto, GATE_MERGE_SCOPE=all: merged" gh_once '^gh pr merge 7'
+  case_done
+  case_new "review-pr own auto, dot login differs"
+  seed_pr 7 fix/7-20260101-0000 tester
+  printf 'someone-else\n' > "$T/fake/gh/login"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+  check "own pull request when the dot logs in as another account: not merged" gh_none '^gh pr merge'
+  case_done
+
+  say "== review-pr: breaker, empty and invalid ceilings =="
+  case_new "review-pr breaker"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  mkdir -p "$T/state/breaker"
+  printf '{}\n' > "$T/state/breaker/tester__demo.json"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+  check "tripped breaker lowers auto to act: the review is commented" gh_once '^gh pr comment 7'
+  check "tripped breaker lowers auto to act: no merge" gh_none '^gh pr merge'
+  check "tripped breaker: the log says so" grep -q 'circuit breaker tripped' "$T/out.log"
+  case_done
+  case_new "review-pr explicit empty autonomy"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=
+  check "autonomy= (explicit empty) is legacy: merged" gh_once '^gh pr merge 7'
+  check "autonomy= (explicit empty): the gate is never called" bash -c "! grep -q publish-gate $T/out.log"
+  case_done
+  case_new "review-pr invalid autonomy"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=yolo
+  check "autonomy=yolo is rejected before anything runs" test "$RC" != 0
+  check "autonomy=yolo: nothing reached GitHub" bash -c "[ ! -s $T/fake/gh.log ]"
+  case_done
+
+  say "== review-pr: class 2 is never merged by the dot (ADR 0040) =="
+  # The chain a real run follows: fix-issue (auto) classifies the issue at 2 and
+  # opens the pull request; later review-pr (auto) reviews and merges it.
+  case_new "chain class 2"
+  FAKE_FIX=patch FAKE_CLASS=2 run_wf fix-issue repo=$REPO issue=7 autonomy=auto
+  check "chain: fix-issue at auto, class 2 opened the pull request" gh_once '^gh pr create'
+  local br body sha
+  br=$(git -C "$T/remotes/tester/demo.git" for-each-ref --format='%(refname:short)' 'refs/heads/fix/7-*' | head -1)
+  sha=$(git -C "$T/remotes/tester/demo.git" rev-parse "$br")
+  git -C "$T/remotes/tester/demo.git" update-ref refs/pull/99/head "$sha"
+  body=$(cat "$T/fake/posted/"*pr-create.md)
+  jq -n --arg b "$body" --arg br "$br" --arg sha "$sha" --arg r "$REPO" \
+    '{number:99, title:"Fix the crash on empty input", body:$b, url:("https://github.com/" + $r + "/pull/99"),
+      author:{login:"tester"}, baseRefName:"main", headRefName:$br, headRepository:{nameWithOwner:$r},
+      state:"OPEN", headRefOid:$sha, mergeable:"MERGEABLE", createdAt:"2026-01-01T00:00:00Z", comments:[]}' \
+    > "$T/fake/gh/pr-99.json"
+  : > "$T/fake/gh.log"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=99 "sha=$sha" autonomy=auto
+  check "chain: review-pr at auto ran to the end" test "$RC" = 0
+  known_defect D1 "chain: a pull request born from a class 2 item is not merged by review-pr at auto" gh_none '^gh pr merge'
+  case_done
+}
+
+# ------------------------------------------------------ publish-held release --
+section_held() {
+  say "== propose, then release with publish-held =="
+  # fix-issue at propose: the patch is held, the person releases it.
+  case_new "release fix-issue push"
+  FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose
+  local id
+  id=$(held_id push)
+  check "fix-issue propose: a push record is held" test -n "$id"
+  : > "$T/fake/gh.log"
+  RELEASED_BY=alice run_wf publish-held "id=$id"
+  check "release push: run succeeds" test "$RC" = 0
+  check "release push: the branch now exists on origin" has_branch 'fix/7-*'
+  check "release push: with the held change" bash -c "git -C $T/remotes/tester/demo.git show \$(git -C $T/remotes/tester/demo.git for-each-ref --format='%(refname)' 'refs/heads/fix/7-*' | head -1):src.txt | grep -q fixed"
+  check "release push: the commit keeps the held title" bash -c "git -C $T/remotes/tester/demo.git log -1 --format=%s \$(git -C $T/remotes/tester/demo.git for-each-ref --format='%(refname)' 'refs/heads/fix/7-*' | head -1) | grep -q 'Fix the crash on empty input'"
+  check "release push: record moved to held/released/" bash -c "[ -f $T/state/held/released/$id ] && [ ! -f $T/state/held/$id ]"
+  check "release push: released.log says who" grep -q "alice.*push.*$REPO#7" "$T/state/held/released.log"
+  check "release push: re-releasing the same record is refused" bash -c "cd $T/proj && ! PATH=$E2E_DIR/fakes:\$PATH HOME=$T/home FAKE_DIR=$T/fake STATE_DIR=$T/state DOTS_HOME=$T/dots GIT_CONFIG_GLOBAL=$T/gitconfig awf run publish-held --storage $T/awf --input id=$id >/dev/null 2>&1"
+  known_defect D2 "release push: the pull request text is held too, so the person can open the pull request" bash -c "ls $T/state/held | grep -q -- '-open-pr-' || ls $T/state/held/released | grep -q -- '-open-pr-' || grep -q '^gh pr create' $T/fake/gh.log"
+  case_done
+
+  # The held artifact lives inside the per-issue directory that the next
+  # fix-issue run wipes.
+  case_new "release after a rerun"
+  FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose
+  id=$(held_id push)
+  FAKE_FIX=decline FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose
+  run_wf publish-held "id=$id"
+  known_defect D3 "a held push survives the next fix-issue run on the same issue" test "$RC" = 0
+  case_done
+
+  # review-pr at propose: the comment is held and released.
+  case_new "release review comment"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=propose
+  id=$(held_id comment)
+  check "review-pr propose: the review comment is held" test -n "$id"
+  : > "$T/fake/gh.log"
+  run_wf publish-held "id=$id"
+  check "release comment: run succeeds" test "$RC" = 0
+  check "release comment: posted once with the held review text" bash -c "[ \$(grep -cE '^gh issue comment 7 --repo tester/demo' $T/fake/gh.log) = 1 ] && grep -q 'Nothing to report' $T/fake/posted/*issue-comment.md"
+  check "release comment: record moved to held/released/" test -f "$T/state/held/released/$id"
+  case_done
+
+  # review-pr fix round held, then released onto the branch.
+  case_new "release review push"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_REVIEW=finding-then-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=propose
+  id=$(held_id push)
+  check "review-pr propose: the fix push is held" test -n "$id"
+  run_wf publish-held "id=$id"
+  check "release review push: run succeeds" test "$RC" = 0
+  check "release review push: the branch carries the fix" bash -c "git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+  check "release review push: record moved to held/released/" test -f "$T/state/held/released/$id"
+  case_done
+
+  # A claim set after the hold still vetoes the release.
+  case_new "release claim"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_REVIEW=finding-then-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=propose
+  id=$(held_id push)
+  FAKE_HELD_RC=3 run_wf publish-held "id=$id"
+  check "release under a human claim is refused" test "$RC" != 0
+  check "release under a human claim: the record stays held" test -f "$T/state/held/$id"
+  check "release under a human claim: the branch is untouched" bash -c "! git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+  case_done
+}
+
+# -------------------------------------------------------- legacy == pre-gate --
+# Run the workflows as they were just before the gate (git show BASELINE_REV)
+# and the current ones with no autonomy input, same fakes, same seed. What
+# reached the fake GitHub (every call, in order, with run noise folded), the
+# files given to gh, and the origin refs' contents must be identical.
+section_baseline() {
+  say "== legacy equals the pre-gate behaviour ($BASELINE_REV) =="
+  if ! git rev-parse --verify -q "$BASELINE_REV^{commit}" >/dev/null; then
+    say "SKIP  baseline: $BASELINE_REV is not in this clone (shallow?)"
+    return
+  fi
+  local base=$E2E_TMP/baseline-wf
+  rm -rf "$base"
+  mkdir -p "$base"
+  git archive "$BASELINE_REV" workflows | tar -x -C "$base"
+  check "baseline: the old workflows have no gate" bash -c "! grep -rq publish-gate $base/workflows"
+
+  local scen cur old
+  for scen in fix-patch fix-decline review-merge review-fixpush; do
+    for which in old new; do
+      if [ "$which" = old ]; then case_new "baseline $scen old" "$base/workflows"; else case_new "baseline $scen new"; fi
+      case "$scen" in
+        fix-patch)  FAKE_FIX=patch run_wf fix-issue repo=$REPO issue=7 ;;
+        fix-decline) FAKE_FIX=decline run_wf fix-issue repo=$REPO issue=7 ;;
+        review-merge)
+          seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+          FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" ;;
+        review-fixpush)
+          seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+          FAKE_REVIEW=finding-then-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" ;;
+      esac
+      {
+        echo "rc=$RC"
+        norm_log | sed -E 's/[0-9a-f]{40}/<sha>/g'
+        echo "--- posted"
+        for f in "$T/fake/posted/"*; do [ -f "$f" ] && { basename "$f" | sed 's/^[0-9]*-//'; cat "$f"; }; done
+        echo "--- origin"
+        for r in $(git -C "$T/remotes/tester/demo.git" for-each-ref --format='%(refname)' | grep -v '^refs/pull'); do
+          echo "$r" | sed -E 's#fix/7-[0-9]{8}-[0-9]{4}#fix/7-<ts>#'
+          git -C "$T/remotes/tester/demo.git" show "$r:src.txt" | sed 's/^/  /'
+        done
+        echo "--- state"
+        (cd "$T/state" && find . -type f ! -name '*.lock' | grep -vE '\.fake-|/work/|\.json$|push\.log' | sed -E 's#(pr[0-9]+-)[0-9a-f]{40}#\1<sha>#' | sort)
+        echo "--- agents"
+        sort "$T/fake/agent.steps"
+        echo "--- notes and held records: $(n_files "$T/state/notes" '*') $(n_files "$T/state/held" '*')"
+      } > "$E2E_TMP/bl.$scen.$which"
+      case_done
+    done
+    check "baseline $scen: legacy run equals the pre-gate run (calls, bodies, origin, state)" cmp -s "$E2E_TMP/bl.$scen.old" "$E2E_TMP/bl.$scen.new"
+    check "baseline $scen: the compared record is not empty" test "$(wc -l < "$E2E_TMP/bl.$scen.new")" -gt 12
+    cmp -s "$E2E_TMP/bl.$scen.old" "$E2E_TMP/bl.$scen.new" || diff "$E2E_TMP/bl.$scen.old" "$E2E_TMP/bl.$scen.new" | head -20
+  done
+}
+
+want fix-issue && section_fix_issue
+want classify && section_classify
+want review && section_review
+want held && section_held
+want baseline && section_baseline
+summary
