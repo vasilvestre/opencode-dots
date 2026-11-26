@@ -48,10 +48,11 @@ tend-test: ## check what bin/tend posts to awf serve, with a fake curl
 shim-test: ## run the opencode shim against a stub (no model is called)
 	test/shim.sh
 
-script-tests: ## run bin/test-publish-gate, bin/test-classify and bin/test-sandbox (offline; container checks only with a local dots-* image)
+script-tests: ## run bin/test-publish-gate, bin/test-classify, bin/test-sandbox and bin/test-dot-sign (offline; container checks only with a local dots-* image)
 	bin/test-publish-gate
 	bin/test-classify
 	bin/test-sandbox
+	bin/test-dot-sign
 
 deploy-test: ## run the deploy scripts in a Debian 13 container (needs docker and the network)
 	deploy/test/run.sh
