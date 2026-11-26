@@ -162,3 +162,7 @@ rules for editing them.
   `curl`, `rg`.
 - Do not invent a new state-file name; the dashboard reads `reviews/`,
   `replies/`, `tend/` and `logs/`.
+
+`publish-held.yaml` is a shell-only workflow with no agent step: it releases one record held by
+the gate (`docs/publish-held.md`).
+

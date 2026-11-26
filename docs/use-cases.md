@@ -184,22 +184,25 @@ never on a public interface. The agent writes nothing remote, shell steps do
 
 ## Where the project stands
 
-| Cases | Covered | Missing | Record |
+Built means code and tests exist. Wired means a workflow or service calls it. Nothing
+below has run end to end on a real repository yet.
+
+| Cases | State | Missing | Record |
 | --- | --- | --- | --- |
-| A1, A2, A3 | local, server, executor | health alerts, phone view | 0027, 0031, 0033 |
+| A1, A2, A3 | work today; `make health` and a 10-minute timer with a Discord alert on "down" | dashboard page for health, install of the units | 0027, 0031, 0033 |
+| A4 | `autonomy` key (observe, act, auto) and the optional circuit breaker, built | budgets, one-click pause, `breaker.list` generation | 0036, 0040 |
 | A5 | outside text is data | first-contribution filters, read log | |
-| B1, A6 | partly | an identity distinct from the owner | 0034 |
-| B2, B4 | no | dedicated identity, roles and sign-in on the dashboard | 0034, 0037 |
-| B6 | no | budgets, caps, cost per person | 0036 |
-| Personal and company profiles | no | policy profiles on one engine | 0035 |
+| A6, B1, B2 | ADR only | an identity distinct from the owner | 0034 |
+| B3 | review charter read from the default branch, built | a real review end to end, contesting a comment | |
+| B4, B6, D2, D4, D6 | ADR only | roles, budgets, audit, client access, quotas | 0036, 0037 |
+| Personal and company profiles | reframed | policy profiles on one engine | 0035 |
 | C1 | proposed | unified view, context selector | 0029, 0035 |
-| C2, C3, C4 | no | lock between bots, what two dots share | 0038 |
-| C5 | partly | migration tool | 0025, 0029 |
-| D1, D3 | trust levels | no-network runner, evidence export | 0032 |
-| D2, D4, D6 | no | audit, retention and purge, client access, quotas | 0036, 0037 |
-| F1, F2, F3 | GitHub only | adapters for advisories, Sentry, a company tracker | 0039 |
-| F4 | no | link proposals | 0041 |
-| G1 to G3 | a few switches (`auto_merge`, `fix_issue`) | classification, the four ceilings | 0040 |
+| C2 to C5 | ADR only | lock between bots, what two dots share, migration tool | 0038 |
+| D1, D3 | trust levels; runner proven in a real container | wiring the runner into a workflow, evidence export | 0032 |
+| F1 | advisory adapter, built | polling, reachability check, write-back | 0039 |
+| F2, F3 | Sentry and tracker adapters, built | polling or webhook endpoint, signature check, write-back | 0039 |
+| F4 | ADR only | link proposals | 0041 |
+| G1 to G3 | publish gate wired into five workflows; classification wired into `fix-issue`; observe notes and held items shown read-only in the dashboard; release workflow for held items; breaker | `propose` still refused in the config, no release button, no end-to-end run | 0040 |
 | G4 | executor by tunnel | workers that connect out | 0033, 0042 |
 
 ## Open: what is offered

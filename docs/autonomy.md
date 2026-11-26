@@ -80,3 +80,12 @@ into a note. With no ceiling nothing is classified and `ITEM_CLASS` stays unset.
 
 `tend-repo` does not classify: it files its own findings, it does not work from
 an outside item. Its gate calls still carry no class, only the ceiling counts.
+
+## Related pieces
+
+- `docs/breaker.md`: the optional circuit breaker that lowers `auto` to `act` after a revert
+  or a red default branch.
+- `docs/publish-held.md`: the `publish-held` workflow that releases a record held at `propose`.
+  `propose` is still refused by the config until a release button exists.
+- `docs/autonomy-view.md`: the read-only dashboard page for notes and held records.
+
