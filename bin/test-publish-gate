@@ -56,6 +56,26 @@ check auto 1 merge 0
 check auto 2 merge 5
 for a in $actions; do check auto 3 "$a" 4; done
 
+# Circuit breaker: a file for the repository lowers auto to act, nothing else changes.
+mkdir -p "$state/breaker"
+echo '{}' > "$state/breaker/o__r.json"
+for a in comment push open-pr; do check auto 1 "$a" 0; done
+check auto 1 merge 5
+check auto "" merge 5
+check auto 3 comment 4
+check propose 1 comment 3
+check "" 1 merge 0
+AUTONOMY=auto STATE_DIR=$state GATE_REF=o/r#1 "$gate" merge 2>"$state/err"
+grep -q 'circuit breaker tripped for o/r' "$state/err" || { echo "FAIL breaker not explained on stderr"; fail=1; }
+# GATE_REPO wins over GATE_REF; another repository is untouched.
+AUTONOMY=auto STATE_DIR=$state GATE_REF=x/y#1 GATE_REPO=o/r "$gate" merge 2>/dev/null
+[ $? = 5 ] || { echo "FAIL GATE_REPO ignored"; fail=1; }
+AUTONOMY=auto STATE_DIR=$state GATE_REF=x/y#1 "$gate" merge 2>/dev/null
+[ $? = 0 ] || { echo "FAIL breaker leaked to another repository"; fail=1; }
+AUTONOMY=auto STATE_DIR=$state GATE_REF=unknown "$gate" merge 2>/dev/null
+[ $? = 0 ] || { echo "FAIL breaker applied without a repository"; fail=1; }
+rm -rf "$state/breaker"
+
 # Bad input is refused, never allowed.
 check bogus 1 comment 5
 check auto 9 comment 5

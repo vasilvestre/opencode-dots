@@ -10,6 +10,7 @@
 #   ITEM_CLASS     1, 2 or 3 (ADR 0040). Empty: not classified, only the ceiling counts.
 #   STATE_DIR      where held items and notes go (default /state).
 #   GATE_REF       what is being published, e.g. OWNER/REPO#N (for the trace).
+#   GATE_REPO      OWNER/REPO, to look up a tripped circuit breaker (default: from GATE_REF).
 #   GATE_ARTIFACT  path of the prepared comment, patch or text (for the trace).
 #
 # Exit codes, the reason always goes to stderr:
@@ -68,6 +69,18 @@ note() { # REASON
   record notes "$1"
   exit 4
 }
+
+# A tripped circuit breaker (bin/breaker, docs/breaker.md) lowers auto to act for this call.
+if [ "$level" = auto ]; then
+  repo=${GATE_REPO:-}
+  if [ -z "$repo" ]; then
+    case "$ref" in */*#*) repo=${ref%%#*} ;; esac
+  fi
+  if [ -n "$repo" ] && [ -e "$state/breaker/${repo/\//__}.json" ]; then
+    echo "publish-gate: circuit breaker tripped for $repo, autonomy auto lowered to act (bin/breaker status; a person runs bin/breaker reset)" >&2
+    level=act
+  fi
+fi
 
 # Class 3 is a human diagnosis whatever the ceiling: an analysis, never a publication.
 if [ "$class" = 3 ]; then
