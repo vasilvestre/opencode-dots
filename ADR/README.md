@@ -38,6 +38,7 @@ your mind by writing a new one that supersedes it.
 | [0028](0028-deployment-is-code-in-two-layers.md) | Deployment is code, in two layers | proposed | 2026-11-26 |
 | [0029](0029-independent-servers-and-contexts.md) | Servers are independent and each device picks a context | proposed | 2026-11-26 |
 | [0030](0030-watcher-is-opt-in.md) | The GitHub watcher is opt-in | proposed | 2026-11-26 |
+| [0031](0031-executor-per-repository.md) | A repository names the executor that runs its tasks | proposed | 2026-11-26 |
 
 ## When to write one
 
