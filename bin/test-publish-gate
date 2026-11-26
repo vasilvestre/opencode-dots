@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Every cell of the publish-gate rules (ADR 0040). No network, no repository.
+#
+#   bin/test-publish-gate
+set -uo pipefail
+cd "$(dirname "$0")/.."
+gate=$PWD/bin/publish-gate
+state=$(mktemp -d)
+trap 'rm -rf "$state"' EXIT
+fail=0
+
+# check AUTONOMY CLASS ACTION WANT
+check() {
+  local got
+  rm -rf "$state/held" "$state/notes"
+  AUTONOMY=$1 ITEM_CLASS=$2 STATE_DIR=$state GATE_REF=o/r#1 GATE_ARTIFACT=/x "$gate" "$3" 2>"$state/err"
+  got=$?
+  if [ "$got" != "$4" ]; then
+    echo "FAIL autonomy='$1' class='$2' $3: want $4, got $got"
+    fail=1
+  fi
+  [ -s "$state/err" ] || { echo "FAIL autonomy='$1' class='$2' $3: no reason on stderr"; fail=1; }
+  case $4 in
+    3) [ -n "$(ls "$state/held" 2>/dev/null)" ] || { echo "FAIL $1/$2/$3: nothing under held/"; fail=1; } ;;
+    4) [ -n "$(ls "$state/notes" 2>/dev/null)" ] || { echo "FAIL $1/$2/$3: nothing under notes/"; fail=1; } ;;
+    *) [ -z "$(ls "$state/held" "$state/notes" 2>/dev/null)" ] || { echo "FAIL $1/$2/$3: unexpected file"; fail=1; } ;;
+  esac
+}
+
+actions="comment push open-pr merge"
+
+# Legacy: empty autonomy allows everything, whatever the class.
+for c in "" 1 2 3; do for a in $actions; do check "" "$c" "$a" 0; done; done
+
+# observe: a note for everything.
+for c in "" 1 2 3; do for a in $actions; do check observe "$c" "$a" 4; done; done
+
+# propose: hold, a merge is refused; class 3 is a note.
+for c in "" 1 2; do
+  for a in comment push open-pr; do check propose "$c" "$a" 3; done
+  check propose "$c" merge 5
+done
+for a in $actions; do check propose 3 "$a" 4; done
+
+# act: allow, never merge; class 3 is a note.
+for c in "" 1 2; do
+  for a in comment push open-pr; do check act "$c" "$a" 0; done
+  check act "$c" merge 5
+done
+for a in $actions; do check act 3 "$a" 4; done
+
+# auto: allow; merge only for class 1 or unclassified; class 2 never merges; class 3 is a note.
+for c in "" 1 2; do for a in comment push open-pr; do check auto "$c" "$a" 0; done; done
+check auto "" merge 0
+check auto 1 merge 0
+check auto 2 merge 5
+for a in $actions; do check auto 3 "$a" 4; done
+
+# Bad input is refused, never allowed.
+check bogus 1 comment 5
+check auto 9 comment 5
+check auto 1 delete 5
+check auto 1 "" 5
+
+# A held item names its artifact.
+rm -rf "$state/held"
+AUTONOMY=propose STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=/x/fix.patch "$gate" push 2>/dev/null
+grep -q 'artifact: /x/fix.patch' "$state"/held/*push* || { echo "FAIL held file lacks the artifact"; fail=1; }
+
+# An unwritable state dir never turns a hold into an allow.
+AUTONOMY=propose STATE_DIR=/proc/nope GATE_REF=o/r#7 "$gate" comment 2>/dev/null
+[ $? = 3 ] || { echo "FAIL unwritable state dir changed the exit code"; fail=1; }
+
+if [ "$fail" = 0 ]; then echo "publish-gate: all cells pass"; fi
+exit "$fail"

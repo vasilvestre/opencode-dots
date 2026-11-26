@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# The one choke point between a workflow and GitHub (ADR 0040, ADR 0002). A shell
+# step calls it before it comments, pushes, opens a pull request or merges. The
+# agent never calls it and cannot skip it: it runs in shell steps only.
+#
+#   bin/publish-gate ACTION        ACTION: comment | push | open-pr | merge
+#
+# Environment:
+#   AUTONOMY       observe | propose | act | auto. Empty: legacy, allow everything.
+#   ITEM_CLASS     1, 2 or 3 (ADR 0040). Empty: not classified, only the ceiling counts.
+#   STATE_DIR      where held items and notes go (default /state).
+#   GATE_REF       what is being published, e.g. OWNER/REPO#N (for the trace).
+#   GATE_ARTIFACT  path of the prepared comment, patch or text (for the trace).
+#
+# Exit codes, the reason always goes to stderr:
+#   0 allow      the step goes on.
+#   3 hold       propose: the artifact reference is written under $STATE_DIR/held/.
+#   4 note only  observe or class 3: an internal note is written under $STATE_DIR/notes/.
+#   5 refused    the action is never allowed here (a merge below auto, a class 2 merge,
+#                an unknown value).
+# The caller treats every non-zero code as "do not publish" and exits 0 itself.
+set -euo pipefail
+
+action=${1:-}
+case "$action" in
+  comment|push|open-pr|merge) ;;
+  *) echo "publish-gate: unknown action '$action' (comment, push, open-pr, merge)" >&2; exit 5 ;;
+esac
+
+level=${AUTONOMY:-}
+class=${ITEM_CLASS:-}
+ref=${GATE_REF:-unknown}
+artifact=${GATE_ARTIFACT:-}
+state=${STATE_DIR:-/state}
+
+if [ -z "$level" ]; then
+  echo "publish-gate: no autonomy ceiling set, $action allowed" >&2
+  exit 0
+fi
+
+case "$level" in
+  observe|propose|act|auto) ;;
+  *) echo "publish-gate: unknown autonomy '$level', $action refused" >&2; exit 5 ;;
+esac
+case "$class" in
+  ""|1|2|3) ;;
+  *) echo "publish-gate: unknown item class '$class', $action refused" >&2; exit 5 ;;
+esac
+
+# Write one small file saying what was not published and why. Failing to write it
+# must not turn a hold into an allow, so the exit code is the caller's, not this.
+record() { # DIR REASON
+  local dir=$state/$1 slug file
+  slug=$(printf '%s' "$ref" | tr -c 'A-Za-z0-9._-' '_')
+  file=$dir/$(date -u +%Y%m%dT%H%M%SZ)-$action-$slug.txt
+  if mkdir -p "$dir" 2>/dev/null && {
+    printf 'action: %s\nref: %s\nautonomy: %s\nclass: %s\nartifact: %s\nreason: %s\n' \
+      "$action" "$ref" "$level" "${class:-none}" "${artifact:-none}" "$2"
+  } > "$file" 2>/dev/null; then
+    echo "publish-gate: recorded $file" >&2
+  else
+    echo "publish-gate: could not write under $dir" >&2
+  fi
+}
+
+note() { # REASON
+  echo "publish-gate: $action on $ref is a note only: $1" >&2
+  record notes "$1"
+  exit 4
+}
+
+# Class 3 is a human diagnosis whatever the ceiling: an analysis, never a publication.
+if [ "$class" = 3 ]; then
+  note "class 3, a human diagnosis"
+fi
+
+case "$level" in
+  observe)
+    note "autonomy observe"
+    ;;
+  propose)
+    if [ "$action" = merge ]; then
+      echo "publish-gate: merge on $ref refused: autonomy propose never merges" >&2
+      exit 5
+    fi
+    echo "publish-gate: $action on $ref held for a person: autonomy propose" >&2
+    record held "autonomy propose"
+    exit 3
+    ;;
+  act)
+    if [ "$action" = merge ]; then
+      echo "publish-gate: merge on $ref refused: autonomy act never merges" >&2
+      exit 5
+    fi
+    ;;
+  auto)
+    if [ "$action" = merge ] && [ "$class" = 2 ]; then
+      echo "publish-gate: merge on $ref refused: class 2 is never merged by the dot" >&2
+      exit 5
+    fi
+    ;;
+esac
+
+echo "publish-gate: $action on $ref allowed (autonomy $level, class ${class:-none})" >&2
+exit 0

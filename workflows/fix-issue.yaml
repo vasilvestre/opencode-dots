@@ -19,6 +19,13 @@ inputs:
   - name: issue
     type: string
     required: true
+  - name: autonomy
+    type: string
+    required: false
+    default: ""
+    description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
+    validation:
+      pattern: '^(observe|propose|act|auto)?$'
   - name: label
     type: string
     required: false
@@ -162,8 +169,17 @@ states:
         # worktree for a look, release the lock and fail.
         echo "ABANDONED: $changed files changed in $work but no fix.md; worktree kept" | tee -a "$d/push.log" >&2
         if [ -s "$d/answer.md" ]; then
-          gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
-            || echo "issue comment failed"
+          # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+          grc=0
+          if [ -n "{{.inputs.autonomy}}" ]; then
+            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" \
+              "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
+            [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
+          fi
+          if [ "$grc" = 0 ]; then
+            gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
+              || echo "issue comment failed"
+          fi
         fi
         rm -rf "$d.lock"
         exit 1
@@ -202,6 +218,15 @@ states:
              exit 0 ;;
           *) echo "held: the claim check failed, pushing anyway" ;;
         esac
+      fi
+
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        git -C "$work" format-patch --stdout HEAD~1 > "$d/held.patch"
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/held.patch" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: change not pushed (gate $grc)"; exit 0; }
       fi
 
       # Where the branch goes. A repository I can write to takes it directly.
@@ -245,6 +270,13 @@ states:
       fi
       echo "pushing $branch to $push_url" | tee -a "$d/push.log"
       git -C "$work" push --quiet "$push_url" "HEAD:$branch"
+      # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        grc=0
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/fix.md" \
+          "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || grc=$?
+        [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; exit 0; }
+      fi
       printf '\n\nCloses #%s\n' "$iss" >> "$d/fix.md"
       url=$(gh pr create --repo "$repo" --head "$head_ref" --base "$(cat "$d/default_branch")" \
         --title "$title" --body-file "$d/fix.md" | tail -1)
@@ -269,8 +301,17 @@ states:
       # A run that declines must still say so where I read the issue: the
       # agent's answer is the whole result, and silence looks like a failure.
       if [ -z "$pr" ] && [ -s "$d/answer.md" ]; then
-        gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
-          || echo "issue comment failed"
+        # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
+        grc=0
+        if [ -n "{{.inputs.autonomy}}" ]; then
+          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" \
+            "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
+          [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
+        fi
+        if [ "$grc" = 0 ]; then
+          gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
+            || echo "issue comment failed"
+        fi
       fi
       if [ -n "$pr" ] && [ -n "${DISCORD_WEBHOOK:-}" ]; then
         msg="$repo issue #$iss:
