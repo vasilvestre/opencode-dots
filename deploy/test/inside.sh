@@ -55,6 +55,7 @@ check "awf starts after opencode" grep -q 'dots-opencode.service' /home/dots/.co
 check "opencode service limited to 750M" grep -q '^MemoryMax=750M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
 check "opencode service throttles at 600M" grep -q '^MemoryHigh=600M' /home/dots/.config/systemd/user/dots-opencode.service.d/20-memory.conf
 check "awf limited to 200M" grep -q '^MemoryMax=200M' /home/dots/.config/systemd/user/dots-awf.service.d/20-memory.conf
+check "dashboard finds opencode on its PATH" grep -q ".opencode/bin" /home/dots/.config/systemd/user/dots-dashboard.service.d/10-path.conf
 check "no secret file written" test ! -e /home/dots/dots/.env
 
 if [ "$fail" = 0 ]; then echo "deploy test: all checks passed"; else echo "deploy test: failures above" >&2; exit 1; fi

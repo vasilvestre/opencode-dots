@@ -116,5 +116,9 @@ servers.
   ([0026](0026-claims-and-presence.md)) that is still held.
 - Whether the current server, which holds some of the owner's work for now,
   becomes the first enterprise server or is retired after the move.
+- Which parts of `state/` move with a workspace. The clones and worktrees under `work/` name
+  the absolute paths of the machine that made them: copied to another machine they are broken
+  (a copy of them made `tend-repo` fail on the first server until the step learned to delete
+  them). They are rebuilt on the new server, not copied.
 - Which repositories are personal and which are enterprise, and who decides when
   a project is both.

@@ -87,8 +87,11 @@ render_units() {
       -e "s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |" \
       -e "s|=dots\\.service|=dots-awf.service|" "$src/$u" >"$dst/$u"
   done
-  mkdir -p "$dst/dots-awf.service.d"
+  mkdir -p "$dst/dots-awf.service.d" "$dst/dots-dashboard.service.d"
   printf '[Unit]\nAfter=dots-opencode.service\nWants=dots-opencode.service\n' >"$dst/dots-awf.service.d/10-after-opencode.conf"
+  # The dashboard lists the models by running `opencode models`, and the installer puts opencode
+  # in ~/.opencode/bin, which the user manager's PATH does not have: the list came up empty.
+  printf '[Service]\nEnvironment=PATH=%%h/.local/bin:%%h/.opencode/bin:/usr/local/bin:/usr/bin:/bin\n' >"$dst/dots-dashboard.service.d/10-path.conf"
   log "units written to $dst"
 }
 

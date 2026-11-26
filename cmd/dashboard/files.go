@@ -52,17 +52,24 @@ var workflowFileRE = regexp.MustCompile(`^[A-Za-z0-9_-]+\.yaml$`)
 var localFiles = []struct {
 	Path, Label, Kind string
 	Generated         bool
+	// Optional marks a generated file that exists only when something needs it: the
+	// watcher file when a repository has a watch rule (ADR 0030), sync.map when one syncs.
+	// Its absence is not a problem.
+	Optional bool
 }{
-	{"repos.yaml", "repos.yaml", "repos", false},
-	{"awf-gh.yaml", "awf-gh.yaml", "watcher", true},
-	{"tend.list", "tend.list", "list", true},
-	{"repos.map", "repos.map", "map", true},
-	{"sync.map", "sync.map", "map", true},
+	{"repos.yaml", "repos.yaml", "repos", false, false},
+	{"awf-gh.yaml", "awf-gh.yaml", "watcher", true, true},
+	{"tend.list", "tend.list", "list", true, false},
+	{"repos.map", "repos.map", "map", true, false},
+	{"sync.map", "sync.map", "map", true, true},
 }
 
 // generatedFile says the file is written by `bin/repos` from repos.yaml, so a
 // hand edit would be overwritten at the next save of repos.yaml.
 func generatedFile(rel string) bool {
+	if repos.IsWatcherFile(rel) {
+		return true // awf-gh.<executor>.yaml too (ADR 0031)
+	}
 	for _, f := range localFiles {
 		if f.Path == rel {
 			return f.Generated
@@ -76,10 +83,12 @@ type editableFile struct {
 	Label string `json:"label"`
 	Kind  string `json:"kind"`
 	// Generated marks a file written from repos.yaml: read it, edit repos.yaml.
-	Generated bool   `json:"generated,omitempty"`
-	Exists    bool   `json:"exists"`
-	Size      int64  `json:"size"`
-	ModTime   string `json:"mod_time"`
+	Generated bool `json:"generated,omitempty"`
+	// Optional is a generated file that is only written when needed: not being there is fine.
+	Optional bool   `json:"optional,omitempty"`
+	Exists   bool   `json:"exists"`
+	Size     int64  `json:"size"`
+	ModTime  string `json:"mod_time"`
 }
 
 // resolveEditable maps a page-supplied path to an absolute path inside the
@@ -102,6 +111,9 @@ func (d *dash) resolveEditable(rel string) (string, bool) {
 			return filepath.Join(d.root, rel), true
 		}
 	}
+	if repos.IsWatcherFile(rel) {
+		return filepath.Join(d.root, rel), true
+	}
 	if name, ok := strings.CutPrefix(rel, "workflows/"); ok && workflowFileRE.MatchString(name) {
 		return filepath.Join(d.root, "workflows", name), true
 	}
@@ -115,7 +127,15 @@ func (d *dash) files(w http.ResponseWriter, r *http.Request) {
 		out = append(out, editableFile{Path: rel, Label: strings.TrimSuffix(name, ".yaml"), Kind: "workflow"})
 	}
 	for _, f := range localFiles {
-		out = append(out, editableFile{Path: f.Path, Label: f.Label, Kind: f.Kind, Generated: f.Generated})
+		out = append(out, editableFile{Path: f.Path, Label: f.Label, Kind: f.Kind, Generated: f.Generated, Optional: f.Optional})
+	}
+	// One watcher file per executor, when the generator wrote any.
+	if entries, err := os.ReadDir(d.root); err == nil {
+		for _, e := range entries {
+			if name := e.Name(); name != repos.FileAwfGh && repos.IsWatcherFile(name) {
+				out = append(out, editableFile{Path: name, Label: name, Kind: "watcher", Generated: true})
+			}
+		}
 	}
 	for i := range out {
 		abs, _ := d.resolveEditable(out[i].Path)

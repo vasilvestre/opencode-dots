@@ -159,8 +159,8 @@ export function mountConfig(el, arg) {
       navItem("#config/notifications", section === "notifications", "Notifications", "Discord and desktop", notifDirty()),
       navItem("#config/appearance", section === "appearance", "Appearance", "light or dark theme", false));
     const item = (f) => navItem(`#config/${f.path}`, section === "file" && arg === f.path, f.path,
-      f.generated ? "generated, read only" : KIND_LABEL[f.kind] || f.kind,
-      section === "file" && arg === f.path && editor?.isDirty(), !f.exists);
+      f.generated ? (f.optional && !f.exists ? "not generated: no rule needs it" : "generated, read only") : KIND_LABEL[f.kind] || f.kind,
+      section === "file" && arg === f.path && editor?.isDirty(), !f.exists && !f.optional);
     // repos.yaml is the file to edit; the files it generates stay readable.
     const own = files.filter((f) => !f.generated);
     const generated = files.filter((f) => f.generated);
@@ -471,7 +471,8 @@ export function mountConfig(el, arg) {
       h("div", { class: "row between", style: { marginBottom: "10px" } },
         h("h2", {}, file.path),
         h("span", { class: "muted", style: { fontSize: "12px" } },
-          file.exists ? `${bytes(file.size)} · edited ${when(file.mod_time)} · not in git` : "missing on disk: saving creates it"),
+          file.exists ? `${bytes(file.size)} · edited ${when(file.mod_time)} · not in git`
+            : file.optional ? "not generated: no repository needs it" : "missing on disk: saving creates it"),
       ),
       file.generated
         ? h("p", { class: "warning", style: { marginBottom: "10px" } },

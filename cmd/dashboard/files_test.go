@@ -17,6 +17,7 @@ func TestResolveEditable(t *testing.T) {
 		"workflows/a_b-9.yaml",
 		"./workflows/reply-pr.yaml",
 		"awf-gh.yaml",
+		"awf-gh.workstation.yaml",
 		"tend.list",
 		"repos.map",
 	}
@@ -35,6 +36,9 @@ func TestResolveEditable(t *testing.T) {
 		"state/logs/x.jsonl",
 		"/etc/passwd",
 		"awf-gh.yaml.bak",
+		"awf-gh.local.example.yaml",
+		"awf-gh..yaml",
+		"awf-gh.Bad.yaml",
 	}
 	for _, rel := range bad {
 		if abs, got := d.resolveEditable(rel); got {
@@ -171,5 +175,42 @@ func TestGeneratedFilesAreProtectedOnlyOnceReposYamlExists(t *testing.T) {
 		if !flags[name] {
 			t.Errorf("%s is not flagged generated", name)
 		}
+	}
+}
+
+func TestOptionalGeneratedFilesAreNotReportedAsProblemsAndExecutorFilesAreListed(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "repos.yaml"), []byte("version: 1\nrepos:\n  a/b: {tend: true}\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "awf-gh.workstation.yaml"), []byte("repos: []\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "awf-gh.local.example.yaml"), []byte("repos: []\n"), 0o644)
+	d := &dash{root: root}
+	rec := httptest.NewRecorder()
+	d.files(rec, httptest.NewRequest(http.MethodGet, "/api/files", nil))
+	var list []editableFile
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]editableFile{}
+	for _, f := range list {
+		byPath[f.Path] = f
+	}
+	for _, name := range []string{"awf-gh.yaml", "sync.map"} {
+		if f := byPath[name]; f.Exists || !f.Optional || !f.Generated {
+			t.Errorf("%s = %+v, want a generated, optional file that is absent", name, f)
+		}
+	}
+	for _, name := range []string{"tend.list", "repos.map"} {
+		if f := byPath[name]; f.Optional {
+			t.Errorf("%s is flagged optional: its absence is a problem", name)
+		}
+	}
+	if f, ok := byPath["awf-gh.workstation.yaml"]; !ok || !f.Exists || !f.Generated || f.Kind != "watcher" {
+		t.Errorf("the executor file is not listed as a generated watcher file: %+v (listed: %v)", f, ok)
+	}
+	if _, ok := byPath["awf-gh.local.example.yaml"]; ok {
+		t.Error("an example file was listed as a generated watcher file")
+	}
+	if rec := saveTo(t, d, "awf-gh.workstation.yaml", "x\n"); rec.Code != http.StatusConflict {
+		t.Errorf("a hand edit of the executor file returned %d, want 409", rec.Code)
 	}
 }
