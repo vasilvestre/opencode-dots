@@ -1,6 +1,6 @@
 # 0023. A work item is independent of the tracker
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none
