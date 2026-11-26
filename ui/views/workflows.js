@@ -271,29 +271,40 @@ export function mountWorkflows(el, arg) {
   };
 }
 
+// Step keys of the top-level steps:/states: block, in file order, each with its
+// 1-based line. An entry with an empty name marks where a block ends. The key
+// indent is whatever the block's first line uses, and the `initial:` pointer
+// is not a step.
+function stepKeys(text) {
+  const keys = [];
+  let inSteps = false;
+  let indent = 0;
+  text.split("\n").forEach((line, i) => {
+    if (/^(steps|states):\s*$/.test(line)) {
+      inSteps = true;
+      indent = 0;
+      keys.push({ name: "", line: i + 1 });
+      return;
+    }
+    if (!inSteps || !line.trim() || line.trimStart().startsWith("#")) return;
+    if (/^\S/.test(line)) {
+      inSteps = false;
+      keys.push({ name: "", line: i + 1 });
+      return;
+    }
+    if (!indent) indent = line.length - line.trimStart().length;
+    const m = line.match(/^( +)(?!initial:\s+[^\s#{])([^\s#:][^:]*):(?:\s.*)?$/);
+    if (m && m[1].length === indent) keys.push({ name: m[2], line: i + 1 });
+  });
+  return keys;
+}
+
 // Line (1-based) of a step key inside the top-level states: block, or 0.
 function stepLine(text, step) {
-  const lines = text.split("\n");
-  let inSteps = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^(steps|states):\s*$/.test(lines[i])) { inSteps = true; continue; }
-    if (inSteps && /^\S/.test(lines[i]) && !lines[i].startsWith("#")) return 0;
-    if (inSteps && lines[i].match(/^ {2}([^\s#:][^:]*):\s*$/)?.[1] === step) return i + 1;
-  }
-  return 0;
+  return stepKeys(text).find((k) => k.name === step)?.line || 0;
 }
 
 // Step whose block contains a 1-based line, or "" outside the states: block.
 function stepAtLine(text, line) {
-  const lines = text.split("\n");
-  let inSteps = false;
-  let current = "";
-  for (let i = 0; i < Math.min(line, lines.length); i++) {
-    if (/^(steps|states):\s*$/.test(lines[i])) { inSteps = true; current = ""; continue; }
-    if (!inSteps) continue;
-    if (/^\S/.test(lines[i]) && !lines[i].startsWith("#")) return "";
-    const m = lines[i].match(/^ {2}([^\s#:][^:]*):\s*$/);
-    if (m) current = m[1];
-  }
-  return current;
+  return stepKeys(text).filter((k) => k.line <= line).pop()?.name || "";
 }

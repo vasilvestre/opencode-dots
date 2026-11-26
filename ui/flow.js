@@ -165,7 +165,7 @@ function layoutModel(model, initial) {
     onStack.delete(name);
     post.push(name);
   };
-  dfs(initial);
+  if (byName.has(initial)) dfs(initial);
   for (const n of visible) if (!seen.has(n.name)) dfs(n.name);
   const order = post.reverse();
 

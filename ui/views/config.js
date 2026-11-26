@@ -4,6 +4,7 @@ import { toast } from "../toast.js";
 import { createEditor } from "../editor.js";
 import { bytes, when } from "../format.js";
 import { confirmDialog } from "../modal.js";
+import { setLeaveGuard } from "../router.js";
 import { setThemeMode, themeMode } from "../theme.js";
 import { desktopState, isDesktopEnabled, requestDesktopPermission, setDesktopEnabled } from "../notifications.js";
 
@@ -139,17 +140,13 @@ export function mountConfig(el, arg) {
   }
   const beforeUnload = (ev) => { if (anyDirty()) { ev.preventDefault(); ev.returnValue = ""; } };
   window.addEventListener("beforeunload", beforeUnload);
+  setLeaveGuard(leaveOk);
 
   function navItem(href, current, title, sub, dirty, warn) {
     return h("a", {
       class: "side-item",
       href,
       "aria-current": current ? "true" : null,
-      onclick: async (ev) => {
-        if (ev.metaKey || ev.ctrlKey || current) return;
-        ev.preventDefault();
-        if (await leaveOk()) location.hash = href;
-      },
     },
     h("b", {}, title,
       dirty ? h("span", { class: "dirty-dot", style: { marginLeft: "6px" }, title: "Unsaved changes" }) : null,
@@ -493,6 +490,7 @@ export function mountConfig(el, arg) {
     destroy() {
       destroyed = true;
       window.removeEventListener("beforeunload", beforeUnload);
+      setLeaveGuard(null);
       editor?.destroy();
       editor = null;
     },
