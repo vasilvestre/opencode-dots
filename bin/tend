@@ -76,11 +76,21 @@ while read -r repo auto rest; do
   # dashboard records its log. Running `awf run` directly left no trace.
   body=$(jq -nc --arg repo "$repo" --arg auto "$auto" --arg dry "$dry_run" \
     '{inputs:{repo:$repo,auto_merge:$auto,dry_run:$dry}}')
-  if ! resp=$(curl -sf -X POST "$awf_api/api/workflows/local/tend-repo/run" \
+  # No -f: an HTTP error must reach us with its body, so "awf answered 422" is not
+  # reported as "cannot reach awf".
+  if ! resp=$(curl -s -w '\n%{http_code}' -X POST "$awf_api/api/workflows/local/tend-repo/run" \
       -H 'Content-Type: application/json' -d "$body"); then
-    echo "tend: cannot reach awf at $awf_api, is make up running?" >&2
+    echo "tend: cannot reach awf at $awf_api: is awf serve running (systemctl --user status dots-awf, or make up)?" >&2
     exit 1
   fi
+  code=${resp##*$'\n'}
+  resp=${resp%$'\n'*}
+  case "$code" in
+    2??) ;;
+    *) echo "tend: awf answered HTTP $code: $resp" >&2
+       echo "tend: for 404 or 422, check that awf lists the workflows: curl -s $awf_api/api/workflows" >&2
+       exit 1 ;;
+  esac
   id=$(printf '%s' "$resp" | jq -r '.body.execution_id // empty')
   if [ -z "$id" ]; then
     echo "tend: dispatch refused: $resp" >&2
