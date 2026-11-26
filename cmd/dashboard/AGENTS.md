@@ -140,9 +140,9 @@ counted once.
 
 - Bind `127.0.0.1` only. The default is `-addr 127.0.0.1:8099`. There is no
   authentication: the loopback bind is the boundary.
-- The tailnet reaches the page through `tailscale serve` on
-  the tailnet address of this machine (see `systemd/dots-dashboard.env`), never through a wider bind. See
-  ADR 0013.
+- The NetBird network reaches the page through Caddy on
+  the NetBird address of this machine (see `systemd/dots-dashboard.env`), never
+  through a wider bind. See ADR 0034.
 - `/api/save` writes cover `workflows/<name>.yaml` (name matches
   `[A-Za-z0-9_-]+`), `repos.yaml`, and the four files generated from it
   (`awf-gh.yaml`, `tend.list`, `repos.map`, `sync.map`). `resolveEditable`
@@ -250,8 +250,8 @@ counted once.
 - Each handler answers JSON with `Cache-Control: no-store`.
 - A write needs its `Host`, and its `Origin` when present, to be loopback or
   a name from `-allow-host` (`DOTS_ALLOW_HOST` in the unit). `trustedRequest`
-  makes that test; the list exists only for the tailnet name the proxy
-  forwards.
+  makes that test; the list exists only for the NetBird dashboard host the
+  proxy forwards.
 - `/api/repos` sets `tower_ignore` ("missing" or "empty") only when the
   opencode config declares a tower MCP server that is not disabled, and the
   repository's checkout in `repos.map` has a `.towerignore` that is absent or

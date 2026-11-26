@@ -5,7 +5,9 @@ A server as code (ADR 0028), in two layers that do not depend on each other.
 | Path | Needs | Does |
 | --- | --- | --- |
 | `providers/<name>/` | the provider's credentials | OpenTofu: creates the machine. Optional. Only `scaleway` exists. |
-| `types/local/system.sh` | root, once | packages, the `dots` user and its key, linger, zram, optional SSH hardening and Tailscale |
+| `types/local/system.sh` | root, once | packages, the `dots` user and its key, linger, zram, optional SSH hardening, and the NetBird network through `netbird.sh` |
+| `types/local/netbird.sh` | root, once | the self-hosted NetBird control plane, the client, and the Caddy that publishes the dashboard (ADR 0034) |
+| `netbird/Caddyfile` | Caddy | the dashboard on the NetBird address, never on a public one |
 | `types/local/user.sh` | no root | awf (release binary, checksum verified), opencode v2, the repository in `~/dots`, the user units |
 | `types/local/push.sh` | a workstation | builds and sends `bin/repos`, `bin/dashboard`, and with `--tower` tower and its extension |
 | `test/run.sh` | docker | runs both steps twice in a Debian 13 container (`make deploy-test`) |
@@ -23,8 +25,10 @@ written to a tracked file: tokens come from the environment or are typed on the 
    sudo DOTS_SSH_PUBKEY="$(cat ~/.ssh/id_ed25519.pub)" DOTS_SUDO_NOPASSWD=1 deploy/types/local/system.sh
    ```
 
-   Add `TS_AUTHKEY=... TS_HOSTNAME=... TS_TAGS=tag:dots` to join the tailnet, and
-   `DOTS_HARDEN_SSH=1` once you can log in as the user (test a second session first).
+   Add `NB_CONTROL_DOMAIN=... NB_LETSENCRYPT_EMAIL=...` to install the control plane on
+   this machine, or only `NB_SETUP_KEY=...` to join an existing one, with
+   `DOTS_DASHBOARD_HOST=...` for the dashboard. Add `DOTS_HARDEN_SSH=1` once you can log
+   in as the user (test a second session first).
 3. As the user: `deploy/types/local/user.sh`. It stops before `bin/configure` if the
    user is not logged in to GitHub; run `gh auth login --with-token` with a token limited to
    the repositories the machine may touch, then run it again.

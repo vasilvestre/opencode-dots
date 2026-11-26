@@ -48,8 +48,8 @@ use one dot is not decided.
 
 ## Not decided yet
 
-- **Access.** How a colleague reaches a dot that is not theirs: a shared tailnet node, the company's
-  own network or an SSH bastion (ADR 0029). Do not put a colleague on the owner's personal tailnet.
+- **Access.** How a colleague reaches a dot that is not theirs: a shared NetBird peer, the company's
+  own network or an SSH bastion (ADR 0029). Do not put a colleague on the owner's personal network.
 - **Which repositories.** Personal and client work sit on different servers (ADR 0029). Nothing of a
   client goes through the personal one.
 - **Which models see the code.** A repository can carry a trust level (ADR 0032), proposed, not

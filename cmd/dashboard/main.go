@@ -100,7 +100,7 @@ func main() {
 	opencode := flag.String("opencode", defaultOpencodeConfig(), "opencode config declaring the tower MCP server")
 	opencodeDB := flag.String("opencode-db", envOr("OPENCODE_DB", defaultOpencodeDB()), "opencode SQLite database, read-only, for the run view sessions")
 	allowHost := flag.String("allow-host", envOr("DOTS_ALLOW_HOST", ""),
-		"comma separated hosts allowed to write through the proxy, for the tailnet name")
+		"comma separated hosts allowed to write through the proxy, for the NetBird dashboard host")
 	flag.Parse()
 
 	target, err := url.Parse(*awf)

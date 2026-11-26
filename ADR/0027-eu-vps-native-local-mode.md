@@ -16,9 +16,10 @@ authoritative and the workstation becomes a working view
 The install already has a mode that fits a server. [0016](0016-awf-gh-runs-natively.md)
 lets every piece run natively (`bin/configure --awf=local --awf-gh=local`), so no
 image, no container and no downloaded binary sit in the polling path. The
-network rule is also settled: nothing binds a public interface, and the tailnet
-reaches the dashboard through `tailscale serve`
-([0013](0013-dashboard-on-the-tailnet.md)). Credentials stay out of git
+network rule is also settled: nothing binds a public interface, and the NetBird
+network reaches the dashboard through Caddy
+([0034](0034-access-is-a-self-hosted-netbird-network.md)). Credentials stay
+out of git
 ([0003](0003-private-config-not-in-git.md)).
 
 The first projects are open source. Non-EU models are accepted for them. The
@@ -32,8 +33,8 @@ We run the dot on one always-on VPS in the EU, in the existing native `local`
 mode, not in docker mode. On that machine run `awf-gh`, `awf`, tower, the
 dashboard and `opencode serve`, and later the database and the event hub.
 
-- **Network.** Nothing binds a public interface. Access is the tailnet only,
-  as in 0013. Ports stay on `127.0.0.1`.
+- **Network.** Nothing binds a public interface on the dot. Access is the
+  NetBird network only, as in 0034. Ports stay on `127.0.0.1`.
 - **Services.** The user units run without a login session: we enable
   `loginctl enable-linger` for the dot's user.
 - **Memory.** The target is 4 GB. We enable zram, set `MemoryMax` on the
@@ -94,9 +95,9 @@ stay as fallbacks if Stardust proves too small.
 
 - Runs continue while the workstation is off.
 - One machine to maintain: updates, disk, backups, restarts.
-- One more attack surface. The tailnet is the only gate, and every device on it
-  inherits access (0013). The VPS holds all the credentials, so its compromise
-  is the worst case.
+- One more attack surface. The NetBird network is the only gate, and every
+  device on it inherits access (0034). The VPS holds all the credentials, so its
+  compromise is the worst case.
 - Polling every 2 minutes still sets the latency. A VPS does not change that.
 - A 4 GB machine caps parallelism. A burst of events queues.
 - The workstation needs no provider key. It loses nothing else.
@@ -118,7 +119,8 @@ stay as fallbacks if Stardust proves too small.
 
 - Whether Stardust (1 vCPU, 1 GB) is enough for awf, tower and tend, or a larger type is needed.
   Measured, and not enough with margin: at rest the opencode service holds 448 MB of the 962 MB (299 MB
-  resident), `tailscaled` 49 MB, awf 41 MB and the dashboard 27 MB, and a tend pass adds 100 to 300 MB. A
+  resident), the NetBird client 49 MB (measured as `tailscaled` before 0034),
+  awf 41 MB and the dashboard 27 MB, and a tend pass adds 100 to 300 MB. A
   tend pass run through systemd froze the machine for about a minute ("Under memory pressure, flushing
   caches" in the journal) until it was powered off. A 2 GB type, or running the agent steps on another
   machine (ADR 0031), is the way out; limits only turn a freeze into a restart of one service.
