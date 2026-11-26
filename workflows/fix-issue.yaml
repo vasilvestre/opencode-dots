@@ -231,7 +231,7 @@ states:
           grc=0
           if [ -n "{{.inputs.autonomy}}" ]; then
             ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
-            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" \
+            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" GATE_REPO="$repo" \
               "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
             [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
           fi
@@ -284,7 +284,8 @@ states:
         grc=0
         git -C "$work" format-patch --stdout HEAD~1 > "$d/held.patch"
         ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/held.patch" \
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/held.patch" GATE_REPO="$repo" \
+        GATE_BRANCH="$branch" GATE_BASE="$base" GATE_TITLE="$title" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: change not pushed (gate $grc)"; exit 0; }
       fi
@@ -334,7 +335,8 @@ states:
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
         ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/fix.md" \
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/fix.md" GATE_REPO="$repo" \
+        GATE_BRANCH="$branch" GATE_BASE="$base" GATE_CLOSES="$iss" \
           "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; exit 0; }
       fi
@@ -366,7 +368,7 @@ states:
         grc=0
         if [ -n "{{.inputs.autonomy}}" ]; then
           ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
-          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" \
+          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" GATE_REPO="$repo" \
             "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
           [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
         fi

@@ -36,7 +36,7 @@ defaults:
   fix_issue:
     ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
   # provider: opencode          # opencode (default) or claude, for every repository
-  # autonomy: act               # ceiling, ADR 0040: observe, act (default) or auto; propose not yet; auto refused under trust client/strict
+  # autonomy: act               # ceiling, ADR 0040: observe, propose (held until released by publish-held), act (default) or auto; auto refused under trust client/strict
 
 # A named bundle of keys. A repository lists the ones it wants under `use`.
 profiles:
