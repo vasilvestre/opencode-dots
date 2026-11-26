@@ -26,3 +26,26 @@ through the database, and an adapter that creates work items from GitHub events.
 
 The export writes each project's resolved features, not the original defaults and profiles, so
 it is not a drop-in for a hand-written file with `use:` profiles.
+
+## Work items from GitHub events
+
+`internal/workitem` is the GitHub adapter of ADR 0023. It reads structured fields only (the number,
+the head branch, the issues GitHub itself links to a pull request) and never parses a title or a body.
+
+```bash
+bin/repos db observe -repo owner/name -kind pr-opened -number 14 -branch fix-login -actor ada -title "Fix the login"
+bin/repos db observe -repo owner/name -kind pr-opened -number 14 -linked 12 -branch fix-login -actor ada
+bin/repos db work-items [-repo owner/name]
+```
+
+An event creates a work item when none of its references is known, attaches the missing references
+to the one work item that holds any of them, and fails with a conflict, attaching nothing, when they
+belong to two (a merge is explicit, ADR 0023). Observing the same event again changes nothing.
+
+Nothing calls `observe` yet: `awf-gh` is a separate project, so a workflow's shell step is the place
+to call it, once the owner chooses to.
+
+## Generating from the database
+
+`bin/repos generate -from-db` and `bin/repos check -from-db` build the generated files from the
+database instead of `repos.yaml` (step 2 of the migration). Without the flag nothing changes.

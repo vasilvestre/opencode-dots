@@ -15,11 +15,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"opencode-dots/internal/repos"
 	"opencode-dots/internal/store"
+	"opencode-dots/internal/workitem"
 )
 
 func main() {
@@ -45,6 +47,15 @@ func main() {
 	dbPath := fs.String("db", "", "db: the database file (default: $STATE_DIR/dots.db, else <dir>/state/dots.db)")
 	workspace := fs.String("workspace", "default", "db: the workspace of the projects")
 	prune := fs.Bool("prune", false, "db import: delete the projects the file omits, unless work items name them")
+	fromDB := fs.Bool("from-db", false, "generate, check: build the files from the database instead of repos.yaml (ADR 0024, step 2)")
+	ev := workitem.GitHubEvent{}
+	linked := fs.String("linked", "", "db observe: issue numbers GitHub links to the pull request, comma separated")
+	fs.StringVar(&ev.Repo, "repo", "", "db observe, db work-items: the repository")
+	fs.StringVar(&ev.Kind, "kind", "", "db observe: the event (pr-opened, issue-opened, ...)")
+	fs.IntVar(&ev.Number, "number", 0, "db observe: the issue or pull request number")
+	fs.StringVar(&ev.Branch, "branch", "", "db observe: the head branch of a pull request")
+	fs.StringVar(&ev.Actor, "actor", "", "db observe: the GitHub login that caused the event")
+	fs.StringVar(&ev.Title, "title", "", "db observe: the title, kept on a new work item")
 	fs.Usage = func() { usage(); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -55,11 +66,16 @@ func main() {
 	case "features":
 		fmt.Println(strings.Join(repos.FeatureDocs(), "\n"))
 	case "generate", "check":
-		fail(generate(*dir, override, cmd == "check"))
+		fail(generate(*dir, override, cmd == "check", *fromDB, *dbPath, *workspace))
 	case "import":
 		fail(importFiles(*dir, *force))
 	case "db":
-		fail(dbCommand(sub, *dir, *dbPath, *workspace, *prune))
+		nums, err := parseNumbers(*linked)
+		if err != nil {
+			fail(err)
+		}
+		ev.LinkedIssues = nums
+		fail(dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev))
 	default:
 		usage()
 		os.Exit(2)
@@ -68,7 +84,9 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: repos generate|check|import|features [-dir DIR] [-awf-url URL] [-state-path PATH] [-force]")
-	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
+	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list|work-items [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
+	fmt.Fprintln(os.Stderr, "       repos db observe -repo R -kind K -number N -actor LOGIN [-branch B] [-linked 12,13] [-title T]")
+	fmt.Fprintln(os.Stderr, "       repos generate|check -from-db   build the files from the database (ADR 0024, step 2)")
 }
 
 func fail(err error) {
@@ -78,14 +96,25 @@ func fail(err error) {
 	}
 }
 
-func generate(dir string, override repos.Settings, checkOnly bool) error {
-	data, err := os.ReadFile(filepath.Join(dir, repos.SourceFile))
-	if err != nil {
-		return fmt.Errorf("%w (run `repos import` to build it from awf-gh.yaml, tend.list and repos.map)", err)
-	}
-	files, err := repos.Build(data, dir, override)
-	if err != nil {
-		return err
+func generate(dir string, override repos.Settings, checkOnly, fromDB bool, dbPath, workspace string) error {
+	var files map[string][]byte
+	if fromDB {
+		st, err := store.Open(resolveDB(dir, dbPath))
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		if files, err = repos.BuildFromStore(context.Background(), st, workspace, dir, override); err != nil {
+			return err
+		}
+	} else {
+		data, err := os.ReadFile(filepath.Join(dir, repos.SourceFile))
+		if err != nil {
+			return fmt.Errorf("%w (run `repos import` to build it from awf-gh.yaml, tend.list and repos.map)", err)
+		}
+		if files, err = repos.Build(data, dir, override); err != nil {
+			return err
+		}
 	}
 	warnStaleWatchers(dir, files)
 	if checkOnly {
@@ -151,14 +180,8 @@ func warnStaleWatchers(dir string, files map[string][]byte) {
 // dbCommand is the database side of repos.yaml (ADR 0024, step 1). repos.yaml stays the
 // source: `import` loads it, `check` compares what the database would generate with what
 // the file generates, `export` and `list` read the database back.
-func dbCommand(sub, dir, dbPath, workspace string, prune bool) error {
-	if dbPath == "" {
-		state := os.Getenv("STATE_DIR")
-		if state == "" {
-			state = filepath.Join(dir, "state")
-		}
-		dbPath = filepath.Join(state, "dots.db")
-	}
+func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHubEvent) error {
+	dbPath = resolveDB(dir, dbPath)
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return err
@@ -204,6 +227,35 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool) error {
 		}
 		fmt.Println("repos: the database and repos.yaml generate the same files")
 		return nil
+	case "observe":
+		res, err := workitem.Observe(ctx, st, workspace, ev)
+		if err != nil {
+			return err
+		}
+		state := "existing"
+		if res.Created {
+			state = "created"
+		}
+		fmt.Printf("work_item=%s %s refs=%s\n", res.WorkItem.ID, state, strings.Join(refList(res.WorkItem), ","))
+		return nil
+	case "work-items":
+		projects, err := st.Projects(ctx, workspace)
+		if err != nil {
+			return err
+		}
+		for _, p := range projects {
+			if ev.Repo != "" && p.Repo != ev.Repo {
+				continue
+			}
+			items, err := st.WorkItemsByProject(ctx, p.ID)
+			if err != nil {
+				return err
+			}
+			for _, w := range items {
+				fmt.Printf("%s\t%s\t%s\t%s\t%s\n", w.ID, p.Repo, w.State, strings.Join(refList(w), ","), w.Title)
+			}
+		}
+		return nil
 	case "list":
 		projects, err := st.Projects(ctx, workspace)
 		if err != nil {
@@ -219,6 +271,41 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("repos db: unknown subcommand %q (import, export, check, list)", sub)
+		return fmt.Errorf("repos db: unknown subcommand %q (import, export, check, list, observe, work-items)", sub)
 	}
+}
+
+// resolveDB is the database file: the flag, else $STATE_DIR/dots.db, else <dir>/state/dots.db.
+func resolveDB(dir, dbPath string) string {
+	if dbPath != "" {
+		return dbPath
+	}
+	state := os.Getenv("STATE_DIR")
+	if state == "" {
+		state = filepath.Join(dir, "state")
+	}
+	return filepath.Join(state, "dots.db")
+}
+
+func parseNumbers(list string) ([]int, error) {
+	var out []int
+	for _, part := range strings.Split(list, ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("-linked: %q is not an issue number", part)
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func refList(w store.WorkItem) []string {
+	out := make([]string, 0, len(w.Refs))
+	for _, r := range w.Refs {
+		out = append(out, r.Ref)
+	}
+	return out
 }

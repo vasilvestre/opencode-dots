@@ -53,6 +53,21 @@ func nonNilStrings(m map[string]string) map[string]string {
 	return m
 }
 
+// ActorByIdentity returns the actor that carries a login on a tracker, or ErrNotFound.
+func (s *Store) ActorByIdentity(ctx context.Context, tracker, login string) (Actor, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, kind, display_name, identities FROM actor WHERE json_extract(identities, '$.' || ?) = ?`, tracker, login)
+	var a Actor
+	var ids string
+	err := row.Scan(&a.ID, &a.Kind, &a.DisplayName, &ids)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Actor{}, ErrNotFound
+	}
+	if err != nil {
+		return Actor{}, err
+	}
+	return a, json.Unmarshal([]byte(ids), &a.Identities)
+}
+
 // Workspace settings are the watcher knobs of repos.yaml (awf_url, state_path,
 // max_per_run, executors), stored as the JSON the caller gives.
 
@@ -299,6 +314,33 @@ func isUnique(err error) bool {
 	var e *sqlite.Error
 	// 1555 and 2067 are SQLITE_CONSTRAINT_PRIMARYKEY and SQLITE_CONSTRAINT_UNIQUE.
 	return errors.As(err, &e) && (e.Code() == 1555 || e.Code() == 2067)
+}
+
+// WorkItemsByProject lists the work items of a project, newest first, with their references.
+func (s *Store) WorkItemsByProject(ctx context.Context, projectID string) ([]WorkItem, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM work_item WHERE project_id = ? ORDER BY created_at DESC, id`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	var out []WorkItem
+	for _, id := range ids {
+		w, err := s.WorkItem(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, nil
 }
 
 // WorkItem returns one work item with its references, or ErrNotFound.
