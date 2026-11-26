@@ -11,13 +11,13 @@ func init() { Register(autonomy{}) }
 var autonomyLevels = []string{"observe", "propose", "act", "auto"}
 
 // autonomy is the ceiling of what a dot may do on a repository (ADR 0040).
-// Step 1 only carries the key: observe and propose are recognised but refused
-// until the steps that implement them land.
+// observe is accepted: bin/publish-gate writes an internal note. propose is
+// recognised but refused until a workflow releases held items (ADR 0040 step 3).
 type autonomy struct{ base }
 
 func (autonomy) Key() string { return "autonomy" }
 func (autonomy) Doc() string {
-	return "ceiling of what the dot may do here: act (pull requests and comments, never merges) or auto (also merges); absent: auto when tend.auto_merge is true, else act. observe and propose are not available yet (ADR 0040)"
+	return "ceiling of what the dot may do here: observe (internal notes only, nothing published), act (pull requests and comments, never merges) or auto (also merges); absent: auto when tend.auto_merge is true, else act. propose is not available yet: no workflow releases held items (ADR 0040)"
 }
 
 func (autonomy) Check(v any) error {
@@ -26,10 +26,10 @@ func (autonomy) Check(v any) error {
 		return fmt.Errorf("must be one of %v", autonomyLevels)
 	}
 	switch s {
-	case "act", "auto":
+	case "observe", "act", "auto":
 		return nil
-	case "observe", "propose":
-		return fmt.Errorf("%q is not available yet (ADR 0040 step 2/3)", s)
+	case "propose":
+		return errors.New(`"propose" is not available yet: no release workflow exists for held items (ADR 0040 step 3)`)
 	}
 	return fmt.Errorf("must be one of %v", autonomyLevels)
 }

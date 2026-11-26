@@ -13,8 +13,8 @@ func TestAutonomyValues(t *testing.T) {
 	for _, c := range []struct{ name, block, want string }{
 		{"act", "autonomy: act\n    review: true", ""},
 		{"auto", "autonomy: auto\n    review: true", ""},
-		{"observe", "autonomy: observe", "not available yet (ADR 0040 step 2/3)"},
-		{"propose", "autonomy: propose", "not available yet (ADR 0040 step 2/3)"},
+		{"observe", "autonomy: observe", ""},
+		{"propose", "autonomy: propose", "no release workflow exists for held items (ADR 0040 step 3)"},
 		{"unknown", "autonomy: wild", "must be one of"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -77,6 +77,21 @@ func TestAutonomyAutoIsRefusedUnderTrust(t *testing.T) {
 		}
 		if _, err = Generate(doc); err == nil || !strings.Contains(err.Error(), "autonomy: auto is refused on a "+level+" repository") {
 			t.Fatalf("%s: error = %v", level, err)
+		}
+	}
+}
+
+func TestAutonomyObserveIsAllowedUnderTrust(t *testing.T) {
+	for _, level := range []string{"client", "strict"} {
+		for _, a := range []string{"observe", "act"} {
+			block := "trust: " + level + "\n    executor: server\n    autonomy: " + a
+			doc, err := Parse([]byte(trustDoc(level, block)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = Generate(doc); err != nil {
+				t.Fatalf("%s/%s: %v", level, a, err)
+			}
 		}
 	}
 }
