@@ -101,15 +101,10 @@ func Observe(ctx context.Context, st *store.Store, workspace string, ev GitHubEv
 		for _, w = range owners {
 		}
 		for _, r := range free {
-			if err := st.AttachRef(ctx, w.ID, r, ev.Kind, who.ID); err != nil {
+			if w, err = st.AttachRef(ctx, w.ID, r, ev.Kind, who.ID); err != nil {
 				return res, err
 			}
 			res.Attached = append(res.Attached, r)
-		}
-		if len(res.Attached) > 0 {
-			if w, err = st.WorkItem(ctx, w.ID); err != nil {
-				return res, err
-			}
 		}
 		res.WorkItem = w
 	default:
@@ -126,13 +121,6 @@ func Observe(ctx context.Context, st *store.Store, workspace string, ev GitHubEv
 // actorFor returns the actor that carries a GitHub login, creating it the first time. A login
 // ending in [bot] is a bot.
 func actorFor(ctx context.Context, st *store.Store, login string) (store.Actor, error) {
-	a, err := st.ActorByIdentity(ctx, "github", login)
-	if err == nil {
-		return a, nil
-	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return a, err
-	}
 	kind := "human"
 	if strings.HasSuffix(login, "[bot]") {
 		kind = "bot"

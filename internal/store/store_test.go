@@ -33,7 +33,7 @@ func TestOpenCreatesAPrivateFileAndMigrates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := s.SchemaVersion(context.Background()); v != len(migrations) {
+	if v, _ := s.schemaVersion(context.Background()); v != len(migrations) {
 		t.Errorf("schema version = %d, want %d", v, len(migrations))
 	}
 	s.Close()
@@ -47,7 +47,7 @@ func TestOpenCreatesAPrivateFileAndMigrates(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if v, _ := s.SchemaVersion(context.Background()); v != len(migrations) {
+	if v, _ := s.schemaVersion(context.Background()); v != len(migrations) {
 		t.Errorf("after reopening, schema version = %d", v)
 	}
 }
@@ -131,10 +131,10 @@ func TestOneReferenceNamesOneWorkItem(t *testing.T) {
 		t.Errorf("the failed creation left a reference behind: %v", err)
 	}
 	// Attaching works for a free reference and fails for a held one.
-	if err := s.AttachRef(ctx, first.ID, "github:acme/app#7", "pull_request.opened", a.ID); err != nil {
+	if _, err := s.AttachRef(ctx, first.ID, "github:acme/app#7", "pull_request.opened", a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AttachRef(ctx, first.ID, "github:acme/app#7", "", a.ID); !errors.Is(err, ErrRefTaken) {
+	if _, err := s.AttachRef(ctx, first.ID, "github:acme/app#7", "", a.ID); !errors.Is(err, ErrRefTaken) {
 		t.Errorf("attaching twice: %v", err)
 	}
 	got, err := s.WorkItemByRef(ctx, "github:acme/app#7")
@@ -189,5 +189,21 @@ func TestAProjectWithWorkItemsIsNotDeleted(t *testing.T) {
 	}
 	if err := s.DeleteProject(ctx, empty.ID); err != nil {
 		t.Errorf("deleting an unused project: %v", err)
+	}
+}
+
+func TestTheSameIdentityIsTheSameActor(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	first, err := s.EnsureActor(ctx, Actor{Kind: "human", DisplayName: "Ada", Identities: map[string]string{"github": "ada"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.EnsureActor(ctx, Actor{Kind: "human", DisplayName: "Ada L.", Identities: map[string]string{"github": "ada"}})
+	if err != nil || again.ID != first.ID || again.DisplayName != "Ada" {
+		t.Errorf("a known identity gave %+v, %v, want the first actor unchanged", again, err)
+	}
+	other, _ := s.EnsureActor(ctx, Actor{Kind: "human", DisplayName: "Grace", Identities: map[string]string{"github": "grace"}})
+	if other.ID == first.ID {
+		t.Error("two logins share one actor")
 	}
 }

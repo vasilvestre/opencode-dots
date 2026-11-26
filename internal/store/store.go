@@ -138,8 +138,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
-// SchemaVersion returns the version the database is at.
-func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
+// schemaVersion returns the version the database is at.
+func (s *Store) schemaVersion(ctx context.Context) (int, error) {
 	var v int
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&v)
 	return v, err
@@ -163,9 +163,9 @@ func parseTime(s string) time.Time {
 
 var refPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*:\S+$`)
 
-// CheckRef validates a reference of the form tracker:key, such as github:owner/repo#12,
+// checkRef validates a reference of the form tracker:key, such as github:owner/repo#12,
 // branch:owner/repo:name or jira:ABC-12. It does not look the tracker up.
-func CheckRef(ref string) error {
+func checkRef(ref string) error {
 	if !refPattern.MatchString(ref) || strings.ContainsFunc(ref, unicode.IsControl) {
 		return fmt.Errorf("store: %q is not a reference (want tracker:key, no spaces)", ref)
 	}

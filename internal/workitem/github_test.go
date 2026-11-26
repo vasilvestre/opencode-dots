@@ -84,11 +84,11 @@ func TestTwoWorkItemsAreNeverMergedByAnEvent(t *testing.T) {
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("error = %v, want ErrConflict", err)
 	}
-	after, _ := st.WorkItem(ctx, b.WorkItem.ID)
+	after, _ := st.WorkItemByRef(ctx, b.WorkItem.Refs[0].Ref)
 	if len(after.Refs) != len(b.WorkItem.Refs) {
 		t.Error("a conflicting event attached references")
 	}
-	if first, _ := st.WorkItem(ctx, a.WorkItem.ID); len(first.Refs) != len(a.WorkItem.Refs) {
+	if first, _ := st.WorkItemByRef(ctx, a.WorkItem.Refs[0].Ref); len(first.Refs) != len(a.WorkItem.Refs) {
 		t.Error("a conflicting event attached references to the other work item")
 	}
 }
@@ -122,7 +122,7 @@ func TestActorsAreReusedAndBotsAreBots(t *testing.T) {
 		t.Errorf("the same login got two actors: %s and %s", a.WorkItem.CreatedBy, b.WorkItem.CreatedBy)
 	}
 	bot, _ := Observe(ctx, st, "default", GitHubEvent{Repo: "acme/app", Kind: "pr-opened", Number: 3, Branch: "deps", Actor: "dependabot[bot]"})
-	who, err := st.ActorByIdentity(ctx, "github", "dependabot[bot]")
+	who, err := st.EnsureActor(ctx, store.Actor{Kind: "bot", DisplayName: "dependabot[bot]", Identities: map[string]string{"github": "dependabot[bot]"}})
 	if err != nil || who.Kind != "bot" || bot.WorkItem.CreatedBy != who.ID {
 		t.Errorf("bot actor = %+v, %v", who, err)
 	}

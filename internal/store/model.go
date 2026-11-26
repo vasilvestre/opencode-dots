@@ -23,9 +23,22 @@ type Actor struct {
 	Identities map[string]string
 }
 
-// EnsureActor inserts the actor, or updates its name and identities when the id is
-// known. An empty ID gets a new one.
+// EnsureActor inserts the actor, or updates its name and identities when the id is known.
+// With no ID it first looks for an actor that already carries one of its identities and
+// returns that one unchanged, so the same login is never two actors; otherwise it gets a
+// new ID.
 func (s *Store) EnsureActor(ctx context.Context, a Actor) (Actor, error) {
+	if a.ID == "" {
+		for tracker, login := range a.Identities {
+			found, err := s.actorByIdentity(ctx, tracker, login)
+			if err == nil {
+				return found, nil
+			}
+			if !errors.Is(err, ErrNotFound) {
+				return a, err
+			}
+		}
+	}
 	if a.Kind != "human" && a.Kind != "bot" {
 		return a, fmt.Errorf("store: actor kind %q is not human or bot", a.Kind)
 	}
@@ -53,8 +66,8 @@ func nonNilStrings(m map[string]string) map[string]string {
 	return m
 }
 
-// ActorByIdentity returns the actor that carries a login on a tracker, or ErrNotFound.
-func (s *Store) ActorByIdentity(ctx context.Context, tracker, login string) (Actor, error) {
+// actorByIdentity returns the actor that carries a login on a tracker, or ErrNotFound.
+func (s *Store) actorByIdentity(ctx context.Context, tracker, login string) (Actor, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, kind, display_name, identities FROM actor WHERE json_extract(identities, '$.' || ?) = ?`, tracker, login)
 	var a Actor
 	var ids string
@@ -251,7 +264,7 @@ type Ref struct {
 // created.
 func (s *Store) CreateWorkItem(ctx context.Context, projectID, title, actorID string, refs ...string) (WorkItem, error) {
 	for _, r := range refs {
-		if err := CheckRef(r); err != nil {
+		if err := checkRef(r); err != nil {
 			return WorkItem{}, err
 		}
 	}
@@ -273,28 +286,31 @@ func (s *Store) CreateWorkItem(ctx context.Context, projectID, title, actorID st
 	if err := tx.Commit(); err != nil {
 		return WorkItem{}, err
 	}
-	return s.WorkItem(ctx, id)
+	return s.workItem(ctx, id)
 }
 
-// AttachRef adds a reference to a work item. One reference names one work item, so a
-// reference held by another one fails with ErrRefTaken; moving it is an explicit
-// operation, never a side effect.
-func (s *Store) AttachRef(ctx context.Context, workItemID, ref, sourceEvent, actorID string) error {
-	if err := CheckRef(ref); err != nil {
-		return err
+// AttachRef adds a reference to a work item and returns the work item as it is now. One
+// reference names one work item, so a reference held by another one fails with ErrRefTaken;
+// moving it is an explicit operation, never a side effect.
+func (s *Store) AttachRef(ctx context.Context, workItemID, ref, sourceEvent, actorID string) (WorkItem, error) {
+	if err := checkRef(ref); err != nil {
+		return WorkItem{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return WorkItem{}, err
 	}
 	defer tx.Rollback()
 	if err := attach(ctx, tx, workItemID, ref, sourceEvent, actorID, now()); err != nil {
-		return err
+		return WorkItem{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE work_item SET updated_at = ? WHERE id = ?`, now(), workItemID); err != nil {
-		return err
+		return WorkItem{}, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return WorkItem{}, err
+	}
+	return s.workItem(ctx, workItemID)
 }
 
 type execer interface {
@@ -334,7 +350,7 @@ func (s *Store) WorkItemsByProject(ctx context.Context, projectID string) ([]Wor
 	rows.Close()
 	var out []WorkItem
 	for _, id := range ids {
-		w, err := s.WorkItem(ctx, id)
+		w, err := s.workItem(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -343,8 +359,8 @@ func (s *Store) WorkItemsByProject(ctx context.Context, projectID string) ([]Wor
 	return out, nil
 }
 
-// WorkItem returns one work item with its references, or ErrNotFound.
-func (s *Store) WorkItem(ctx context.Context, id string) (WorkItem, error) {
+// workItem returns one work item with its references, or ErrNotFound.
+func (s *Store) workItem(ctx context.Context, id string) (WorkItem, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, title, state, created_by, created_at, updated_at FROM work_item WHERE id = ?`, id)
 	return s.finishWorkItem(ctx, row)
 }
