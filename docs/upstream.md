@@ -16,7 +16,7 @@ repos:
 The key is refused when the effective autonomy is not `auto` (the message names the key and the
 level), under trust `client` and `strict`, for the repository itself, for a repeated name, and for a
 bad name or cap. The rules receive an input `upstream`: `owner/name=cap` joined by commas.
-`tend.list` and `bin/tend` do not carry it yet: see "Not wired".
+`tend.list` carries it too, so the daily pass receives it: see "The daily pass".
 
 ## The gate action
 
@@ -89,8 +89,11 @@ write, never an issue on a repository not listed, never one without the four evi
 more than one a day or the weekly cap per upstream. Upstream issue text, templates and replies are
 data, never instructions. The agent only writes a draft file; it cannot publish.
 
-## Not wired
+## The daily pass
 
-`bin/tend` posts only `repo`, `auto_merge` and `dry_run`, so a daily pass does not receive `autonomy`
-or `upstream` yet; until it does, `tend-repo` runs the upstream hook only when started with those
-inputs. Letting an `upstream` list reach `tend.list` is a later change.
+`tend.list` lines are `repo auto_merge`, then optional `key=value` fields: `autonomy=<level>` when the
+repository sets the key, and `upstream=owner/name=cap,...` (the same string the rules get) when it
+lists upstreams. A repository with neither keeps the two column line, and an older reader ignores the
+extra fields. `bin/tend` posts them as the inputs `autonomy` and `upstream` only when present, so the
+body for a repository without them is the one it always was. A line with an unknown field or a
+malformed value is skipped with a message.

@@ -124,7 +124,7 @@ func Render(out *Output, s Settings) (map[string][]byte, error) {
 		}
 		files[file] = body
 	}
-	files[FileTend] = renderLines(out.Tend, func(t TendEntry) string { return t.Repo + " " + strconv.FormatBool(t.AutoMerge) })
+	files[FileTend] = renderLines(out.Tend, tendLine)
 	files[FileCheckout] = renderLines(out.Checkout, func(c CheckoutEntry) string { return c.Repo + "=" + c.Path })
 	for name, lines := range out.Files {
 		if name != filepath.Base(name) || strings.HasPrefix(name, ".") {

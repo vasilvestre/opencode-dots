@@ -102,6 +102,11 @@ At `propose`, when the push of `fix-issue` is held the same step also writes the
 | `file-upstream` | `file` (`file-issue`, on an upstream repository) |
 | `tend-repo` | `file` (issue, as comment), `patch` (push, open-pr), merge; the nested `review-pr` run receives the same ceiling |
 
+The daily pass gets its ceiling from `tend.list`: a repository that sets `autonomy` has
+`autonomy=<level>` on its line and `bin/tend` posts it as the input `autonomy`. A repository that only
+sets `tend.auto_merge` has no such field, so `tend-repo` sees no ceiling, as before; the derived value
+is not turned into one.
+
 The hidden `_fix-issue-*` workflows publish nothing, so they carry no gate.
 
 ## Where `ITEM_CLASS` comes from

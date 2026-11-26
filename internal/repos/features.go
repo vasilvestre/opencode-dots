@@ -30,6 +30,9 @@ type Rule struct {
 type TendEntry struct {
 	Repo      string
 	AutoMerge bool
+	// Autonomy and Upstream are empty unless the repository sets them.
+	Autonomy string
+	Upstream string
 }
 
 // Output is everything the features add up to. Files carries extra generated
