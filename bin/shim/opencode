@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Shim for awf's opencode provider, which has no `agent` option: without it
+# every workflow step runs the user's default agent (an orchestrator that
+# delegates and loops). `opencode run` becomes `opencode run --agent dots-worker`.
+#
+# Optional fallback (P3). With DOTS_MODEL_FALLBACKS="provider/model,provider/model" in the
+# environment, a run that fails because the model is out of quota or rate limited is run
+# again on the next model of the list. It only retries a run that wrote nothing to stdout
+# and whose error looks like a quota or rate limit, so work that already started is never
+# repeated and a real failure is never hidden. Without the variable nothing changes.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+real=$(PATH=${PATH//"$here:"/} command -v opencode)
+
+if [ "${1:-}" != run ]; then
+  exec "$real" "$@"
+fi
+shift
+agent=${DOTS_AGENT:-dots-worker}
+fallbacks=${DOTS_MODEL_FALLBACKS:-}
+if [ -z "$fallbacks" ]; then
+  exec "$real" run --agent "$agent" "$@"
+fi
+
+# Find the model of this run: `--model X`, `-m X` or `--model=X`. With none, there is
+# nothing to swap, so the run goes through untouched.
+args=("$@")
+idx=-1
+kind=
+for i in "${!args[@]}"; do
+  case "${args[$i]}" in
+    --model | -m) idx=$((i + 1)); kind=separate; break ;;
+    --model=*) idx=$i; kind=joined; break ;;
+  esac
+done
+if [ "$idx" -lt 0 ] || [ "$idx" -ge "${#args[@]}" ]; then
+  exec "$real" run --agent "$agent" "$@"
+fi
+if [ "$kind" = joined ]; then first=${args[$idx]#--model=}; else first=${args[$idx]}; fi
+
+models=("$first")
+IFS=', ' read -r -a extra <<<"$fallbacks"
+for m in "${extra[@]}"; do
+  [ -n "$m" ] || continue
+  [ "$m" = "$first" ] || models+=("$m")
+done
+
+quota='rate.?limit|too many requests|quota|insufficient|exhaust|usage limit|limit reached|overloaded|credit|\b429\b|\b402\b'
+err=$(mktemp) out=$(mktemp)
+trap 'rm -f "$err" "$out"' EXIT
+
+for n in "${!models[@]}"; do
+  if [ "$kind" = joined ]; then args[idx]="--model=${models[$n]}"; else args[idx]=${models[$n]}; fi
+  # A failing opencode must not stop the script here: its status is read from PIPESTATUS.
+  set +eo pipefail
+  "$real" run --agent "$agent" "${args[@]}" 2>"$err" | tee "$out"
+  rc=${PIPESTATUS[0]}
+  set -eo pipefail
+  cat "$err" >&2
+  [ "$rc" -ne 0 ] || exit 0
+  if [ ! -s "$out" ] && grep -qiE "$quota" "$err" && [ $((n + 1)) -lt "${#models[@]}" ]; then
+    echo "dots-shim: ${models[$n]} is out of quota or rate limited; trying ${models[$((n + 1))]}" >&2
+    continue
+  fi
+  exit "$rc"
+done
