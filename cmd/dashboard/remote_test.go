@@ -78,3 +78,19 @@ func TestViaExecutorServesTheExecutorsLog(t *testing.T) {
 		t.Fatalf("invalid address kept: %v", d.execDash)
 	}
 }
+
+func TestPriceRemoteCopiesCostAndTarget(t *testing.T) {
+	dash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"execution_id":"e1","cost":0.42,"repo":"a/b","issue":"7","provider":"claude","route":"owned"}]`))
+	}))
+	defer dash.Close()
+	s := &remoteSnapshot{Entries: []map[string]any{{"execution_id": "e1"}, {"execution_id": "e2"}}}
+	priceRemote(s, dash.URL)
+	e := s.Entries[0]
+	if e["cost"] != 0.42 || e["target"] != "a/b#7" || e["provider"] != "claude" {
+		t.Fatalf("entry = %v", e)
+	}
+	if _, ok := s.Entries[1]["cost"]; ok {
+		t.Fatal("an unknown run got a price")
+	}
+}

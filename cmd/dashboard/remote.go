@@ -67,6 +67,7 @@ func (d *dash) pollExecutors() {
 		if snap.Up {
 			snap.Executions, snap.Entries = execs, hist
 			linkRemote(&snap)
+			priceRemote(&snap, d.execDash[name])
 			if os.MkdirAll(filepath.Dir(d.snapshotFile(name)), 0o755) == nil {
 				if b, err := json.Marshal(snap); err == nil {
 					os.WriteFile(d.snapshotFile(name), b, 0o644)
@@ -229,5 +230,48 @@ func (d *dash) viaExecutor(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		next(w, r)
+	}
+}
+
+// priceRemote copies what the executor's own dashboard knows of each run (price,
+// target, agent CLI) onto the entries, since only that dashboard has the logs.
+// Without its address, or while it is unreachable, the entries keep what they had.
+func priceRemote(s *remoteSnapshot, dashboard string) {
+	if dashboard == "" {
+		return
+	}
+	client := http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Get(dashboard + "/api/logs")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	var rows []struct {
+		ID       string  `json:"execution_id"`
+		Cost     float64 `json:"cost"`
+		Repo     string  `json:"repo"`
+		PR       string  `json:"pr"`
+		Issue    string  `json:"issue"`
+		Provider string  `json:"provider"`
+		Route    string  `json:"route"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&rows) != nil {
+		return
+	}
+	byID := map[string]int{}
+	for i, r := range rows {
+		byID[r.ID] = i
+	}
+	for _, e := range s.Entries {
+		i, ok := byID[str(e["execution_id"])]
+		if !ok {
+			continue
+		}
+		r := rows[i]
+		e["cost"] = r.Cost
+		e["provider"], e["route"] = r.Provider, r.Route
+		if num := r.PR + r.Issue; r.Repo != "" && num != "" {
+			e["target"] = r.Repo + "#" + num
+		}
 	}
 }
