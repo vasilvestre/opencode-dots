@@ -73,14 +73,18 @@ func ReadSettings(path string) (Settings, error) {
 	return s, nil
 }
 
-// Render produces the content of every generated file.
+// Render produces the content of every generated file. The watcher file exists
+// only when a repository enables a watch rule: the watcher is opt-in, and a
+// server that only tends does not use it.
 func Render(out *Output, s Settings) (map[string][]byte, error) {
 	files := map[string][]byte{}
-	awfgh, err := renderAwfGh(out.Rules, s)
-	if err != nil {
-		return nil, err
+	if len(out.Rules) > 0 {
+		awfgh, err := renderAwfGh(out.Rules, s)
+		if err != nil {
+			return nil, err
+		}
+		files[FileAwfGh] = awfgh
 	}
-	files[FileAwfGh] = awfgh
 	files[FileTend] = renderLines(out.Tend, func(t TendEntry) string { return t.Repo + " " + strconv.FormatBool(t.AutoMerge) })
 	files[FileCheckout] = renderLines(out.Checkout, func(c CheckoutEntry) string { return c.Repo + "=" + c.Path })
 	for name, lines := range out.Files {
@@ -239,9 +243,8 @@ func Build(data []byte, dir string, override Settings) (map[string][]byte, error
 	if err != nil {
 		return nil, err
 	}
-	if len(out.Rules) == 0 {
-		return nil, errors.New("no watch rule: enable review, reply, fix_issue or fix_ci on at least one repository, awf-gh refuses an empty list")
-	}
+	// No watch rule means the watcher is not used: Render leaves awf-gh.yaml out
+	// instead of writing a list that awf-gh would refuse.
 	previous, err := ReadSettings(filepath.Join(dir, FileAwfGh))
 	if err != nil {
 		return nil, err

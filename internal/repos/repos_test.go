@@ -285,9 +285,26 @@ func TestSettingsKeepWhatTheGeneratedFileHad(t *testing.T) {
 	}
 }
 
-func TestEmptyWatchListIsRefused(t *testing.T) {
-	if _, err := Build([]byte("version: 1\nrepos:\n  a/b: {tend: true}\n"), t.TempDir(), Settings{}); err == nil || !strings.Contains(err.Error(), "no watch rule") {
-		t.Fatalf("error = %v, want the empty list refused", err)
+func TestTendOnlyLeavesTheWatcherFileOut(t *testing.T) {
+	files, err := Build([]byte("version: 1\nrepos:\n  a/b: {tend: true}\n"), t.TempDir(), Settings{})
+	if err != nil {
+		t.Fatalf("a tend-only file must generate: %v", err)
+	}
+	if _, ok := files[FileAwfGh]; ok {
+		t.Errorf("awf-gh.yaml was generated without a watch rule")
+	}
+	if got := string(files[FileTend]); !strings.Contains(got, "a/b false\n") {
+		t.Errorf("tend.list = %q, want a/b without auto_merge", got)
+	}
+}
+
+func TestWatchRuleBringsTheWatcherFileBack(t *testing.T) {
+	files, err := Build([]byte("version: 1\nrepos:\n  a/b: {tend: true, review: true}\n"), t.TempDir(), Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := files[FileAwfGh]; !ok {
+		t.Errorf("awf-gh.yaml missing although review is enabled")
 	}
 }
 
