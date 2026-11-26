@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Pulls what a dot server cannot rebuild into a dated archive on this machine (ADR 0027).
+#
+#   bin/backup-server user@host [DEST_DIR]
+#
+# Taken: state/tend (lessons, raised, cursors, worklogs) and repos.yaml, from ~/dots on the
+# server. Left out on purpose: the clones under state/*/work and the logs, which come back
+# from GitHub, and .env and the opencode credentials, which are secrets: a backup of them
+# would be one more place to leak from. Restore the files, then log in again.
+#
+# DEST_DIR defaults to ~/backups/dots-server. DOTS_BACKUP_KEEP (default 14) archives stay.
+# DOTS_REMOTE_DIR (default dots) is the directory under the server's home.
+set -euo pipefail
+
+[ $# -ge 1 ] || { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+host=$1
+dest=${2:-$HOME/backups/dots-server}
+keep=${DOTS_BACKUP_KEEP:-14}
+remote=${DOTS_REMOTE_DIR:-dots}
+stamp=$(date +%F-%H%M)
+mkdir -p "$dest"
+tmp=$(mktemp "$dest/.dots-$stamp.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+ssh -o BatchMode=yes "$host" "cd '$remote' && tar -czf - --exclude='work' --exclude='*.bak' state/tend repos.yaml" >"$tmp"
+# A truncated stream must not replace a good backup: read the archive back before keeping it.
+tar -tzf "$tmp" >/dev/null || { echo "backup: the archive from $host is not readable, nothing kept" >&2; exit 1; }
+files=$(tar -tzf "$tmp" | wc -l)
+[ "$files" -gt 0 ] || { echo "backup: the archive is empty, nothing kept" >&2; exit 1; }
+chmod 600 "$tmp"
+mv "$tmp" "$dest/dots-$stamp.tgz"
+echo "backup: $dest/dots-$stamp.tgz ($files entries, $(du -h "$dest/dots-$stamp.tgz" | cut -f1))"
+
+# Keep the newest $keep archives.
+ls -1t "$dest"/dots-*.tgz 2>/dev/null | tail -n +"$((keep + 1))" | xargs -r rm -f

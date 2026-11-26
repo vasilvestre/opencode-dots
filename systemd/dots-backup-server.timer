@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the dot server's state once a day
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -23,6 +23,7 @@ tend.list
 !bin/sync
 !bin/tend
 !bin/remote
+!bin/backup-server
 # Machine-specific dashboard settings: copy the .example and fill it in.
 # Local, gitignored: the tailnet name of this machine is not public.
 systemd/dots-dashboard.env

@@ -1,0 +1,12 @@
+[Unit]
+Description=Pull a backup of the dot server's state to this machine (bin/backup-server)
+
+# Runs on the workstation. DOTS_SERVER comes from the same file as the executor tunnel:
+# copy systemd/dots-executor.env.example to ~/.config/dots/executor.env and set it.
+# The archives go to ~/backups/dots-server, the newest 14 are kept.
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/dots/executor.env
+ExecStart=%h/projects/perso/opencode-dots/bin/backup-server ${DOTS_SERVER}
+TimeoutStartSec=300
