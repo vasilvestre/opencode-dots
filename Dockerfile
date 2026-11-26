@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 go install github.com/awf-project/cli/cmd/awf@${AWF_REF}
 FROM debian:stable-slim
 
 ARG TARGETARCH=amd64
-ARG TOWER_VERSION=v0.1.0
+ARG TOWER_VERSION=v0.1.2
 # 0 = skip tower, 1 = include it (it is 0.1.0, opt in on purpose)
 ARG WITH_TOWER=0
 
@@ -36,15 +36,19 @@ RUN set -eux; \
     tar -xzf /tmp/gh.tgz -C /tmp; \
     mv /tmp/gh_${GHVER}_linux_${GHARCH}/bin/gh /opt/agent/bin/gh
 
-# tower: opt-in, prebuilt linux tarball
+# tower: opt-in, prebuilt linux tarball. It carries the binary and its extensions,
+# and a daemon that spins at 100% CPU once fixed the idle watcher (v0.1.1).
 RUN set -eux; \
     if [ "${WITH_TOWER}" = "1" ]; then \
       case "${TARGETARCH}" in amd64) TARCH=x86_64-unknown-linux-gnu ;; arm64) TARCH=aarch64-unknown-linux-gnu ;; esac; \
       curl -fsSL -o /tmp/tower.tgz "https://github.com/awf-project/tower/releases/download/${TOWER_VERSION}/tower-${TOWER_VERSION}-${TARCH}.tar.gz"; \
-      tar -xzf /tmp/tower.tgz -C /tmp; \
-      find /tmp -type f -name tower -perm -u+x -exec mv {} /opt/agent/bin/tower \; ; \
-      chmod +x /opt/agent/bin/tower; \
+      mkdir -p /opt/tower; \
+      tar -xzf /tmp/tower.tgz -C /opt/tower; \
+      install -m 755 /opt/tower/tower /opt/agent/bin/tower; \
     fi
+
+# Read by tower as its extension search dir, next to ~/.local/share/tower/extensions.
+ENV TOWER_EXTENSIONS_DIR=/opt/tower/extensions
 
 # awf-gh: built on the host by `make build`, copied here
 COPY bin/ /opt/agent/bin/
