@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Offline tests for the classification wiring in workflows/fix-issue.yaml: the
+# shell steps classify_check, classify_text and level, and the ITEM_CLASS
+# hand-off to bin/publish-gate. No model, no network, no gh.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+wf=workflows/fix-issue.yaml
+
+fails=0
+ok() { echo "ok   $1"; }
+bad() { echo "FAIL $1"; fails=$((fails + 1)); }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# step NAME AUTONOMY: the step's command with the inputs filled, on stdout.
+step() {
+  awk -v s="  $1:" '$0 == s {r=1; next} r && /^    command: \|/ {c=1; next} c && /^    [a-z_]+:/ {exit} c {sub(/^      /, ""); print}' "$wf" \
+    | sed -e 's/{{\.inputs\.repo}}/acme\/demo/g' -e 's/{{\.inputs\.issue}}/7/g' -e "s/{{\.inputs\.autonomy}}/$2/g"
+}
+for s in classify_check classify_text level; do
+  [ -n "$(step "$s" act)" ] || { echo "FAIL could not extract step $s"; exit 1; }
+done
+
+# classify_check: empty ceiling is LEGACY, anything else CLASSIFY.
+[ "$(step classify_check '' | bash)" = LEGACY ] && ok "empty autonomy is legacy" || bad "empty autonomy is legacy"
+[ "$(step classify_check act | bash)" = CLASSIFY ] && ok "ceiling set classifies" || bad "ceiling set classifies"
+
+state=$tmp/state
+d=$state/fix/acme/demo/issue-7
+c=$state/classify/acme/demo
+mkdir -p "$d" "$c"
+cat > "$d/issue.json" <<'J'
+{"number":7,"title":"Crash on empty input","body":"It `panics` with $(touch /tmp/classify-flow-x) here","comments":[{"body":"same here"}]}
+J
+
+# classify_text: removes the stale result, prints the text, never runs it.
+echo '{"level":1}' > "$c/issue-7.json"
+echo 1 > "$d/item_class"
+out=$(step classify_text act | STATE_DIR=$state bash)
+if [ ! -e "$c/issue-7.json" ] && [ ! -e "$d/item_class" ]; then ok "stale result removed"; else bad "stale result removed"; fi
+case "$out" in
+  *"Crash on empty input"*'$(touch /tmp/classify-flow-x)'*"same here"*) ok "item text printed verbatim" ;;
+  *) bad "item text printed verbatim" ;;
+esac
+if [ ! -e /tmp/classify-flow-x ]; then ok "item text not executed"; else bad "item text not executed"; rm -f /tmp/classify-flow-x; fi
+jq -n '{title:"t",body:("a" * 20000),comments:[]}' > "$d/issue.json"
+size=$(step classify_text act | STATE_DIR=$state bash | wc -c)
+[ "$size" -le 8000 ] && ok "text capped at 8000 bytes" || bad "text capped at 8000 bytes"
+
+# level: what the file says, else 3 (fail closed). "-" means no file at all.
+lvl() {
+  rm -f "$c/issue-7.json" "$d/item_class"
+  [ "$1" = - ] || printf '%s' "$1" > "$c/issue-7.json"
+  step level act | STATE_DIR=$state bash >/dev/null 2>&1
+  cat "$d/item_class" 2>/dev/null
+}
+for want in 1 2 3; do
+  [ "$(lvl "{\"level\":$want}")" = "$want" ] && ok "level $want kept" || bad "level $want kept"
+done
+for input in - '' 'not json' '{}' '{"level":0}' '{"level":4}' '{"level":1.5}' '{"level":"1"}' '{"level":null}'; do
+  [ "$(lvl "$input")" = 3 ] && ok "fail closed on '$input'" || bad "fail closed on '$input'"
+done
+
+# Every publish-gate call in the workflow receives ITEM_CLASS.
+calls=$(grep -c 'bin/publish-gate" ' "$wf")
+withc=$(grep -c 'ITEM_CLASS=\$(cat "\$d/item_class"' "$wf")
+if [ "$calls" -gt 0 ] && [ "$calls" = "$withc" ]; then ok "all $calls gate calls pass ITEM_CLASS"; else bad "gate calls $calls, with ITEM_CLASS $withc"; fi
+
+# The gate reads what the step writes: class 3 is a note, class 2 is never merged.
+export STATE_DIR=$tmp/gate
+check() { # CLASS ACTION WANT
+  ITEM_CLASS=$1 AUTONOMY=auto GATE_REF=a/b#1 bin/publish-gate "$2" >/dev/null 2>&1
+  local rc=$?
+  [ "$rc" = "$3" ] && ok "gate auto class $1 $2 -> $3" || bad "gate auto class $1 $2 -> $3 (got $rc)"
+}
+check 3 push 4
+check 3 comment 4
+check 2 merge 5
+check 1 push 0
+
+[ "$fails" = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

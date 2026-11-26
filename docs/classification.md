@@ -1,6 +1,7 @@
 # Classification
 
-Status: built for ADR 0040, which is still proposed. Nothing calls this yet.
+Status: built for ADR 0040, which is still proposed. `fix-issue` calls it when a
+repository has an autonomy ceiling; nothing else does yet.
 
 `workflows/_classify-item.yaml` rates one work item after reading it. It is
 hidden (leading underscore, ADR 0021): another workflow calls it, or I run it by
@@ -83,8 +84,31 @@ level=$(jq -r .level "$f")
 ```
 
 The effective action is the lower of this level's outcome and the repository's
-autonomy ceiling (ADR 0040). The ceiling is not built here. A missing file
+autonomy ceiling (ADR 0040), and `bin/publish-gate` computes it. A missing file
 means unclassified: treat it as level 3.
+
+## How `fix-issue` uses it
+
+Only when the `autonomy` input is non-empty. After `fetch`:
+
+1. `classify_check` prints `LEGACY` (empty ceiling) or `CLASSIFY`. `LEGACY` goes
+   straight to `route`: no model call, no file, the run is what it was.
+2. `classify_text` deletes any earlier `issue-<n>.json` and `item_class`, then
+   prints the title, body and comments (8000 bytes at most).
+3. `classify` calls `_classify-item` with key `issue-<n>` and that text as the
+   `text` input. The text never enters a shell command.
+4. `level` reads `level` from `STATE_DIR/classify/<repo>/issue-<n>.json` and writes
+   it to `STATE_DIR/fix/<repo>/issue-<n>/item_class`. Anything that is not 1, 2 or
+   3 (file missing, bad JSON, the classify run failed) becomes 3.
+
+Each `publish-gate` call in `push`, and `notify` reads `item_class` (3 if the file
+is absent) and passes it as `ITEM_CLASS`. Level 3: the agent still analyses, and
+the gate turns every comment, push and pull request into a note. Level 2: allowed
+up to the ceiling, never merged. The deleted result in step 2 means a failed
+classification cannot reuse an old, lower level.
+
+`tend-repo` is not wired: it files findings of its own and works from no outside
+item.
 
 ## Where the floor lives
 

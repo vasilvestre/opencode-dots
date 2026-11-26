@@ -69,5 +69,14 @@ so the checkout can be removed without losing the work.
 
 The hidden `_fix-issue-*` workflows publish nothing, so they carry no gate.
 
-`ITEM_CLASS` is read from the environment; no workflow sets it yet. The
-classification step will provide it.
+## Where `ITEM_CLASS` comes from
+
+`fix-issue` sets it. With a ceiling, it classifies the issue before the agent
+works (`classify_check`, `classify_text`, `classify`, `level`; see
+`docs/classification.md`), writes the level to `fix/<repo>/issue-<n>/item_class`,
+and every `bin/publish-gate` call in the run passes it. A missing or invalid
+result is level 3: the run still analyses, and the gate turns each publication
+into a note. With no ceiling nothing is classified and `ITEM_CLASS` stays unset.
+
+`tend-repo` does not classify: it files its own findings, it does not work from
+an outside item. Its gate calls still carry no class, only the ceiling counts.
