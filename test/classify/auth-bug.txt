@@ -1,0 +1,2 @@
+Login accepts expired sessions
+After my session expires I can still call the API for a few minutes. Users with a revoked authentication cookie are not logged out, so a former employee keeps access. Seen in the session middleware and in the account service.

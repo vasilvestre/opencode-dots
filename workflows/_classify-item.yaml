@@ -94,7 +94,8 @@ states:
 
       answer.json is one JSON object with exactly these keys:
       - "level": 1, 2 or 3, a number
-      - "justification": a string of at most 400 characters, the reason
+      - "justification": a string of at most 300 characters, one or two sentences,
+        the reason. Count them: a longer one is cut.
       - "confidence": a number from 0 to 1
       - "missing": a list of strings, what you would need to be surer, [] if
         nothing
@@ -117,15 +118,17 @@ states:
       w="$root/$repo/work-$key"
       out="$root/$repo/$key.json"
       hist="$root/$repo/$key.history.jsonl"
-      floor="${DOTS_HOME:-/work}/classify-floor.txt"
+      floor="${DOTS_HOME:-/work}/workflows/data/classify-floor.txt"
       [ -r "$floor" ] || { echo "floor file $floor missing: refusing to classify" >&2; exit 1; }
 
       # 1. Validate the agent's answer. Nothing is repaired: a bad answer fails.
+      #    The one exception is a justification over 400 characters, which the
+      #    compose step cuts: a real run wrote 420 and lost a good rating to it.
       jq -e '
         type == "object"
         and ((keys - ["level","justification","confidence","missing","evidence"]) == [])
         and ((.level | type) == "number" and (.level == 1 or .level == 2 or .level == 3))
-        and ((.justification | type) == "string" and (.justification | length) <= 400 and (.justification | length) > 0)
+        and ((.justification | type) == "string" and (.justification | length) > 0)
         and ((.confidence | type) == "number" and .confidence >= 0 and .confidence <= 1)
         and ((.missing | type) == "array" and all(.missing[]; type == "string"))
         and ((.evidence | type) == "array" and all(.evidence[]; type == "string"))
@@ -153,7 +156,7 @@ states:
         | {repo: $repo, key: $key, classified_at: $now,
            level: (if $hits != "" then 3 else $a.level end),
            agent_level: $a.level,
-           justification: $a.justification, confidence: $a.confidence,
+           justification: ($a.justification | .[0:400]), confidence: $a.confidence,
            missing: $a.missing, evidence: $a.evidence,
            floor: ($hits | if . == "" then [] else split(",") end)}
       ' "$w/answer.json" > "$out.tmp"

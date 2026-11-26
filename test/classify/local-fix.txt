@@ -1,0 +1,2 @@
+Off-by-one in pagination helper
+paginate(items, page, size) in src/util/paginate.go drops the last item of every page except the first because it slices items[start:end-1]. Expected items[start:end]. Only this function is affected, and the existing test covers page 1 only.

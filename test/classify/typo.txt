@@ -1,0 +1,2 @@
+Typo in README: "recieve"
+The install section of the README says "you will recieve a confirmation". It should be "receive".
