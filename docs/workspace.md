@@ -24,16 +24,24 @@ bin/workspace archive                          bin/workspace sync               
 ```
 
 `systemd/dots-workspace-sync.{service,timer}` run `sync` every fifteen minutes. Copy
-`dots-workspace.env.example` to `~/.config/dots/workspace.env` first. Neither is enabled for you.
+`dots-workspace.env.example` to `~/.config/dots/workspace.env` first; `deploy/types/local/user.sh`
+installs and enables the timer when that file exists. `dots-tend.service` reads the same file, so
+`bin/tend` publishes what the pass learned (writer) or installs what another machine published
+(reader) at the end of a pass.
+
+The worklog of each pull request and issue the dot worked on is part of the workspace too, under
+`tend/<owner>/<repo>/worklogs/` (`pr<N>.md`, `issue-<N>.md`). `publish` copies it from
+`state/replies/pr<N>/` and `state/fix/<owner>/<repo>/issue-<N>/`, and `install` puts it back under
+`state/tend/<owner>/<repo>/worklogs/`, which `checkout` prints. Nothing archives a folded inbox note:
+a later pass reads it again, and the agent is told to keep the lines it already folded.
 
 `test/workspace.sh` (`make workspace-test`, and in CI) runs a writer and two readers against a local
-bare repository: 36 checks, among them that a secret, a clone and a cursor are never copied, that a
+bare repository: 40 checks, among them that a secret, a clone and a cursor are never copied, that a
 reader cannot publish, that two readers release without a conflict, and that a late push rebases.
 
 **Notes are data.** What an agent or a person wrote in a lesson or a note is never an instruction to
 another run (ADR 0002).
 
-Not done, because they change what runs: folding the inbox into `lessons.md` and `memory.md` is the job
-of `tend-repo` (`bin/workspace inbox` prints what to fold, `archive` moves the folded files aside), and
-nothing calls `publish` after a tend pass yet. A `checkout` copies the lessons of a repository, not yet
-the worklog of one work item.
+`bin/workspace inbox OWNER/REPO` prints the notes readers wrote for one repository, and `tend-repo`
+folds them: a note that states a concrete rule or fact is evidence of its own, so the pass writes it
+into `lessons.md` or `memory.md`. A reader then sees it at its next `sync`.

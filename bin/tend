@@ -112,3 +112,12 @@ while read -r repo auto rest; do
     sleep 10
   done
 done < "$list"
+
+# Publish what the pass learned (writer) or install what another machine
+# published (reader). A machine with no workspace clone, or the wrong role for
+# the command, must not fail a pass that already did its work.
+# shortcut: folded inbox notes are never archived, so a later pass reads them
+# again; add per-repository archiving when the inbox grows.
+if [ -x bin/workspace ]; then
+  bin/workspace sync || echo "workspace: sync failed, the lessons stay local" >&2
+fi

@@ -4,6 +4,9 @@ Description=Daily pass over tend.list: learn, file issues, open at most one pull
 [Service]
 Type=oneshot
 WorkingDirectory=%h/projects/perso/opencode-dots
+# The workspace settings are optional: without them bin/workspace sync fails
+# softly and the lessons stay on this machine.
+EnvironmentFile=-%h/.config/dots/workspace.env
 ExecStart=%h/projects/perso/opencode-dots/bin/tend
 # One agent pass per repository, run serially. 19 entries take well over an hour.
 TimeoutStartSec=10800
