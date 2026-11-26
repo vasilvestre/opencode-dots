@@ -164,7 +164,7 @@ comment asks for it.
 ```yaml
 # awf-gh.yaml
 repos:
-  - repo: AlteredParadox/pmss-fleet-manager
+  - repo: upstream-org/upstream-repo
     scope: local
     workflow: reply-pr
     on: [review-comment]
@@ -217,7 +217,7 @@ the lessons, file the defects, open at most one pull request.
 
 ```bash
 # tend.list, gitignored
-AlteredParadox/pmss-fleet-manager false
+upstream-org/upstream-repo false
 vasilvestre/opencode-dots true
 ```
 

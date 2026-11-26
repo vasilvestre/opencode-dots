@@ -134,7 +134,7 @@ touched.
 
 ## Alternatives
 
-- **Ansible, as the tochiro repository does.** Roles and inventories suit
+- **Ansible, as the employer's own agent platform does.** Roles and inventories suit
   several servers. It adds a dependency on the machine that runs it, and we have
   one server. Bash needs nothing on the target. We can revisit it if the count
   grows.
