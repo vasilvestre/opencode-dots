@@ -35,6 +35,7 @@ export function mountRepos(el) {
   const count = h("span", { class: "muted" });
   const body = h("div", {});
   const claims = h("div", {});
+  const workers = h("div", {});
   const addInput = h("input", {
     type: "text",
     placeholder: "owner/name",
@@ -57,9 +58,11 @@ export function mountRepos(el) {
     h("div", { class: "section-head" }, count, h("span", { class: "spacer" }),
       addInput, h("button", { class: "btn sm", onclick: addRepo }, "Add repository")),
     claims,
+    workers,
     body,
   ));
   loadClaims();
+  loadWorkers();
 
   // A claim is a veto: the dot does not push to a branch a person holds (ADR 0026).
   // The list is short and changes slowly, so one read on mount is enough.
@@ -86,6 +89,39 @@ export function mountRepos(el) {
             c.expires_at ? ` · expires ${when(c.expires_at)}` : ""),
         ))),
     ));
+  }
+
+  // Workers (ADR 0042): machines that register with this instance. Presence only, the
+  // instance sends them nothing. The card is absent until one registers.
+  async function loadWorkers() {
+    let list = [];
+    try { list = await getJSON("/api/workers"); } catch { return; }
+    if (!list.length) return;
+    const live = list.filter((w) => w.live).length;
+    mount(workers, h("div", { class: "card" },
+      h("div", { class: "card-head" },
+        h("h3", {}, "Workers"),
+        h("span", { class: `badge ${live ? "ok" : "warn"}` }, `${live} live`),
+        list.length > live ? h("span", { class: "badge" }, `${list.length - live} expired`) : null,
+      ),
+      h("p", { class: "muted" }, "Machines registered with this instance. No task is sent to them yet."),
+      h("div", { class: "list" }, list.map((w) =>
+        h("div", { class: "item row between" },
+          h("div", {},
+            h("span", { class: "mono" }, w.name),
+            " ",
+            h("span", { class: `badge ${w.live ? "ok" : "warn"}` }, w.live ? "live" : "expired"),
+            capSummary(w.capabilities) ? h("span", { class: "muted" }, ` — ${capSummary(w.capabilities)}`) : null,
+          ),
+          h("div", { class: "muted" },
+            w.machine, " · registered ", ago(w.registered_at), " · last seen ", ago(w.renewed_at),
+            w.live ? ` · expires ${when(w.expires_at)}` : ""),
+        ))),
+    ));
+  }
+
+  function capSummary(caps) {
+    return Object.keys(caps || {}).join(", ");
   }
 
   // --- writes ---------------------------------------------------------------

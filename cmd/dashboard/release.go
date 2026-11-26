@@ -78,6 +78,7 @@ func (d *dash) autonomyRelease(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusUnprocessableEntity, map[string]string{"error": "id must be the file name of a held record"})
 		return
 	}
+	auditTarget(r, in.ID)
 	releaseMu.Lock()
 	defer releaseMu.Unlock()
 	if _, err := os.Lstat(filepath.Join(d.state, "held", "released", in.ID)); err == nil {

@@ -56,6 +56,15 @@ it, else `local`. No role check yet. Once the log shows real callers, add a two-
 2. Is an audit of writes only enough for now, without logging reads of run content (yes or no)?
 3. Does a viewer role need to exist before the first teammate does (yes or no)?
 
+### First step built
+
+The audit exists and nothing else: an append-only `audit` table in the control-plane database, one
+row for every write the dashboard serves (the five write endpoints and a write through the awf
+proxy), and a read-only `GET /api/audit` with an Audit page. The caller is `Tailscale-User-Login`
+only on a request that passes the same trust check as a write, else `local`. There is no role
+check and no behaviour change; a store that cannot take the row never blocks the write. This ADR
+stays proposed: roles, the questions above and the login story are still open. See `docs/audit.md`.
+
 ## Consequences
 
 Makes a view per role and a client view possible, and gives D2 its audit. Costs a permission check

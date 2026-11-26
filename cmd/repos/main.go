@@ -39,6 +39,10 @@ func main() {
 			os.Exit(2)
 		}
 		sub, args = args[0], args[1:]
+		if cmd == "db" && sub == "worker" && len(args) > 0 {
+			// `repos db worker register -name x`: the action, then its flags.
+			sub, args = "worker-"+args[0], args[1:]
+		}
 	}
 	fs := flag.NewFlagSet("repos "+cmd, flag.ExitOnError)
 	dir := fs.String("dir", ".", "repository root: holds repos.yaml and receives the generated files")
@@ -62,7 +66,9 @@ func main() {
 	fs.StringVar(&cl.WorkItem, "work-item", "", "db claim, db claims: the work item id")
 	fs.StringVar(&cl.Ref, "ref", "", "db claim: a reference of the work item, such as github:owner/repo#12")
 	fs.StringVar(&cl.Machine, "machine", "", "db claim: the machine that holds the claim")
-	fs.DurationVar(&cl.TTL, "ttl", 0, "db claim, db heartbeat: time to live (default 90s, at most 1h)")
+	fs.DurationVar(&cl.TTL, "ttl", 0, "db claim, db heartbeat, db worker: time to live (default 90s, at most 1h)")
+	fs.StringVar(&cl.Name, "name", "", "db worker: the worker name")
+	fs.StringVar(&cl.Capabilities, "capabilities", "", "db worker register: what the worker offers, a JSON object")
 	fs.Usage = func() { usage(); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
@@ -104,6 +110,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       repos db observe -repo R -kind K -number N -actor LOGIN [-branch B] [-linked 12,13] [-title T]")
 	fmt.Fprintln(os.Stderr, "       repos db claim -actor LOGIN -machine M (-work-item ID | -ref REF) [-branch B] [-ttl 90s]")
 	fmt.Fprintln(os.Stderr, "       repos db heartbeat|release -claim ID    repos db claims -work-item ID")
+	fmt.Fprintln(os.Stderr, "       repos db worker register -name N -machine M [-capabilities JSON] [-ttl 90s]   heartbeat|expire -name N   list")
 	fmt.Fprintln(os.Stderr, "       repos db claimed -repo R -branch B      exit 0 when free, 10 when a human holds the branch")
 	fmt.Fprintln(os.Stderr, "       repos events publish TOPIC DATA | subscribe TOPIC...   (DOTS_MERCURE_URL, DOTS_MERCURE_SECRET)")
 	fmt.Fprintln(os.Stderr, "       repos generate|check -from-db   build the files from the database (ADR 0024, step 2)")
@@ -278,6 +285,9 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 		return nil
 	case "claim", "heartbeat", "release", "claims", "claimed":
 		return claimCommand(ctx, st, sub, workspace, cl)
+	case "worker-register", "worker-heartbeat", "worker-list", "worker-expire":
+		return workerCommand(ctx, st, os.Stdout, strings.TrimPrefix(sub, "worker-"),
+			dbWorker{Name: cl.Name, Machine: cl.Machine, Capabilities: cl.Capabilities, TTL: cl.TTL})
 	case "list":
 		projects, err := st.Projects(ctx, workspace)
 		if err != nil {

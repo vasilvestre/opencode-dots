@@ -222,6 +222,7 @@ func (d *dash) ask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditTarget(r, in.Repo+"#"+in.PR)
 	asksMu.Lock()
 	defer asksMu.Unlock()
 	t := d.loadThread(in.Repo, in.PR)
@@ -265,6 +266,7 @@ func (d *dash) askAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditTarget(r, in.Repo+"#"+in.PR)
 	asksMu.Lock()
 	defer asksMu.Unlock()
 	dir := d.askDir(in.Repo, in.PR)

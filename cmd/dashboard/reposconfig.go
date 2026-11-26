@@ -286,6 +286,8 @@ func (d *dash) patchReposConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// The repository and the key or operation, never the value.
+	auditTarget(r, p.Repo+" "+firstNonEmpty(p.Key, p.Op))
 	d.editMu.Lock()
 	defer d.editMu.Unlock()
 
