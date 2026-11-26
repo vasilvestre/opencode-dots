@@ -189,8 +189,8 @@ below has run end to end on a real repository yet.
 
 | Cases | State | Missing | Record |
 | --- | --- | --- | --- |
-| A1, A2, A3 | work today; `make health` and a 10-minute timer with a Discord alert on "down" | dashboard page for health, install of the units | 0027, 0031, 0033 |
-| A4 | `autonomy` key (observe, act, auto) and the optional circuit breaker, built | budgets, one-click pause, `breaker.list` generation | 0036, 0040 |
+| A1, A2, A3 | work today; `make health`, a 10-minute timer with a Discord alert on "down", and a Health page in the dashboard | installing the units on the host, the token in `.env` | 0027, 0031, 0033 |
+| A4 | `autonomy` key (observe, propose, act, auto) and the optional circuit breaker with its timer and generated list | budgets, one-click pause, a per-repository merge-scope key | 0036, 0040 |
 | A5 | outside text is data | first-contribution filters, read log | |
 | A6, B1, B2 | ADR only | an identity distinct from the owner | 0034 |
 | B3 | review charter read from the default branch, built | a real review end to end, contesting a comment | |
@@ -202,7 +202,7 @@ below has run end to end on a real repository yet.
 | F1 | advisory adapter, built | polling, reachability check, write-back | 0039 |
 | F2, F3 | Sentry and tracker adapters, built | polling or webhook endpoint, signature check, write-back | 0039 |
 | F4 | ADR only | link proposals | 0041 |
-| G1 to G3 | publish gate wired into five workflows; classification wired into `fix-issue`; observe notes and held items shown read-only in the dashboard; release workflow for held items; breaker | `propose` still refused in the config, no release button, no end-to-end run | 0040 |
+| G1 to G3 | publish gate wired into five workflows; merge scope limited to the dot's and dependency bots' pull requests; classification wired into `fix-issue`; notes, held items and a Release button in the dashboard; release workflow; breaker | no end-to-end run on a real repository, `propose` fork case needs `push-repo` by hand | 0040 |
 | G4 | executor by tunnel | workers that connect out | 0033, 0042 |
 
 ## Open: what is offered
