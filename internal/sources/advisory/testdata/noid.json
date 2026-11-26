@@ -1,0 +1,1 @@
+{"advisories": {"acme/x": [{"advisoryId":"PKSA-9","packageName":"acme/x","affectedVersions":"<1","title":"t","sources":[]}]}}
