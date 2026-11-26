@@ -11,8 +11,11 @@ Wants=network-online.target
 # Copy systemd/dots-executor.env.example to ~/.config/dots/executor.env and set it.
 
 [Service]
+# Defaults; executor.env may override them. The second forward lets the server's
+# dashboard read the logs this machine's dashboard recorded.
+Environment=DOTS_TUNNEL_DASH_PORT=2513 DOTS_LOCAL_DASH_PORT=8099
 EnvironmentFile=%h/.config/dots/executor.env
-ExecStart=/usr/bin/ssh -N -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 127.0.0.1:${DOTS_TUNNEL_PORT}:127.0.0.1:${DOTS_LOCAL_AWF_PORT} ${DOTS_SERVER}
+ExecStart=/usr/bin/ssh -N -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 127.0.0.1:${DOTS_TUNNEL_PORT}:127.0.0.1:${DOTS_LOCAL_AWF_PORT} -R 127.0.0.1:${DOTS_TUNNEL_DASH_PORT}:127.0.0.1:${DOTS_LOCAL_DASH_PORT} ${DOTS_SERVER}
 Restart=always
 RestartSec=10
 

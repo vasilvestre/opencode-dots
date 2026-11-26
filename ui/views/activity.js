@@ -137,7 +137,7 @@ export function mountActivity(el) {
       state.routing = new Map((logsRes || []).filter((l) => l.provider).map((l) => [l.execution_id, { provider: l.provider, route: l.route }]));
       // Runs of an executor (another machine's awf) sit beside the local ones.
       state.history = attachLogIds(histRes.body?.entries || [], logsRes || [])
-        .concat(state.remote.entries.map((e) => ({ ...e, rounds: [], cost: 0, target: "", models: null, routing: null })))
+        .concat(state.remote.entries.map((e) => ({ ...e, logId: e.execution_id, rounds: [], cost: 0, target: "", models: null, routing: null })))
         .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
       // Workflows named _x are called by another one; the caller's row stands for them.
       state.history = state.history.filter((e) => !(e.workflow_name || "").startsWith("_"));

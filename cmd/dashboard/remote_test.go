@@ -51,3 +51,30 @@ func TestRemoteRunsKeepLastSeenWhenExecutorIsDown(t *testing.T) {
 		t.Fatalf("stale running run = %v", got["status"])
 	}
 }
+
+func TestViaExecutorServesTheExecutorsLog(t *testing.T) {
+	exec := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("log of " + r.URL.Query().Get("id")))
+	}))
+	defer exec.Close()
+	id := "aaaabbbb-1234-1234-1234-123456789012"
+	d := &dash{state: t.TempDir(), execDash: parseExecutorDashboards("workstation=" + exec.URL + ",bad=nope"),
+		remote: map[string]remoteSnapshot{"workstation": {Executions: []map[string]any{{"execution_id": id}}}}}
+	local := func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("local")) }
+	get := func() string {
+		rec := httptest.NewRecorder()
+		d.viaExecutor(local)(rec, httptest.NewRequest(http.MethodGet, "/api/log?id="+id, nil))
+		return rec.Body.String()
+	}
+	if got := get(); got != "log of "+id {
+		t.Fatalf("remote run served %q", got)
+	}
+	os.MkdirAll(filepath.Join(d.state, "logs"), 0o755)
+	os.WriteFile(filepath.Join(d.state, "logs", id+".jsonl"), []byte("x"), 0o644)
+	if got := get(); got != "local" {
+		t.Fatalf("a run with a local log must stay local, got %q", got)
+	}
+	if len(d.execDash) != 1 {
+		t.Fatalf("invalid address kept: %v", d.execDash)
+	}
+}

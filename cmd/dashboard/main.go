@@ -118,6 +118,7 @@ func main() {
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
+	d.execDash = parseExecutorDashboards(envOr("DOTS_EXECUTOR_DASHBOARDS", ""))
 	for _, h := range strings.Split(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			d.allow[h] = true
@@ -141,11 +142,11 @@ func main() {
 	})
 	mux.HandleFunc("/api/artifacts", d.artifacts)
 	mux.HandleFunc("/api/file", d.file)
-	mux.HandleFunc("/api/log", d.log)
-	mux.HandleFunc("/api/stream", d.stream)
-	mux.HandleFunc("/api/cost", d.cost)
+	mux.HandleFunc("/api/log", d.viaExecutor(d.log))
+	mux.HandleFunc("/api/stream", d.viaExecutor(d.stream))
+	mux.HandleFunc("/api/cost", d.viaExecutor(d.cost))
 	mux.HandleFunc("/api/usage", d.usage)
-	mux.HandleFunc("/api/run", d.runTimeline)
+	mux.HandleFunc("/api/run", d.viaExecutor(d.runTimeline))
 	mux.HandleFunc("/api/sessions", d.sessions)
 	mux.HandleFunc("/api/logs", d.logs)
 	mux.HandleFunc("/api/remote-runs", d.remoteRuns)
@@ -203,4 +204,5 @@ type dash struct {
 	remoteMu sync.Mutex
 	remote   map[string]remoteSnapshot
 	remoteAt time.Time
+	execDash map[string]string // executor name -> its dashboard, see DOTS_EXECUTOR_DASHBOARDS
 }

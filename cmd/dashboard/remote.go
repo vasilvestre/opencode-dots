@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -179,4 +181,53 @@ func tagged(e map[string]any, executor string, up bool) map[string]any {
 		c["status"] = "unknown"
 	}
 	return c
+}
+
+// parseExecutorDashboards reads "name=url,name=url". Only http addresses are kept.
+func parseExecutorDashboards(spec string) map[string]string {
+	out := map[string]string{}
+	for _, part := range strings.Split(spec, ",") {
+		name, addr, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if u, err := url.Parse(addr); ok && err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+			out[strings.TrimSpace(name)] = strings.TrimRight(addr, "/")
+		}
+	}
+	return out
+}
+
+// executorOf names the executor whose awf listed the run, or "".
+func (d *dash) executorOf(id string) string {
+	d.remoteMu.Lock()
+	defer d.remoteMu.Unlock()
+	for name, s := range d.remote {
+		for _, e := range s.Executions {
+			if str(e["execution_id"]) == id {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// viaExecutor serves a run's log, stream, steps or cost from the executor's
+// own dashboard when the run was done there. The executor's dashboard is the
+// one that recorded it: awf gives its events to a single reader, so this
+// machine must not read them from awf too. A run with a local log is served
+// here, and so is any run whose executor has no dashboard address.
+func (d *dash) viaExecutor(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if logID(id) && !exists(filepath.Join(d.state, "logs", id+".jsonl")) && d.transcriptPath(id) == "" {
+			if base := d.execDash[d.executorOf(id)]; base != "" {
+				target, _ := url.Parse(base)
+				proxy := httputil.NewSingleHostReverseProxy(target)
+				proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+					writeJSONStatus(w, http.StatusBadGateway, map[string]string{"error": "the executor's dashboard is unreachable: " + err.Error()})
+				}
+				proxy.ServeHTTP(w, r)
+				return
+			}
+		}
+		next(w, r)
+	}
 }
