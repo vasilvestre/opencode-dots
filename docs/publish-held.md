@@ -59,6 +59,27 @@ to. Such a record needs `push-repo` added by hand.
 | `push` | a patch: `git diff` or `git format-patch` | fresh clone of the branch, apply, commit as the token account, push |
 | `open-pr` | first line the title, the rest the body | `gh pr create`; the branch must already be on the remote |
 
+### A `file-issue` record (ADR 0043, `docs/upstream.md`)
+
+`publish-held` publishes nothing itself for this action. The `route` step sends the record to `prep`,
+which checks it without the network: a `target: OWNER/REPO`, a `title`, a non-empty issue body under
+`STATE_DIR`, the target still in the upstream list and not the source repository itself. A record without
+`target` or without its body is refused with a clear message. `prep` takes a lock, then the workflow
+calls `file-upstream` with `release=<record>` (the hidden-workflow mechanism of `workflows/AGENTS.md`),
+which repeats its own checks: off switch, daily and weekly caps, ledger, the duplicate search on the
+upstream tracker. It then creates the issue with the held body, appends to the ledger, moves the record
+to `held/released/` and logs the line. `file-upstream` ends in success even when a check says no, so
+`verify` fails the run unless the record really moved; the reason is the last line of
+`upstream/decisions.tsv`. The record stays held and can be retried. A second release is refused
+("already released").
+
+Two extra inputs, needed only for this action: `repo` (the repository the record came from) and
+`upstream` (its list, `owner/name=cap` joined by commas, as in `awf-gh.yaml`). The dashboard's Release
+fills them: the repository from the record's `source:` path (`upstream/_work/OWNER/REPO/issue.md`),
+else the one repository of `awf-gh.yaml` whose list holds the target; with neither it answers 422 and
+starts nothing. A run posted by hand passes them itself. The record's `target` and `title` are in the
+dashboard's `/api/autonomy` listing. No claim check applies: no branch is touched.
+
 ### A fix-issue at `propose`: two records, release in order
 
 When the gate holds the push of `fix-issue`, the same step also writes the
@@ -86,7 +107,8 @@ On any failure the record stays where it is, so the release can be retried.
 
 - The id is a plain file name: no path, no leading dot, no `..`.
 - The record exists under `held/` and is not already in `held/released/`.
-- `action` is `comment`, `push` or `open-pr`; `ref` is `OWNER/REPO#N`.
+- `action` is `comment`, `push` or `open-pr`; `ref` is `OWNER/REPO#N`. (`file-issue` goes the way
+  described above.)
 - The artifact exists, is not empty and lives under `STATE_DIR` (the gate's copy
   under `held/artifacts/` does).
 - Branch, base, push-repo and closes match a strict pattern.
@@ -113,4 +135,5 @@ never starts an agent.
 
 ## Test
 
-`bin/test-publish-held` runs the step offline with fake `gh` and `git`.
+`bin/test-publish-held` runs the steps offline with fake `gh` and `git`; `bin/test-e2e upstream` runs
+the whole `file-issue` release (success, duplicate, cap, off switch, missing target, double release).

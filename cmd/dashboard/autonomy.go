@@ -34,6 +34,8 @@ type gateItem struct {
 	Class    string `json:"class"`
 	Artifact string `json:"artifact"`
 	Reason   string `json:"reason"`
+	Target   string `json:"target,omitempty"` // file-issue: the upstream OWNER/REPO
+	Title    string `json:"title,omitempty"`
 	Readable bool   `json:"readable"`
 }
 
@@ -68,6 +70,10 @@ func parseGateFile(name, kind, text string) (gateItem, bool) {
 			it.Artifact = val
 		case "reason":
 			it.Reason = val
+		case "target":
+			it.Target = val
+		case "title":
+			it.Title = val
 		default:
 			continue
 		}

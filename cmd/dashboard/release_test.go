@@ -25,7 +25,7 @@ func fakeAwf(t *testing.T, status int) (*httptest.Server, *[]string) {
 			Inputs map[string]string `json:"inputs"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
-		runs = append(runs, r.URL.Path+" id="+body.Inputs["id"])
+		runs = append(runs, r.URL.Path+" id="+body.Inputs["id"]+" repo="+body.Inputs["repo"]+" upstream="+body.Inputs["upstream"])
 		w.WriteHeader(status)
 		w.Write([]byte(`{"body":{"execution_id":"exec-1234abcd"}}`))
 	}))
@@ -86,6 +86,61 @@ func TestAutonomyRelease(t *testing.T) {
 	// The dashboard never moves the record itself: the workflow does.
 	if _, err := os.Stat(filepath.Join(state, "held", relID)); err != nil {
 		t.Fatalf("record moved by the dashboard: %v", err)
+	}
+}
+
+const fileIssueID = "20261122T093000Z-file-issue-up_tool.txt"
+
+func TestAutonomyReleaseFileIssue(t *testing.T) {
+	state := t.TempDir()
+	os.MkdirAll(filepath.Join(state, "held"), 0o755)
+	src := "source: /state/upstream/_work/acme/app/issue.md\n"
+	rec := "action: file-issue\nref: up/tool\nautonomy: propose\nclass: none\nartifact: /state/held/artifacts/x/issue.md\n" +
+		src + "reason: held\ntitle: Tool crashes\ntarget: up/tool\n"
+	os.WriteFile(filepath.Join(state, "held", fileIssueID), []byte(rec), 0o644)
+	cfg := filepath.Join(state, "awf-gh.yaml")
+	os.WriteFile(cfg, []byte("repos:\n  - { repo: acme/app, workflow: review-pr, inputs: { upstream: \"up/tool=3\" } }\n  - { repo: acme/lib, workflow: review-pr }\n"), 0o644)
+	srv, runs := fakeAwf(t, http.StatusAccepted)
+	d := &dash{state: state, awf: srv.URL, awfgh: cfg}
+
+	w := httptest.NewRecorder()
+	d.autonomyRelease(w, releaseReq("POST", "127.0.0.1:8099", `{"id":"`+fileIssueID+`"}`))
+	if w.Code != 200 || len(*runs) != 1 || !strings.Contains((*runs)[0], " repo=acme/app upstream=up/tool=3") {
+		t.Fatalf("release: %d %s runs=%v", w.Code, w.Body, *runs)
+	}
+
+	// Without a source line the one repository listing the target is used.
+	os.WriteFile(filepath.Join(state, "held", fileIssueID), []byte(strings.Replace(rec, src, "", 1)), 0o644)
+	*runs = nil
+	w = httptest.NewRecorder()
+	d.autonomyRelease(w, releaseReq("POST", "127.0.0.1:8099", `{"id":"`+fileIssueID+`"}`))
+	if w.Code != 200 || len(*runs) != 1 || !strings.Contains((*runs)[0], " repo=acme/app upstream=up/tool=3") {
+		t.Fatalf("no source: %d %s runs=%v", w.Code, w.Body, *runs)
+	}
+
+	// An unlisted target starts nothing.
+	os.WriteFile(cfg, []byte("repos:\n  - { repo: acme/app, workflow: review-pr }\n"), 0o644)
+	*runs = nil
+	w = httptest.NewRecorder()
+	d.autonomyRelease(w, releaseReq("POST", "127.0.0.1:8099", `{"id":"`+fileIssueID+`"}`))
+	if w.Code != 422 || len(*runs) != 0 {
+		t.Fatalf("unknown list: %d %s runs=%v", w.Code, w.Body, *runs)
+	}
+}
+
+func TestAutonomyListsFileIssueTarget(t *testing.T) {
+	state := t.TempDir()
+	os.MkdirAll(filepath.Join(state, "held"), 0o755)
+	os.WriteFile(filepath.Join(state, "held", fileIssueID), []byte("action: file-issue\nref: up/tool\ntarget: up/tool\ntitle: Tool crashes\n"), 0o644)
+	d := &dash{state: state}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/autonomy", nil)
+	r.Host = "127.0.0.1:8099"
+	d.autonomy(w, r)
+	var got map[string][]gateItem
+	json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got["held"]) != 1 || got["held"][0].Target != "up/tool" || got["held"][0].Action != "file-issue" || got["held"][0].Title != "Tool crashes" {
+		t.Fatalf("got %+v", got)
 	}
 }
 

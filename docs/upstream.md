@@ -54,9 +54,14 @@ Per upstream, under `STATE_DIR/upstream/<owner>__<repo>/`: `ledger.tsv` (epoch, 
 `filed|held|noted|skipped`, hash, url or reason, title) and `off`. Every stop is a line of
 `STATE_DIR/upstream/decisions.tsv`. Scratch files are under `upstream/_work/<repo>`.
 
-A record held at `propose` is released by running `file-upstream` again with `release=<record
-name>`: `publish-held` does not know this action. A release repeats the guard and the duplicate
-search, skips the gate (the person's go-ahead is the approval) and moves the record to `held/released/`.
+A record held at `propose` is released with `publish-held` (the dashboard's Release button), which
+calls `file-upstream` with `release=<record name>` (`docs/publish-held.md`). Running `file-upstream`
+by hand with `release` does the same. A release repeats the guard (the target still in the upstream
+list of the source repository, the off switch, the daily and weekly caps, the ledger, the evidence of
+the held body) and the duplicate search on the upstream tracker, skips the gate (the person's go-ahead
+is the approval), creates the issue with the held body, appends to the ledger and moves the record to
+`held/released/` with a line in `held/released.log`. A refusal by any check leaves the record held and
+fails the `publish-held` run with the reason.
 
 ## The hook in `tend-repo`
 

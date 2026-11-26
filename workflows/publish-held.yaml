@@ -6,6 +6,12 @@
 # and the text of the record and of the artifact is data. Releasing is the
 # owner's explicit approval, so it publishes whatever the repository ceiling is.
 # A `merge` record is never released this way.
+#
+# A `file-issue` record (ADR 0043) is not published here: `prep` checks the
+# record, then the hidden call below runs `file-upstream` with release=<record>,
+# which repeats every one of its checks (list, off switch, caps, ledger, the
+# duplicate search, the held body) and creates the issue. `verify` then fails the
+# run unless that workflow really moved the record to held/released/.
 name: publish-held
 version: "1.0.0"
 inputs:
@@ -15,9 +21,133 @@ inputs:
     description: file name of one record under STATE_DIR/held/
     validation:
       pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+  - name: repo
+    type: string
+    required: false
+    default: ""
+    description: file-issue only, the repository the dot works on (the source of the record)
+    validation:
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)?$'
+  - name: upstream
+    type: string
+    required: false
+    default: ""
+    description: file-issue only, the upstream list of that repository, owner/name=weekly cap joined by commas
+    validation:
+      pattern: '^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+)*)?$'
 
 states:
-  initial: release
+  initial: route
+
+  route:
+    type: step
+    command: |
+      set -eu
+      rec=${STATE_DIR:-/state}/held/{{.inputs.id}}
+      if [ -f "$rec" ] && [ "$(sed -n 's/\r$//; s/^action: //p' "$rec" | head -n1)" = file-issue ]; then
+        printf FILEISSUE
+      else
+        printf PLAIN
+      fi
+    timeout: 30
+    transitions:
+      - when: 'states.route.Output contains "FILEISSUE"'
+        goto: prep
+    on_success: release
+    on_failure: error
+
+  # Everything that can be said about a file-issue record without the network.
+  # The repository checks (list, off switch, caps, duplicates) are file-upstream's.
+  prep:
+    type: step
+    command: |
+      set -eu
+      id={{.inputs.id}}
+      repo="{{.inputs.repo}}"
+      list="{{.inputs.upstream}}"
+      state=${STATE_DIR:-/state}
+      held=$state/held
+      die() { echo "publish-held: $*" >&2; exit 1; }
+      case "$id" in
+        ""|*/*|.*|*..*|*[!A-Za-z0-9._-]*) die "refused: bad record id" ;;
+      esac
+      rec=$held/$id
+      [ ! -e "$held/released/$id" ] || die "refused: $id is already released"
+      [ -f "$rec" ] || die "refused: no held record $id"
+      field() {
+        awk -v k="$1" 'index($0, k ": ") == 1 { sub(/\r$/, ""); print substr($0, length(k) + 3); exit }' "$rec"
+      }
+      target=$(field target)
+      artifact=$(field artifact)
+      title=$(field title)
+      [ -n "$target" ] || die "refused: the file-issue record names no target (target: OWNER/REPO), so nothing is filed"
+      printf '%s' "$target" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' \
+        || die "refused: malformed record, bad target"
+      [ -n "$artifact" ] && [ "$artifact" != none ] || die "refused: malformed record, no artifact (the issue body)"
+      [ -s "$artifact" ] || die "refused: the issue body is missing or empty"
+      art=$(realpath "$artifact")
+      case "$art" in
+        "$(realpath "$state")"/*) ;;
+        *) die "refused: the artifact is outside the state directory" ;;
+      esac
+      [ -n "$title" ] || die "refused: the record has no title"
+      [ -n "$repo" ] && [ -n "$list" ] \
+        || die "refused: releasing a file-issue record needs the inputs repo (the source repository) and upstream (its upstream list)"
+      lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+      [ "$(lc "$target")" != "$(lc "$repo")" ] || die "refused: $target is the repository itself, not an upstream"
+      listed=no
+      for e in $(printf '%s' "$list" | tr ',' ' '); do
+        [ "$(lc "${e%%=*}")" != "$(lc "$target")" ] || listed=yes
+      done
+      [ "$listed" = yes ] || die "refused: $target is not in the upstream list of $repo"
+      mkdir -p "$held"
+      mkdir "$held/.release-$id" 2>/dev/null || die "refused: a release of $id is already running"
+      echo "publish-held: $id: file-issue on $target for $repo, handed to file-upstream (the ceiling is not consulted)"
+    timeout: 60
+    on_success: file_upstream
+    on_failure: error
+
+  file_upstream:
+    type: call_workflow
+    workflow: file-upstream
+    inputs:
+      repo: "{{.inputs.repo}}"
+      upstream: "{{.inputs.upstream}}"
+      autonomy: "propose"
+      release: "{{.inputs.id}}"
+    timeout: 600
+    on_success: verify
+    on_failure: unlock
+
+  unlock:
+    type: step
+    command: |
+      rmdir "${STATE_DIR:-/state}/held/.release-{{.inputs.id}}" 2>/dev/null || true
+      echo "publish-held: {{.inputs.id}}: file-upstream failed, the record stays held" >&2
+      exit 1
+    timeout: 30
+    on_success: error
+    on_failure: error
+
+  # file-upstream ends in success when a check says no, so success of the call
+  # proves nothing: the record is released only if it moved.
+  verify:
+    type: step
+    command: |
+      set -eu
+      id={{.inputs.id}}
+      st=${STATE_DIR:-/state}
+      rmdir "$st/held/.release-$id" 2>/dev/null || true
+      if [ -f "$st/held/released/$id" ] && [ ! -e "$st/held/$id" ]; then
+        echo "publish-held: $id released"
+        exit 0
+      fi
+      why=$(tail -n1 "$st/upstream/decisions.tsv" 2>/dev/null | cut -f3 || true)
+      echo "publish-held: refused: nothing was filed and $id stays held: ${why:-file-upstream gave no reason}" >&2
+      exit 1
+    timeout: 30
+    on_success: done
+    on_failure: error
 
   release:
     type: step
