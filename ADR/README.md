@@ -50,6 +50,7 @@ your mind by writing a new one that supersedes it.
 | [0040](0040-classification-and-autonomy-ceiling.md) | Each item is classified, each repository has an autonomy ceiling, the action is the lower of the two | proposed | 2026-11-26 |
 | [0041](0041-linking-work-items-is-a-proposal.md) | Linking work items across sources is a proposal; merging stays explicit | proposed | 2026-11-26 |
 | [0042](0042-workstations-are-workers-of-an-instance.md) | A workstation is a worker that joins an instance | proposed | 2026-11-26 |
+| [0043](0043-dot-files-issues-on-named-upstream-repositories.md) | The dot may file issues on named upstream repositories | proposed | 2026-11-26 |
 
 ## When to write one
 
