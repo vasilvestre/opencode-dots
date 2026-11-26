@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Run a command of untrusted code in a throwaway container: no network, read-only
+# root, no capabilities, limited pids and memory, a timeout. See docs/runner.md.
+#   bin/sandbox-run [--print] IMAGE WORKDIR -- CMD...
+# --print shows the docker command instead of running it (used by tests).
+# Env: DOTS_SANDBOX_IMAGE_PREFIX (default dots-), DOTS_SANDBOX_TIMEOUT (seconds, 600),
+#      DOTS_SANDBOX_MEMORY (1g), DOTS_SANDBOX_PIDS (256), DOTS_SANDBOX_CPUS (2),
+#      DOTS_SANDBOX_TMPFS_SIZE (256m), DOTS_SANDBOX_WRITABLE (0: WORKDIR mounted read-only; 1: read-write),
+#      DOTS_SANDBOX_ENGINE (docker, or podman).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+usage() { echo "usage: bin/sandbox-run [--print] IMAGE WORKDIR -- CMD..." >&2; exit 2; }
+
+print_only=false
+if [ "${1:-}" = --print ]; then print_only=true; shift; fi
+[ $# -ge 4 ] || usage
+image=$1 workdir=$2
+shift 2
+[ "$1" = -- ] || usage
+shift
+
+prefix=${DOTS_SANDBOX_IMAGE_PREFIX:-dots-}
+case "$image" in
+  "$prefix"*) ;;
+  *) echo "sandbox-run: image '$image' does not start with '$prefix'" >&2; exit 2 ;;
+esac
+case "$image" in -*|*[[:space:]]*) echo "sandbox-run: bad image name" >&2; exit 2 ;; esac
+
+[ -d "$workdir" ] || { echo "sandbox-run: workdir '$workdir' is not a directory" >&2; exit 2; }
+workdir=$(cd "$workdir" && pwd -P)
+case "$workdir" in *:*|*,*) echo "sandbox-run: workdir path may not contain ':' or ','" >&2; exit 2 ;; esac
+
+engine=${DOTS_SANDBOX_ENGINE:-docker}
+timeout_s=${DOTS_SANDBOX_TIMEOUT:-600}
+mount_mode=ro
+[ "${DOTS_SANDBOX_WRITABLE:-0}" = 1 ] && mount_mode=rw
+
+name="dots-sandbox-$$-$RANDOM"
+args=(
+  run --rm --name "$name"
+  --network none
+  --read-only
+  --cap-drop ALL
+  --security-opt no-new-privileges
+  --pids-limit "${DOTS_SANDBOX_PIDS:-256}"
+  --memory "${DOTS_SANDBOX_MEMORY:-1g}"
+  --cpus "${DOTS_SANDBOX_CPUS:-2}"
+  --tmpfs "/tmp:rw,noexec,nosuid,size=${DOTS_SANDBOX_TMPFS_SIZE:-256m}"
+  --mount "type=bind,source=$workdir,target=/work,$( [ "$mount_mode" = ro ] && echo readonly || echo bind-propagation=rprivate )"
+  --workdir /work
+  --env HOME=/tmp
+  --user "$(id -u):$(id -g)"
+  "$image"
+  "$@"
+)
+
+if $print_only; then
+  printf '%q ' "$engine" "${args[@]}"; echo
+  exit 0
+fi
+
+command -v "$engine" >/dev/null || { echo "sandbox-run: $engine not found" >&2; exit 2; }
+status=0
+if command -v timeout >/dev/null; then
+  timeout --signal TERM "$timeout_s" "$engine" "${args[@]}" || status=$?
+  if [ "$status" = 124 ]; then
+    "$engine" rm -f "$name" >/dev/null 2>&1 || true
+    echo "sandbox-run: timed out after ${timeout_s}s" >&2
+  fi
+else
+  "$engine" "${args[@]}" || status=$?
+fi
+exit "$status"

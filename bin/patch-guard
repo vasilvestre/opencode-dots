@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Check a unified diff (stdin) before a shell step applies it. Exit 0 when it
+# passes, 1 with the reason on stderr when refused, 2 on a usage error.
+#   --allow-path GLOB   repeatable; when given, every touched path must match one
+#   --deny-path GLOB    repeatable; wins over --allow-path
+#   --allow-locks       let lock files through (refused by default)
+#   --max-lines N       refuse when added + removed lines exceed N
+# Globs: `*` also crosses `/`. A glob without `/` matches the file name at any depth.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+allow=() deny=() max_lines="" allow_locks=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --allow-path) [ $# -ge 2 ] || { echo "--allow-path needs a value" >&2; exit 2; }; allow+=("$2"); shift 2 ;;
+    --deny-path) [ $# -ge 2 ] || { echo "--deny-path needs a value" >&2; exit 2; }; deny+=("$2"); shift 2 ;;
+    --max-lines) [ $# -ge 2 ] || { echo "--max-lines needs a value" >&2; exit 2; }; max_lines=$2; shift 2 ;;
+    --allow-locks) allow_locks=true; shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+case "$max_lines" in ''|*[!0-9]*) [ -z "$max_lines" ] || { echo "--max-lines must be a number" >&2; exit 2; } ;; esac
+
+builtin_deny=(
+  '.git' '.git/*' '.gitmodules' '.gitattributes' '.gitignore'
+  '.env' '.env.*' '*.pem' '*.key' '*.p12' '*.pfx' 'id_rsa*' 'id_ed25519*' '.netrc' '.npmrc' '.pypirc'
+  'secrets' 'secrets/*' '*secret*' '*credentials*'
+  '.github/*' '.gitlab-ci.yml' '.circleci/*' 'Jenkinsfile' '.travis.yml' 'azure-pipelines.yml' '.buildkite/*'
+)
+lock_files=(
+  package-lock.json yarn.lock pnpm-lock.yaml npm-shrinkwrap.json go.sum Cargo.lock composer.lock
+  poetry.lock Gemfile.lock uv.lock Pipfile.lock bun.lockb
+)
+
+fail() { echo "patch-guard: refused: $*" >&2; exit 1; }
+
+matches() { # path glob
+  local p=$1 g=$2
+  # shellcheck disable=SC2053
+  [[ $p == $g ]] && return 0
+  case "$g" in */*) return 1 ;; esac
+  # shellcheck disable=SC2053
+  [[ $p == */$g ]]
+}
+
+check_path() {
+  local p=$1 g l
+  [ "$p" = /dev/null ] && return 0
+  case "$p" in
+    /*) fail "absolute path: $p" ;;
+    ..|../*|*/..|*/../*) fail "path leaves the repository: $p" ;;
+  esac
+  p=${p#./}
+  for g in "${builtin_deny[@]}"; do
+    matches "$p" "$g" && fail "$p matches built-in deny '$g'"
+  done
+  if ! $allow_locks; then
+    for l in "${lock_files[@]}"; do
+      matches "$p" "$l" && fail "$p is a lock file (use --allow-locks)"
+    done
+  fi
+  for g in ${deny[@]+"${deny[@]}"}; do
+    matches "$p" "$g" && fail "$p matches --deny-path '$g'"
+  done
+  if [ ${#allow[@]} -gt 0 ]; then
+    for g in "${allow[@]}"; do matches "$p" "$g" && return 0; done
+    fail "$p matches no --allow-path"
+  fi
+}
+
+strip_prefix() { # drop a/ or b/ and a trailing tab-separated timestamp
+  local p=${1%%$'\t'*}
+  p=${p#\"}; p=${p%\"}
+  printf '%s' "${p#[ab]/}"
+}
+
+lines=0 files=0 old=0 new=0 saw=false
+while IFS= read -r line || [ -n "$line" ]; do
+  if [ "$old" -gt 0 ] || [ "$new" -gt 0 ]; then
+    case "$line" in
+      '\'*) ;;
+      +*) new=$((new - 1)); lines=$((lines + 1)) ;;
+      -*) old=$((old - 1)); lines=$((lines + 1)) ;;
+      *) old=$((old - 1)); new=$((new - 1)) ;;
+    esac
+    continue
+  fi
+  case "$line" in
+    'diff --git '*) saw=true; files=$((files + 1)); check_path "$(strip_prefix "${line##* b/}")" ;;
+    '--- '*) p=${line#--- }; [ "$p" = /dev/null ] || check_path "$(strip_prefix "$p")" ;;
+    '+++ '*) p=${line#+++ }; [ "$p" = /dev/null ] || check_path "$(strip_prefix "$p")" ;;
+    'rename from '*|'rename to '*|'copy from '*|'copy to '*) check_path "${line#* * }" ;;
+    'new file mode 120000'|'old mode 120000'|'new mode 120000'|'deleted file mode 120000') fail "symbolic link" ;;
+    'GIT binary patch'*|'Binary files '*) fail "binary change" ;;
+    '@@ '*)
+      saw=true
+      hdr=${line#@@ -}; hdr=${hdr%% @@*}
+      o=${hdr%% *}; n=${hdr#* +}
+      old=${o#*,}; [ "$old" = "$o" ] && old=1
+      new=${n#*,}; [ "$new" = "$n" ] && new=1
+      ;;
+  esac
+done
+
+$saw || fail "no diff found on stdin"
+if [ -n "$max_lines" ] && [ "$lines" -gt "$max_lines" ]; then
+  fail "$lines changed lines, limit is $max_lines"
+fi
+echo "patch-guard: ok ($files files, $lines changed lines)" >&2
