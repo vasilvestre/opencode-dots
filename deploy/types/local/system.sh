@@ -29,7 +29,7 @@ apt-get install -y -qq --no-install-recommends ca-certificates curl git jq make 
 
 log "user $DOTS_USER"
 if ! id "$DOTS_USER" >/dev/null 2>&1; then
-  adduser --disabled-password --gecos "" "$DOTS_USER" >/dev/null
+  useradd --create-home --shell /bin/bash "$DOTS_USER"
 fi
 home=$(getent passwd "$DOTS_USER" | cut -d: -f6)
 if [ -n "${DOTS_SSH_PUBKEY:-}" ]; then
