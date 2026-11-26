@@ -71,10 +71,12 @@ repos:
   # settings.trust above first. The generator then refuses a block that breaks
   # the level: the executor has to be listed, the provider and the models it
   # sets have to be listed, and auto_merge is refused. `strict` also refuses a
-  # local checkout and needs settings.trust.host: strict.
+  # local checkout and needs settings.trust.host: strict. identity must be marker
+  # or signed there: the dot marks its work on another party's repository.
   client-org/client-repo:
     trust: client
     executor: server
+    identity: marker
     review: true
 
   # One feature several times: the review runs on pull requests, and `/dots take`

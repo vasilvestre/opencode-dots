@@ -34,6 +34,15 @@ opt-in `GATE_MERGE_SCOPE=all` (read from the run environment by `review-pr` and
 `tend-repo`) widens it to every author; class 2 and the ceiling still apply.
 There is no per-repository key for it yet.
 
+The dot acts under the owner's login, so "wrote by the dot" and "wrote by the owner"
+share one author. When the repository marks what the dot writes (`identity: marker`
+or `signed`, `docs/identity.md`), the caller passes `GATE_IDENTITY` and
+`GATE_PR_BODY_MARKED=1` when the pull request body carries the dot marker. A pull
+request by `DOT_LOGIN` without the marker is then a human's: the merge is refused
+(exit 5) and the reason names the missing marker. With `identity` off or empty
+nothing changes. A dependency bot needs no marker, and `GATE_MERGE_SCOPE=all` skips
+the check along with the rest of the scope.
+
 Class 3 (human diagnosis) yields a note only for every action at every non-empty
 ceiling. Class 2 is never merged by the dot. An empty `ITEM_CLASS` means "not
 classified": only the ceiling counts. An empty `AUTONOMY` is the legacy case and
@@ -56,7 +65,10 @@ is refused (5), never allowed.
 `AUTONOMY`, `ITEM_CLASS` (optional), `STATE_DIR` (default `/state`), `GATE_REF`
 (what is published, for the trace), `GATE_ARTIFACT` (the prepared comment or patch).
 `GATE_REPO` (`owner/repo`) is exported at every call so the circuit breaker finds its
-file. `GATE_PR_AUTHOR`, `DOT_LOGIN`, `GATE_MERGE_SCOPE` decide the merge scope.
+file. `GATE_PR_AUTHOR`, `DOT_LOGIN`, `GATE_MERGE_SCOPE` decide the merge scope, with
+`GATE_IDENTITY` and `GATE_PR_BODY_MARKED` when the repository marks the dot's work.
+`GATE_REPO_SOURCE` and `GATE_UPSTREAM` (file-issue only) end up in a held record as
+`repo:` and `upstream:`.
 `GATE_BRANCH`, `GATE_BASE`, `GATE_PUSH_REPO`, `GATE_TITLE`, `GATE_CLOSES` are optional
 and only end up in a held record (`docs/publish-held.md`), one line each, control
 characters dropped, a line omitted when unset. Every workflow call passes the ones it

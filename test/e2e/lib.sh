@@ -51,6 +51,7 @@ case_new() {
   cp -r "$wf" "$T/proj/.awf/workflows"
   : > "$T/repos.map"
   ln -s "$REPO_ROOT/bin/publish-gate" "$T/dots/bin/publish-gate"
+  ln -s "$REPO_ROOT/bin/dot-sign" "$T/dots/bin/dot-sign"
   ln -s "$E2E_DIR/fakes/held" "$T/dots/bin/held"
   mkdir -p "$T/dots/workflows"
   ln -s "$REPO_ROOT/workflows/data" "$T/dots/workflows/data"

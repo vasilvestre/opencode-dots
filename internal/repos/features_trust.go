@@ -96,6 +96,9 @@ func (trust) Modify(r *Resolved, out *Output, from int) error {
 			add("a strict repository keeps no local checkout on a workstation")
 		}
 	}
+	if err := identityFloor(r, level); err != nil {
+		add("%v", err)
+	}
 	if len(problems) == 0 {
 		return nil
 	}

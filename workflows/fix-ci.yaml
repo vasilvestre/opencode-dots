@@ -27,6 +27,13 @@ inputs:
     description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
     validation:
       pattern: '^(observe|propose|act|auto)?$'
+  - name: identity
+    type: string
+    required: false
+    default: ""
+    description: how the dot marks what it writes out (off, marker, signed); empty means no marking, ADR 0034
+    validation:
+      pattern: '^(off|marker|signed)?$'
   - name: model
     type: string
     required: false

@@ -5,7 +5,7 @@
 # repository. See docs/e2e.md for the matrix, the fakes and the known defects.
 #
 #   bin/test-e2e                 everything
-#   bin/test-e2e fix-issue       one section: fix-issue review classify held baseline upstream
+#   bin/test-e2e fix-issue       one section: fix-issue review classify held baseline upstream identity
 #   E2E_KEEP=1 bin/test-e2e ...  keep the scratch trees (their paths are printed)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -858,10 +858,155 @@ section_upstream() {
   cmp -s "$E2E_TMP/ub.old" "$E2E_TMP/ub.new" || diff "$E2E_TMP/ub.old" "$E2E_TMP/ub.new" | head -20
 }
 
+# ---------------------------------------------------------------- identity ---
+# Marked bodies (ADR 0034, docs/identity.md): what reaches the fake forge carries
+# the dot marker when marking is on, is byte for byte the legacy body when it is
+# off or empty, and a pull request under the dot's login without the marker is
+# not the dot's to merge.
+MARK='<!-- opencode-dots:dot='
+posted_all() { cat "$T/fake/posted/"* 2>/dev/null; }
+marks() { posted_all | grep -c -- "$MARK" || true; }
+
+# identity_record SCENARIO [INPUT...]: run a scenario, write its record (calls and bodies)
+identity_record() {
+  local scen=$1
+  shift
+  case_new "identity $scen $*"
+  case "$scen" in
+    fix-patch) FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=auto "$@" ;;
+    fix-decline) FAKE_FIX=decline FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=auto "$@" ;;
+    review) seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+            FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto "$@" ;;
+  esac
+  {
+    echo "rc=$RC"
+    norm_log | sed -E 's/[0-9a-f]{40}/<sha>/g'
+    echo "--- posted"
+    for f in "$T/fake/posted/"*; do [ -f "$f" ] && { basename "$f" | sed 's/^[0-9]*-//'; cat "$f"; }; done
+  } > "$E2E_TMP/id.rec"
+}
+
+section_identity() {
+  say "== identity: signed bodies, byte-identical when off =="
+  local mode scen
+  for mode in marker signed; do
+    case_new "identity fix patch $mode"
+    FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=auto identity=$mode
+    check "identity $mode, fix-issue: run succeeds" test "$RC" = 0
+    check "identity $mode, fix-issue: one pull request" gh_once '^gh pr create'
+    check "identity $mode, fix-issue: the pull request body carries one marker" test "$(marks)" = 1
+    check "identity $mode, fix-issue: the marker names the workflow" grep -q "dot=.*:fix-issue:7 -->" "$T/fake/posted/"*pr-create.md
+    check "identity $mode, fix-issue: Closes #7 is still in the body" grep -q 'Closes #7' "$T/fake/posted/"*pr-create.md
+    check "identity $mode, fix-issue: the title is untouched" gh_some ' --title Fix the crash'
+    if [ "$mode" = signed ]; then
+      check "identity signed, fix-issue: a visible footer" grep -q 'Filed by an automated agent (the dot `' "$T/fake/posted/"*pr-create.md
+    else
+      check "identity marker, fix-issue: no visible footer" bash -c "! grep -q 'automated agent' $T/fake/posted/*pr-create.md"
+    fi
+    case_done
+    case_new "identity fix decline $mode"
+    FAKE_FIX=decline FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=auto identity=$mode
+    check "identity $mode, fix-issue decline: the issue comment carries the marker" grep -q -- "$MARK" "$T/fake/posted/"*issue-comment.md
+    check "identity $mode, fix-issue decline: the answer text is kept" grep -q 'already fixed' "$T/fake/posted/"*issue-comment.md
+    case_done
+    case_new "identity review $mode"
+    seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+    FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto identity=$mode
+    check "identity $mode, review-pr: the review comment carries one marker" test "$(marks)" = 1
+    check "identity $mode, review-pr: posted once" gh_once '^gh pr comment 7'
+    case_done
+  done
+  case_new "identity propose holds the signed body"
+  FAKE_FIX=decline FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose identity=signed
+  check "identity propose: the held artifact is the signed one" bash -c "grep -q -- '$MARK' \$(sed -n 's/^artifact: //p' $T/state/held/*-comment-*)"
+  case_done
+
+  for scen in fix-patch fix-decline review; do
+    identity_record "$scen"
+    cp "$E2E_TMP/id.rec" "$E2E_TMP/id.$scen.legacy"; case_done
+    identity_record "$scen" identity=
+    cp "$E2E_TMP/id.rec" "$E2E_TMP/id.$scen.empty"; case_done
+    identity_record "$scen" identity=off
+    cp "$E2E_TMP/id.rec" "$E2E_TMP/id.$scen.off"; case_done
+    check "identity $scen: identity= is byte-identical to no input (calls and bodies)" cmp -s "$E2E_TMP/id.$scen.legacy" "$E2E_TMP/id.$scen.empty"
+    check "identity $scen: identity=off is byte-identical to no input (calls and bodies)" cmp -s "$E2E_TMP/id.$scen.legacy" "$E2E_TMP/id.$scen.off"
+    check "identity $scen: the legacy record has a body" grep -q -- '--- posted' "$E2E_TMP/id.$scen.legacy"
+    check "identity $scen: the legacy record has no marker" bash -c "! grep -q -- '$MARK' $E2E_TMP/id.$scen.legacy"
+  done
+
+  say "== identity: the merge scope tells the dot's pull request from a human's =="
+  local human='A human wrote this.
+
+Closes #7' dotbody='Fixes the crash.
+
+Closes #7
+
+<!-- opencode-dots:dot=tester:fix-issue:7 -->'
+  case_new "identity human PR, marking on"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN" "$human"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto identity=marker
+  check "human pull request under the dot's login, marking on, auto: not merged" gh_none '^gh pr merge'
+  check "human pull request, marking on: the refusal names the missing marker" grep -q 'no dot marker' "$T/out.log"
+  check "human pull request, marking on: the run itself succeeds" test "$RC" = 0
+  case_done
+  case_new "identity human PR, marking off"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN" "$human"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+  check "same pull request, marking off: merged as before" gh_once '^gh pr merge 7'
+  case_done
+  case_new "identity human PR, identity=off"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN" "$human"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto identity=off
+  check "same pull request, identity=off: merged as before" gh_once '^gh pr merge 7'
+  case_done
+  for mode in marker signed; do
+    case_new "identity dot PR, $mode"
+    seed_pr 7 fix/7-20260101-0000 "$LOGIN" "$dotbody"
+    FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto identity=$mode
+    check "the dot's marked pull request, $mode, auto: merged once" gh_once '^gh pr merge 7'
+    case_done
+  done
+  case_new "identity human PR, marking on, scope all"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN" "$human"
+  GATE_MERGE_SCOPE=all FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto identity=marker
+  check "human pull request, marking on, GATE_MERGE_SCOPE=all: merged" gh_once '^gh pr merge 7'
+  case_done
+  case_new "identity human PR, marking on, act"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN" "$human"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=act identity=marker
+  check "human pull request, marking on, act: no merge" gh_none '^gh pr merge'
+  check "human pull request, marking on, act: the review is still commented" gh_once '^gh pr comment 7'
+  case_done
+
+  say "== identity: the generator refuses an unmarked client repository =="
+  local rd=$E2E_TMP/idrepos out
+  mkdir -p "$rd"
+  for mode in "" "identity: off" "identity: marker"; do
+    cat > "$rd/repos.yaml" <<YAML
+version: 1
+settings:
+  trust: {host: client, allow: {providers: [opencode], models: [mistral/small-latest], executors: [server]}}
+  executors: {server: http://127.0.0.1:2512}
+repos:
+  acme/app:
+    trust: client
+    executor: server
+    review: true
+    $mode
+YAML
+    (cd "$REPO_ROOT" && go run ./cmd/repos check -dir "$rd") > "$rd/out" 2>&1 || true
+    case "$mode" in
+      "identity: marker") check "client repository with identity: marker is accepted" bash -c "! grep -q 'needs marker or signed' $rd/out" ;;
+      *) check "client repository with '${mode:-no identity}' is refused" grep -q "needs marker or signed" "$rd/out" ;;
+    esac
+  done
+}
+
 want fix-issue && section_fix_issue
 want classify && section_classify
 want review && section_review
 want held && section_held
 want baseline && section_baseline
 want upstream && section_upstream
+want identity && section_identity
 summary

@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# bin/dot-sign: off changes nothing, marker adds the invisible marker, signed adds
+# the footer too, nothing is signed twice. No network.
+#
+#   bin/test-dot-sign
+set -uo pipefail
+cd "$(dirname "$0")/.."
+sign=$PWD/bin/dot-sign
+fail=0
+t=$(mktemp -d)
+trap 'rm -rf "$t"' EXIT
+
+ko() { echo "FAIL $*"; fail=1; }
+
+printf 'Looks good.\n\nOne nit on line 3.\n' > "$t/body"
+
+# off, empty and unset: byte for byte, including a missing final newline and odd bytes.
+printf 'no newline \xff tail' > "$t/raw"
+: > "$t/empty"
+for f in body raw empty; do
+  for m in off ""; do
+    DOT_IDENTITY=$m "$sign" review-pr 1 < "$t/$f" > "$t/out"
+    cmp -s "$t/$f" "$t/out" || ko "mode '$m' changed $f"
+  done
+  env -u DOT_IDENTITY "$sign" review-pr 1 < "$t/$f" > "$t/out"
+  cmp -s "$t/$f" "$t/out" || ko "unset mode changed $f"
+done
+
+# marker: the body, a blank line, the marker, no footer.
+DOT_IDENTITY=marker DOT_NAME=mydot "$sign" review-pr run42 < "$t/body" > "$t/out"
+printf 'Looks good.\n\nOne nit on line 3.\n\n<!-- opencode-dots:dot=mydot:review-pr:run42 -->\n' > "$t/want"
+cmp -s "$t/want" "$t/out" || ko "marker output differs: $(cat "$t/out")"
+if grep -q 'automated agent' "$t/out"; then ko "marker mode printed a visible footer"; fi
+
+# signed: footer then marker, the footer sentence is the one file-upstream uses.
+DOT_IDENTITY=signed DOT_NAME=mydot "$sign" reply-pr run7 < "$t/body" > "$t/out"
+grep -qx 'Filed by an automated agent (the dot `mydot`) on behalf of its owner, not written by a person.' "$t/out" || ko "signed lacks the footer"
+grep -qx -- '---' "$t/out" || ko "signed lacks the rule"
+grep -qx '<!-- opencode-dots:dot=mydot:reply-pr:run7 -->' "$t/out" || ko "signed lacks the marker"
+[ "$(head -n 1 "$t/out")" = "Looks good." ] || ko "signed changed the start of the body"
+grep -q 'Filed by an automated agent (the dot `' workflows/file-upstream.yaml || ko "file-upstream footer moved: update bin/dot-sign"
+
+# Never twice, in either mode, and from the output of the other.
+for m in marker signed; do
+  DOT_IDENTITY=$m "$sign" w r < "$t/body" > "$t/once"
+  DOT_IDENTITY=$m "$sign" w r < "$t/once" > "$t/twice"
+  cmp -s "$t/once" "$t/twice" || ko "$m signed twice"
+  DOT_IDENTITY=signed "$sign" w r < "$t/once" > "$t/cross"
+  cmp -s "$t/once" "$t/cross" || ko "$m then signed changed the body"
+  [ "$(grep -c 'opencode-dots:dot=' "$t/once")" = 1 ] || ko "$m wrote more than one marker"
+done
+
+# Trailing blank lines fold to one; an empty body is just the marker.
+printf 'text\n\n\n\n' | DOT_IDENTITY=marker "$sign" w r > "$t/out"
+{ [ "$(sed -n 2p "$t/out")" = "" ] && [ "$(sed -n 3p "$t/out")" != "" ]; } || ko "trailing blank lines not folded to one"
+DOT_IDENTITY=marker "$sign" w r < "$t/empty" > "$t/out"
+[ "$(cat "$t/out")" = '<!-- opencode-dots:dot=dot:w:r -->' ] || ko "empty body: $(cat "$t/out")"
+
+# Hostile names cannot close the comment.
+DOT_IDENTITY=marker DOT_NAME='x --> <b>' "$sign" 'w>' 'r -->' < "$t/body" > "$t/out"
+[ "$(grep -c -- '-->' "$t/out")" = 1 ] || ko "a name closed the comment early"
+
+# Unknown mode (silent is not one) fails and prints nothing on stdout.
+DOT_IDENTITY=silent "$sign" w r < "$t/body" > "$t/out" 2>/dev/null
+rc=$?
+{ [ "$rc" = 2 ] && [ ! -s "$t/out" ]; } || ko "silent was accepted"
+
+if [ "$fail" = 0 ]; then echo "dot-sign: all cases pass"; fi
+exit "$fail"

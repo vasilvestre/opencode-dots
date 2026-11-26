@@ -40,6 +40,13 @@ inputs:
     description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
     validation:
       pattern: '^(observe|propose|act|auto)?$'
+  - name: identity
+    type: string
+    required: false
+    default: ""
+    description: how the dot marks what it writes out (off, marker, signed); empty means no marking, ADR 0034
+    validation:
+      pattern: '^(off|marker|signed)?$'
   - name: provider
     type: string
     required: false
@@ -609,6 +616,13 @@ states:
           } > "$body"
         fi
       fi
+      # Identity (ADR 0034): with marking on, the body carries the dot's marker. The
+      # signed copy is what the gate holds and what is posted; review.md stays as is.
+      if [ -n "{{.inputs.identity}}" ] && [ "{{.inputs.identity}}" != off ]; then
+        DOT_IDENTITY="{{.inputs.identity}}" DOT_NAME="${DOT_NAME:-$(gh api user --jq .login 2>/dev/null || echo dot)}" \
+          "${DOTS_HOME:-/work}/bin/dot-sign" review-pr "{{.inputs.pr}}" < "$body" > "$d/post-body.md"
+        body="$d/post-body.md"
+      fi
       # The class of the item this pull request came from (ADR 0040). A fix-issue
       # branch is fix/<N>-*: fix-issue wrote the class of issue N. With a ceiling
       # set, a missing or invalid class on such a branch is 3 (fail closed). Other
@@ -925,6 +939,8 @@ states:
         grc=0
         ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/verdict.txt" GATE_REPO="{{.inputs.repo}}" \
         GATE_PR_AUTHOR="$(jq -r '.author.login // empty' "$d/meta.json")" GATE_MERGE_SCOPE="${GATE_MERGE_SCOPE:-}" \
+        GATE_IDENTITY="{{.inputs.identity}}" \
+        GATE_PR_BODY_MARKED="$(jq -r 'if (.body // "") | contains("<!-- opencode-dots:dot=") then 1 else 0 end' "$d/meta.json")" \
           "${DOTS_HOME:-/work}/bin/publish-gate" merge || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: not merging (gate $grc)"; exit 0; }
       fi

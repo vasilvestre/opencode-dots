@@ -26,6 +26,13 @@ inputs:
     description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
     validation:
       pattern: '^(observe|propose|act|auto)?$'
+  - name: identity
+    type: string
+    required: false
+    default: ""
+    description: how the dot marks what it writes out (off, marker, signed); empty means no marking, ADR 0034
+    validation:
+      pattern: '^(off|marker|signed)?$'
   - name: label
     type: string
     required: false
@@ -227,16 +234,23 @@ states:
         # worktree for a look, release the lock and fail.
         echo "ABANDONED: $changed files changed in $work but no fix.md; worktree kept" | tee -a "$d/push.log" >&2
         if [ -s "$d/answer.md" ]; then
+          # Identity (ADR 0034): with marking on, the answer carries the dot's marker.
+          ans="$d/answer.md"
+          if [ -n "{{.inputs.identity}}" ] && [ "{{.inputs.identity}}" != off ]; then
+            DOT_IDENTITY="{{.inputs.identity}}" DOT_NAME="${DOT_NAME:-$(gh api user --jq .login 2>/dev/null || echo dot)}" \
+              "${DOTS_HOME:-/work}/bin/dot-sign" fix-issue "$iss" < "$ans" > "$d/answer.signed.md"
+            ans="$d/answer.signed.md"
+          fi
           # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
           grc=0
           if [ -n "{{.inputs.autonomy}}" ]; then
             ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
-            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" GATE_REPO="$repo" \
+            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$ans" GATE_REPO="$repo" \
               "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
             [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
           fi
           if [ "$grc" = 0 ]; then
-            gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
+            gh issue comment "$iss" --repo "$repo" --body-file "$ans" \
               || echo "issue comment failed"
           fi
         fi
@@ -244,6 +258,13 @@ states:
         exit 1
       fi
       title=$(head -1 "$d/fix.md")
+      # Identity (ADR 0034): with marking on, the pull request text carries the dot's
+      # marker before any gate sees it. The title is already read; the first line stays.
+      if [ -n "{{.inputs.identity}}" ] && [ "{{.inputs.identity}}" != off ]; then
+        DOT_IDENTITY="{{.inputs.identity}}" DOT_NAME="${DOT_NAME:-$(gh api user --jq .login 2>/dev/null || echo dot)}" \
+          "${DOTS_HOME:-/work}/bin/dot-sign" fix-issue "$iss" < "$d/fix.md" > "$d/fix.signed.md"
+        mv "$d/fix.signed.md" "$d/fix.md"
+      fi
       branch="fix/$iss-$(date -u +%Y%m%d-%H%M)"
       login=$(gh api user --jq .login)
       uid=$(gh api user --jq .id)
@@ -376,16 +397,23 @@ states:
       # A run that declines must still say so where I read the issue: the
       # agent's answer is the whole result, and silence looks like a failure.
       if [ -z "$pr" ] && [ -s "$d/answer.md" ]; then
+        # Identity (ADR 0034): with marking on, the answer carries the dot's marker.
+        ans="$d/answer.md"
+        if [ -n "{{.inputs.identity}}" ] && [ "{{.inputs.identity}}" != off ]; then
+          DOT_IDENTITY="{{.inputs.identity}}" DOT_NAME="${DOT_NAME:-$(gh api user --jq .login 2>/dev/null || echo dot)}" \
+            "${DOTS_HOME:-/work}/bin/dot-sign" fix-issue "$iss" < "$ans" > "$d/answer.signed.md"
+          ans="$d/answer.signed.md"
+        fi
         # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
         grc=0
         if [ -n "{{.inputs.autonomy}}" ]; then
           ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
-          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/answer.md" GATE_REPO="$repo" \
+          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$ans" GATE_REPO="$repo" \
             "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
           [ "$grc" = 0 ] || echo "autonomy: answer not published (gate $grc)"
         fi
         if [ "$grc" = 0 ]; then
-          gh issue comment "$iss" --repo "$repo" --body-file "$d/answer.md" \
+          gh issue comment "$iss" --repo "$repo" --body-file "$ans" \
             || echo "issue comment failed"
         fi
       fi

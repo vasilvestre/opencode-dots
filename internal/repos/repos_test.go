@@ -648,7 +648,7 @@ func trustDoc(host, block string) string {
 }
 
 func TestTrustRefusesWhatTheLevelForbids(t *testing.T) {
-	allowed := "trust: client\n    executor: server\n    review: {inputs: {review_model: mistral/small-latest}}"
+	allowed := "trust: client\n    executor: server\n    identity: marker\n    review: {inputs: {review_model: mistral/small-latest}}"
 	cases := []struct{ name, host, block, want string }{
 		{"an allowed client block", "client", allowed, ""},
 		{"auto_merge", "client", allowed + "\n    tend: {auto_merge: true}", "auto_merge is refused on a client repository"},
