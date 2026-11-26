@@ -50,6 +50,25 @@ the dot. Level 1 gives a pull request, and a merge only at `auto`.
 `trust` bounds the ceiling: `client` and `strict` refuse `auto`, as they already refuse
 `auto_merge`.
 
+### Settled in discussion (2026-11-26)
+
+- **Order of delivery.** First the `autonomy` key with `act` and `auto`, derived from today's
+  switches and enforced at the one shell step that publishes ([0002](0002-shell-steps-own-side-effects.md)),
+  so no configuration changes behaviour. Then `observe`. `propose` last, because it needs a held
+  output, a button and a `publish` workflow. The dashboard holds no GitHub token: a click files an
+  approval and a workflow publishes.
+- **What `auto` merges.** By default the dot's own pull requests and those of dependency bots
+  (`own`). Merging pull requests written by people (`all`) is a separate choice, made per
+  repository. In every case `auto` honours claims ([0026](0026-claims-and-presence.md)): it never
+  pushes to or merges a branch a human holds.
+- **Circuit breaker, optional.** When enabled for a repository, a revert of a merge made by the dot,
+  or a red check on the default branch after such a merge, drops the repository to `act` and the
+  dashboard says why. Raising it again is a human act. Stopping on given subjects is the same
+  mechanism with a narrower trigger. It is off unless asked for.
+- **Level 2, "reinforced review"**, is proposed and not yet agreed: never merged by the dot, a second
+  review pass with another model, a `needs-human-review` label, and the checks green before the pull
+  request opens.
+
 ## Consequences
 
 Easier: the personal profile can set `auto` on its own repositories and the company profile
