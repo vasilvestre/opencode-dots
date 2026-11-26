@@ -121,7 +121,7 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
       setIssues("ok", "Saved to disk",
         [res.backup ? `Previous content kept as ${res.backup}.` : "New file."]);
       if (!quiet) toast(`Saved ${path}`, { tone: "ok" });
-      onSave?.();
+      Promise.resolve().then(() => onSave?.()).catch(() => {});
       return true;
     } catch (err) {
       setIssues("bad", err.status === 422 ? "YAML does not parse, nothing written" : "Save failed",
