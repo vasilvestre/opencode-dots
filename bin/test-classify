@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Offline tests for workflows/_classify-item.yaml: the `record` step (schema check,
+# sensitive floor, history) run on hand-written agent answers. No model, no network.
+# The real agent step is exercised by hand, see docs/classification.md.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+
+fails=0
+ok() { echo "ok   $1"; }
+bad() { echo "FAIL $1"; fails=$((fails + 1)); }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# Pull the record step's command out of the workflow, with the two inputs filled.
+tpl=$tmp/record.tpl
+awk '/^  record:/ {r=1} r && /^    command: \|/ {c=1; next} c && /^    timeout:/ {exit} c {sub(/^      /, ""); print}' \
+  workflows/_classify-item.yaml \
+  | sed -e 's/{{\.inputs\.repo}}/acme\/demo/' -e 's/{{\.inputs\.key}}/KEY/' > "$tpl"
+[ -s "$tpl" ] || { echo "FAIL could not extract the record step"; exit 1; }
+
+n=0
+# run NAME ANSWER_JSON ITEM_FILE_OR_TEXT [DOTS_HOME]; sets rc, out, state, key, res, hist.
+run() {
+  local answer=$2 item=$3 floor=${4:-$root}
+  n=$((n + 1))
+  state=$tmp/state$n
+  key=k$n
+  mkdir -p "$state/classify/acme/demo/work-$key"
+  seed "$answer" "$item"
+  sed "s/KEY/$key/g" "$tpl" > "$tmp/record.sh"
+  out=$(STATE_DIR=$state DOTS_HOME=$floor bash "$tmp/record.sh" 2>&1); rc=$?
+  res=$state/classify/acme/demo/$key.json
+  hist=$state/classify/acme/demo/$key.history.jsonl
+}
+seed() { # answer, item (a file path or literal text), into the current scratch
+  local w=$state/classify/acme/demo/work-$key
+  mkdir -p "$w"
+  printf '%s' "$1" > "$w/answer.json"
+  if [ -f "$2" ]; then cp "$2" "$w/item.txt"; else printf '%s' "$2" > "$w/item.txt"; fi
+}
+check() { if [ "$2" = 0 ]; then ok "$1"; else bad "$1 (rc=$rc: $out)"; fi; }
+lvl() { jq -r .level "$res" 2>/dev/null; }
+
+good='{"level":1,"justification":"local fix","confidence":0.9,"missing":[],"evidence":["a.go"]}'
+two='{"level":2,"justification":"x","confidence":0.5,"missing":[],"evidence":[]}'
+
+run valid "$good" "Fix a typo in the README"
+[ $rc = 0 ] && [ "$(lvl)" = 1 ]; check "valid answer kept at its level" $?
+[ "$(jq -r .agent_level "$res")" = 1 ] && [ "$(jq -c .floor "$res")" = "[]" ]; check "agent_level and empty floor recorded" $?
+[ ! -d "$state/classify/acme/demo/work-$key" ]; check "scratch removed on success" $?
+[ "$(wc -l < "$hist")" = 1 ]; check "first rating writes one history line" $?
+
+# Malformed or out-of-range answers fail the run and write no result.
+bad_answer() { # name, json
+  run x "$2" "Fix a typo"
+  [ $rc != 0 ] && [ ! -e "$res" ]; check "refused: $1" $?
+}
+bad_answer "malformed JSON" '{"level": 1, "justification": "x",'
+bad_answer "not an object" '[1]'
+bad_answer "level 0" '{"level":0,"justification":"x","confidence":0.5,"missing":[],"evidence":[]}'
+bad_answer "level 4" '{"level":4,"justification":"x","confidence":0.5,"missing":[],"evidence":[]}'
+bad_answer "level 1.5" '{"level":1.5,"justification":"x","confidence":0.5,"missing":[],"evidence":[]}'
+bad_answer "level as string" '{"level":"1","justification":"x","confidence":0.5,"missing":[],"evidence":[]}'
+bad_answer "confidence above 1" '{"level":1,"justification":"x","confidence":1.5,"missing":[],"evidence":[]}'
+bad_answer "empty justification" '{"level":1,"justification":"","confidence":0.5,"missing":[],"evidence":[]}'
+bad_answer "missing key" '{"level":1,"justification":"x","confidence":0.5,"missing":[]}'
+bad_answer "extra key" '{"level":1,"justification":"x","confidence":0.5,"missing":[],"evidence":[],"run":"rm -rf /"}'
+bad_answer "evidence not strings" '{"level":1,"justification":"x","confidence":0.5,"missing":[],"evidence":[1]}'
+
+# A justification over 400 characters is cut, not refused.
+long=$(printf 'a%.0s' $(seq 1 450))
+run x "{\"level\":1,\"justification\":\"$long\",\"confidence\":0.5,\"missing\":[],\"evidence\":[]}" "Fix a typo"
+[ $rc = 0 ] && [ "$(jq -r '.justification | length' "$res")" = 400 ]; check "long justification cut to 400" $?
+
+# Floor: prose raises to 3, the agent level is kept for the record.
+run x "$good" test/classify/auth-bug.txt
+[ $rc = 0 ] && [ "$(lvl)" = 3 ] && [ "$(jq -r .agent_level "$res")" = 1 ] && [ "$(jq -r '.floor[0]' "$res")" = auth ]; check "floor raises an authentication item to 3" $?
+run x "$good" "Users cannot reset a PASSWORD token. Also the Network is flaky."
+[ "$(jq -c '.floor' "$res")" = '["network","password","token"]' ] || [ "$(jq -c '.floor' "$res")" = '["network","token"]' ]; check "floor is case-blind and lists every word" $?
+run x "$good" "$(printf 'Rename a helper\n\n```go\ncheckToken(secret)\n```\nUse `authToken` here.\n\n    indented token code\n')"
+[ "$(lvl)" = 1 ]; check "words in code do not trigger the floor" $?
+run x '{"level":3,"justification":"x","confidence":0.5,"missing":[],"evidence":[]}' "Fix a typo"
+[ "$(lvl)" = 3 ]; check "floor never lowers a level 3" $?
+run x "$good" ""
+[ $rc = 0 ] && [ "$(lvl)" = 3 ]; check "uncaptured item text forces level 3" $?
+run x "$two" test/classify/local-fix.txt
+[ "$(lvl)" = 2 ]; check "level 2 kept without a floor hit" $?
+
+# An item that gives orders is only text: nothing runs, nothing is written outside.
+run x "$good" test/classify/injection.txt
+[ $rc = 0 ] && [ "$(lvl)" = 1 ]; check "injection fixture is rated from the answer alone" $?
+shellish='Title $(touch '"$tmp"'/boom) `touch '"$tmp"'/boom2` ; touch '"$tmp"'/boom3 token'
+run x "$good" "$shellish"
+[ ! -e "$tmp/boom" ] && [ ! -e "$tmp/boom2" ] && [ ! -e "$tmp/boom3" ] && [ "$(lvl)" = 3 ]; check "shell metacharacters in the item are not executed" $?
+
+# Floor file: a missing file refuses; a floor of comments only never raises.
+run x "$good" "Fix a typo" "$tmp/nowhere"
+[ $rc != 0 ] && [ ! -e "$res" ]; check "missing floor file refuses to classify" $?
+mkdir -p "$tmp/emptyfloor/workflows/data"
+echo "# nothing" > "$tmp/emptyfloor/workflows/data/classify-floor.txt"
+run x "$good" "token auth" "$tmp/emptyfloor"
+[ $rc = 0 ] && [ "$(lvl)" = 1 ]; check "comment-only floor raises nothing" $?
+
+# History: the same level adds no line, a change adds one.
+run x "$good" "Fix a typo"
+seed "$good" "Fix a typo"
+STATE_DIR=$state DOTS_HOME=$root bash "$tmp/record.sh" >/dev/null 2>&1
+[ "$(wc -l < "$hist")" = 1 ]; check "same level again adds no history line" $?
+seed "$two" "Fix a typo"
+STATE_DIR=$state DOTS_HOME=$root bash "$tmp/record.sh" >/dev/null 2>&1
+[ "$(wc -l < "$hist")" = 2 ]; check "level change adds a history line" $?
+
+# Fixtures: the floor words expected on each.
+while IFS='|' read -r name want; do
+  run x "$good" "test/classify/$name.txt"
+  got=$(jq -r '.floor | join(",")' "$res")
+  [ "$got" = "$want" ]; check "fixture $name floor=[$want]" $?
+done <<'T'
+typo|
+auth-bug|auth
+local-fix|
+vague|
+injection|
+T
+
+echo
+if [ "$fails" = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
