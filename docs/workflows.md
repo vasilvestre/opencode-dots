@@ -79,6 +79,23 @@ where a workflow default differs from the resolved configuration.
 A `tend-repo` override changes only its own role. Its nested `review-pr` run uses
 `review-pr`'s own resolved `review_model` and `address_model`.
 
+### When a model runs out of quota
+
+A free or metered model can stop answering in the middle of the night: a rate limit, a spent
+quota, an empty balance. `DOTS_MODEL_FALLBACKS` in `.env` lists the models to try next:
+
+```
+DOTS_MODEL_FALLBACKS=mistral/mistral-small-latest,opencode-go/<model>
+```
+
+The shim `bin/shim/opencode`, which awf already uses for every `opencode run`, runs the same
+task again on the next model when a run fails with a quota or rate-limit error. It retries only
+a run that wrote nothing to stdout, so work that already started is never repeated, and it never
+hides another kind of error (`Model unavailable`, a crash). Unset, nothing changes.
+
+Limits: it covers the `opencode` provider, not `claude` (the Claude Code CLI), and it matches the
+error text, which a provider can change. `test/shim.sh` runs it against a stub, in CI.
+
 ## review-pr
 
 Reviews a pull request and posts one review.
