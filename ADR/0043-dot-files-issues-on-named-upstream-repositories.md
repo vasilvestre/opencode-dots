@@ -60,6 +60,15 @@ it may report to, and a new gate action for it.
 2. Is a visible "filed by an automated agent" line mandatory on every upstream issue? Recommended: yes.
 3. Which upstream repositories first, and which weekly cap each?
 
+### Settled in discussion (2026-11-26)
+
+- **`auto` is the minimum ceiling** to file on an upstream repository. `act` is refused: writing on someone
+  else's tracker needs the most demanding level, because the dot must already be trusted to own its own
+  product before it speaks for it elsewhere.
+- Still open: whether the "filed by an automated agent" line is mandatory (recommended: yes), and which
+  upstream repositories first with which weekly cap. Until the owner names any, the feature lists none and
+  writes nowhere.
+
 ## Consequences
 
 Easier: defects in the tools the dot depends on get reported with evidence and without the owner relaying
