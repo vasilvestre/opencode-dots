@@ -139,6 +139,8 @@ export function mountActivity(el) {
       state.history = attachLogIds(histRes.body?.entries || [], logsRes || [])
         .concat(state.remote.entries.map((e) => ({ ...e, rounds: [], cost: 0, target: "", models: null, routing: null })))
         .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+      // Workflows named _x are called by another one; the caller's row stands for them.
+      state.history = state.history.filter((e) => !(e.workflow_name || "").startsWith("_"));
       const s = statsRes.body || {};
       state.stats = { total: s.TotalExecutions || 0, failed: s.FailedCount || 0, avg: s.AvgDurationMs || 0 };
       renderKpis();
@@ -285,7 +287,7 @@ export function mountActivity(el) {
   // The executors run tasks this machine only watches. Their live runs have no
   // log here, so they are listed as lines, not as cards with a stream.
   function renderRemote() {
-    const live = state.remote.executions.filter((e) => e.status === "running");
+    const live = state.remote.executions.filter((e) => e.status === "running" && !(e.workflow_name || "").startsWith("_"));
     const down = state.remote.executors.filter((x) => !x.up);
     if (live.length) runsCount.textContent = `${state.runs.length + live.length} running`;
     mount(remoteBox, [
