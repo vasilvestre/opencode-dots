@@ -30,15 +30,15 @@ your mind by writing a new one that supersedes it.
 | [0020](0020-fix-issue-works-from-a-fork.md) | fix-issue works from a fork when it cannot push upstream | accepted | 2026-11-25 |
 | [0021](0021-fix-issue-routes-to-hidden-workflows.md) | fix-issue routes to hidden workflows | accepted | 2026-11-25 |
 | [0022](0022-repos-yaml-is-the-source-of-truth.md) | repos.yaml is the source of truth for the repository list | superseded by 0024 | 2026-11-25 |
-| [0023](0023-tracker-independent-work-item.md) | A work item is independent of the tracker | proposed | 2026-11-26 |
+| [0023](0023-tracker-independent-work-item.md) | A work item is independent of the tracker | accepted | 2026-11-26 |
 | [0024](0024-control-plane-database.md) | A database owned by dots is the source of truth for the control plane | accepted | 2026-11-26 |
-| [0025](0025-workspace-memory-single-writer.md) | Workspace memory lives in a private repository with one writer | proposed | 2026-11-26 |
-| [0026](0026-claims-and-presence.md) | A claim says a human works on a work item | proposed | 2026-11-26 |
-| [0027](0027-eu-vps-native-local-mode.md) | The dot runs on one EU VPS in native local mode | proposed | 2026-11-26 |
-| [0028](0028-deployment-is-code-in-two-layers.md) | Deployment is code, in two layers | proposed | 2026-11-26 |
+| [0025](0025-workspace-memory-single-writer.md) | Workspace memory lives in a private repository with one writer | accepted | 2026-11-26 |
+| [0026](0026-claims-and-presence.md) | A claim says a human works on a work item | accepted | 2026-11-26 |
+| [0027](0027-eu-vps-native-local-mode.md) | The dot runs on one EU VPS in native local mode | accepted | 2026-11-26 |
+| [0028](0028-deployment-is-code-in-two-layers.md) | Deployment is code, in two layers | accepted | 2026-11-26 |
 | [0029](0029-independent-servers-and-contexts.md) | Servers are independent and each device picks a context | proposed | 2026-11-26 |
-| [0030](0030-watcher-is-opt-in.md) | The GitHub watcher is opt-in | proposed | 2026-11-26 |
-| [0031](0031-executor-per-repository.md) | A repository names the executor that runs its tasks | proposed | 2026-11-26 |
+| [0030](0030-watcher-is-opt-in.md) | The GitHub watcher is opt-in | accepted | 2026-11-26 |
+| [0031](0031-executor-per-repository.md) | A repository names the executor that runs its tasks | accepted | 2026-11-26 |
 | [0032](0032-trust-levels-per-repository.md) | A repository has a trust level that limits the rest of its configuration | proposed | 2026-11-26 |
 | [0033](0033-hybrid-executors.md) | An executor can be a list, and what every executor runs is checked | proposed | 2026-11-26 |
 

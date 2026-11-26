@@ -1,6 +1,6 @@
 # 0030. The GitHub watcher is opt-in
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none

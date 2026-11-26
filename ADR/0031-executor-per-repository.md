@@ -1,6 +1,6 @@
 # 0031. A repository names the executor that runs its tasks
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none
