@@ -153,3 +153,34 @@ against other workflows; against the old ones it fails.
   dashboard's Release button, the real `bin/held` and its database, and the
   lock waits and CI waits (`CI_WAIT_SECONDS=2`, no pending check).
 - The `docker` mode, the container user and the mounted paths.
+
+## Live check: merge scope with the identity marker
+
+`test/live/merge-scope.sh` runs the real `review-pr` through the real `awf`, `gh`
+and `git` against the private scratch repository `vasilvestre/dots-e2e-sandbox`.
+Only the agent is the stub (`test/e2e/fakes/opencode`, `FAKE_REVIEW=clean-merge`):
+a clean "merge" verdict and no code change, so the run reaches `automerge` every
+time. It uses its own temp `STATE_DIR`, `WORK_ROOT`, awf storage, `HOME` and git
+config, never the live `awf serve` or `state/`. Cases that merge really merge in
+the sandbox, hence the guard (it also refuses any other repository):
+
+```bash
+I_UNDERSTAND_THIS_MERGES_IN_THE_SANDBOX=1 test/live/merge-scope.sh
+```
+
+Inputs are `autonomy=auto`, the current head sha, `identity=marker` unless noted.
+Observed (2026-11-26, gate line from stderr, then `gh pr view --json state,mergedAt`):
+
+| Case | Gate / step line | After |
+| --- | --- | --- |
+| a0 human PR 6 (branch `human-fix`, no `Closes`) | `automerge: branch 'human-fix' is not a fix-issue branch` (gate never called) | OPEN |
+| a human PR, `fix/N-*` branch, `Closes #N`, no marker | `merge ... refused: vasilvestre is the dot's login but the pull request body has no dot marker ... (identity marker; GATE_MERGE_SCOPE=all widens it)`, `autonomy: not merging (gate 5)` | OPEN |
+| b dot PR 5 (marker in body) | `merge ... allowed (autonomy auto, class 1)`, `automerge: merged #5` | MERGED |
+| c same human PR as a, `identity` empty | `merge ... allowed (autonomy auto, class 1)`, merged: only the author rule applies | MERGED |
+| d fresh human PR, `GATE_MERGE_SCOPE=all` | `merge ... allowed (autonomy auto, class 1)`, merged | MERGED |
+
+The marker rule is only reachable for a pull request that already passes the
+`automerge` filters (`fix/*` branch and a `Closes #N` body): a human pull request
+on any other branch never reaches the gate, so the script creates its human pull
+requests on a `fix/<N>-*` branch with a `Closes #N` body. Each run creates two
+fresh human pull requests in the sandbox (merged or left open by the cases above).
