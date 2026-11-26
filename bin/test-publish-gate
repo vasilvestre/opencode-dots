@@ -13,7 +13,8 @@ fail=0
 check() {
   local got
   rm -rf "$state/held" "$state/notes"
-  AUTONOMY=$1 ITEM_CLASS=$2 STATE_DIR=$state GATE_REF=o/r#1 GATE_ARTIFACT=/x "$gate" "$3" 2>"$state/err"
+  AUTONOMY=$1 ITEM_CLASS=$2 STATE_DIR=$state GATE_REF=o/r#1 GATE_ARTIFACT=/x \
+    GATE_PR_AUTHOR=${AUTHOR-me} DOT_LOGIN=me GATE_MERGE_SCOPE=${SCOPE:-} "$gate" "$3" 2>"$state/err"
   got=$?
   if [ "$got" != "$4" ]; then
     echo "FAIL autonomy='$1' class='$2' $3: want $4, got $got"
@@ -49,12 +50,31 @@ for c in "" 1 2; do
 done
 for a in $actions; do check act 3 "$a" 4; done
 
-# auto: allow; merge only for class 1 or unclassified; class 2 never merges; class 3 is a note.
+# auto: allow; merge only for class 1 or unclassified, the dot's own pull request (default author "me" is the dot); class 2 never merges; class 3 is a note.
 for c in "" 1 2; do for a in comment push open-pr; do check auto "$c" "$a" 0; done; done
 check auto "" merge 0
 check auto 1 merge 0
 check auto 2 merge 5
 for a in $actions; do check auto 3 "$a" 4; done
+
+# Merge scope (ADR 0040): the dot's own and dependency bots by default, others refused.
+for au in me dependabot[bot] renovate[bot] github-actions[bot] app/dependabot app/renovate; do
+  AUTHOR=$au check auto 1 merge 0
+done
+for au in alice someone[bot] app/other dependabot-fake "" ; do
+  AUTHOR=$au check auto 1 merge 5
+  AUTHOR=$au SCOPE=own check auto "" merge 5
+  AUTHOR=$au SCOPE=all check auto 1 merge 0
+done
+SCOPE=all AUTHOR=alice check auto 2 merge 5
+SCOPE=all AUTHOR=alice check act 1 merge 5
+SCOPE=all AUTHOR=alice check propose 1 merge 5
+SCOPE=all AUTHOR=alice check auto 3 merge 4
+SCOPE=bogus AUTHOR=me check auto 1 merge 5
+AUTHOR=alice check auto 1 comment 0
+AUTHOR=alice check auto 1 push 0
+AUTONOMY=auto STATE_DIR=$state GATE_REF=o/r#1 GATE_PR_AUTHOR=alice DOT_LOGIN=me "$gate" merge 2>"$state/err"
+grep -q 'alice wrote it' "$state/err" || { echo "FAIL merge scope not explained on stderr"; fail=1; }
 
 # Circuit breaker: a file for the repository lowers auto to act, nothing else changes.
 mkdir -p "$state/breaker"
@@ -70,9 +90,9 @@ grep -q 'circuit breaker tripped for o/r' "$state/err" || { echo "FAIL breaker n
 # GATE_REPO wins over GATE_REF; another repository is untouched.
 AUTONOMY=auto STATE_DIR=$state GATE_REF=x/y#1 GATE_REPO=o/r "$gate" merge 2>/dev/null
 [ $? = 5 ] || { echo "FAIL GATE_REPO ignored"; fail=1; }
-AUTONOMY=auto STATE_DIR=$state GATE_REF=x/y#1 "$gate" merge 2>/dev/null
+AUTONOMY=auto STATE_DIR=$state GATE_PR_AUTHOR=me DOT_LOGIN=me GATE_REF=x/y#1 "$gate" merge 2>/dev/null
 [ $? = 0 ] || { echo "FAIL breaker leaked to another repository"; fail=1; }
-AUTONOMY=auto STATE_DIR=$state GATE_REF=unknown "$gate" merge 2>/dev/null
+AUTONOMY=auto STATE_DIR=$state GATE_PR_AUTHOR=me DOT_LOGIN=me GATE_REF=unknown "$gate" merge 2>/dev/null
 [ $? = 0 ] || { echo "FAIL breaker applied without a repository"; fail=1; }
 rm -rf "$state/breaker"
 
@@ -86,6 +106,25 @@ check auto 1 "" 5
 rm -rf "$state/held"
 AUTONOMY=propose STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=/x/fix.patch "$gate" push 2>/dev/null
 grep -q 'artifact: /x/fix.patch' "$state"/held/*push* || { echo "FAIL held file lacks the artifact"; fail=1; }
+
+# A held record carries the optional release lines, cleaned; unset ones are omitted.
+rm -rf "$state/held"
+AUTONOMY=propose STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=/x/fix.patch GATE_BRANCH=fix/7-x GATE_BASE=main \
+  GATE_PUSH_REPO=me/r GATE_TITLE=$'Fix it\x01 now\nsecond line' GATE_CLOSES=7 "$gate" push 2>/dev/null
+f=$(ls "$state"/held/*push*)
+for l in 'branch: fix/7-x' 'base: main' 'push-repo: me/r' 'title: Fix it now' 'closes: 7'; do
+  grep -qx "$l" "$f" || { echo "FAIL held record lacks '$l'"; fail=1; }
+done
+[ "$(grep -c . "$f")" = 11 ] || { echo "FAIL held record has stray lines"; fail=1; }
+rm -rf "$state/held"
+AUTONOMY=propose STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=/x/fix.patch GATE_BRANCH=b "$gate" open-pr 2>/dev/null
+f=$(ls "$state"/held/*open-pr*)
+grep -qx 'branch: b' "$f" || { echo "FAIL partial record lacks branch"; fail=1; }
+! grep -Eq '^(base|push-repo|title|closes):' "$f" || { echo "FAIL unset field written"; fail=1; }
+# A note never carries them.
+rm -rf "$state/notes"
+AUTONOMY=observe STATE_DIR=$state GATE_REF=o/r#7 GATE_BRANCH=b "$gate" push 2>/dev/null
+! grep -q '^branch:' "$state"/notes/* || { echo "FAIL note carries branch"; fail=1; }
 
 # An unwritable state dir never turns a hold into an allow.
 AUTONOMY=propose STATE_DIR=/proc/nope GATE_REF=o/r#7 "$gate" comment 2>/dev/null

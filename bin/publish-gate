@@ -12,13 +12,22 @@
 #   GATE_REF       what is being published, e.g. OWNER/REPO#N (for the trace).
 #   GATE_REPO      OWNER/REPO, to look up a tripped circuit breaker (default: from GATE_REF).
 #   GATE_ARTIFACT  path of the prepared comment, patch or text (for the trace).
+#   GATE_BRANCH, GATE_BASE, GATE_PUSH_REPO, GATE_TITLE, GATE_CLOSES
+#                  optional: written into a held record as `branch`, `base`, `push-repo`,
+#                  `title`, `closes` so workflows/publish-held.yaml can release it
+#                  (docs/publish-held.md). A value is cut to one line, control characters dropped.
+#   GATE_PR_AUTHOR login of the pull request author, for a merge at auto (ADR 0040).
+#   DOT_LOGIN      the dot's own login (default: the login `gh` is signed in as).
+#   GATE_MERGE_SCOPE  own (default) | all. At auto a merge is allowed for pull requests the dot
+#                  wrote or a dependency bot wrote (dependabot, renovate, github-actions);
+#                  `all` widens it to every author. An unknown author is not `own`.
 #
 # Exit codes, the reason always goes to stderr:
 #   0 allow      the step goes on.
 #   3 hold       propose: the artifact reference is written under $STATE_DIR/held/.
 #   4 note only  observe or class 3: an internal note is written under $STATE_DIR/notes/.
 #   5 refused    the action is never allowed here (a merge below auto, a class 2 merge,
-#                an unknown value).
+#                a merge of someone else's pull request, an unknown value).
 # The caller treats every non-zero code as "do not publish" and exits 0 itself.
 set -euo pipefail
 
@@ -57,6 +66,15 @@ record() { # DIR REASON
   if mkdir -p "$dir" 2>/dev/null && {
     printf 'action: %s\nref: %s\nautonomy: %s\nclass: %s\nartifact: %s\nreason: %s\n' \
       "$action" "$ref" "$level" "${class:-none}" "${artifact:-none}" "$2"
+    if [ "$1" = held ]; then
+      local pair key var val
+      for pair in branch:GATE_BRANCH base:GATE_BASE push-repo:GATE_PUSH_REPO title:GATE_TITLE closes:GATE_CLOSES; do
+        key=${pair%%:*}
+        var=${pair#*:}
+        val=$(printf '%s' "${!var:-}" | head -n 1 | tr -d '\000-\037\177')
+        [ -z "$val" ] || printf '%s: %s\n' "$key" "$val"
+      done
+    fi
   } > "$file" 2>/dev/null; then
     echo "publish-gate: recorded $file" >&2
   else
@@ -110,6 +128,26 @@ case "$level" in
     if [ "$action" = merge ] && [ "$class" = 2 ]; then
       echo "publish-gate: merge on $ref refused: class 2 is never merged by the dot" >&2
       exit 5
+    fi
+    if [ "$action" = merge ] && [ "${GATE_MERGE_SCOPE:-own}" != all ]; then
+      case "${GATE_MERGE_SCOPE:-own}" in
+        own) ;;
+        *) echo "publish-gate: unknown merge scope '$GATE_MERGE_SCOPE', merge refused" >&2; exit 5 ;;
+      esac
+      author=${GATE_PR_AUTHOR:-}
+      bot=${author#app/}; bot=${bot%\[bot\]}
+      case "$author" in
+        "") echo "publish-gate: merge on $ref refused: the pull request author is unknown (GATE_MERGE_SCOPE=all widens it)" >&2; exit 5 ;;
+        app/*|*\[bot\]) case "$bot" in dependabot|renovate|github-actions) bot=yes ;; *) bot=no ;; esac ;;
+        *) bot=no ;;
+      esac
+      if [ "$bot" != yes ]; then
+        me=${DOT_LOGIN:-$(gh api user --jq .login 2>/dev/null || true)}
+        if [ -z "$me" ] || [ "$author" != "$me" ]; then
+          echo "publish-gate: merge on $ref refused: $author wrote it, not the dot or a dependency bot (GATE_MERGE_SCOPE=all widens it)" >&2
+          exit 5
+        fi
+      fi
     fi
     ;;
 esac

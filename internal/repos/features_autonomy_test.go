@@ -14,7 +14,7 @@ func TestAutonomyValues(t *testing.T) {
 		{"act", "autonomy: act\n    review: true", ""},
 		{"auto", "autonomy: auto\n    review: true", ""},
 		{"observe", "autonomy: observe", ""},
-		{"propose", "autonomy: propose", "no release workflow exists for held items (ADR 0040 step 3)"},
+		{"propose", "autonomy: propose", ""},
 		{"unknown", "autonomy: wild", "must be one of"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

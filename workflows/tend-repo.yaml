@@ -277,7 +277,7 @@ states:
         # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
         if [ -n "{{.inputs.autonomy}}" ]; then
           grc=0
-          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/findings.json" \
+          AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/findings.json" GATE_REPO="$repo" \
             "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
           [ "$grc" = 0 ] || { echo "autonomy: issue not filed (gate $grc): $title"; continue; }
         fi
@@ -347,7 +347,8 @@ states:
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/held.patch" \
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/held.patch" GATE_REPO="$repo" \
+        GATE_BRANCH="$branch" GATE_BASE="$(cat "$d/default_branch")" GATE_TITLE="$title" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; git -C "$work" checkout -- .; git -C "$work" clean -fdq; exit 0; }
       fi
@@ -369,7 +370,8 @@ states:
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" \
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" GATE_REPO="$repo" \
+        GATE_BRANCH="$branch" GATE_BASE="$(cat "$d/default_branch")" \
           "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; exit 0; }
       fi
@@ -390,7 +392,9 @@ states:
           # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
           grc=0
           if [ -n "{{.inputs.autonomy}}" ]; then
-            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" \
+            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" GATE_REPO="$repo" \
+            GATE_PR_AUTHOR="$(gh pr view "$num" --repo "$repo" --json author --jq .author.login 2>/dev/null || true)" \
+            GATE_MERGE_SCOPE="${GATE_MERGE_SCOPE:-}" \
               "${DOTS_HOME:-/work}/bin/publish-gate" merge || grc=$?
             [ "$grc" = 0 ] || echo "autonomy: not merging (gate $grc)"
           fi

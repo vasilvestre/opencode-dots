@@ -309,6 +309,7 @@ states:
         grc=0
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
+        GATE_REPO="{{.inputs.repo}}" GATE_BRANCH="$branch" GATE_PUSH_REPO="$head_repo" GATE_TITLE="$title" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: fix not pushed (gate $grc)"; exit 0; }
       fi

@@ -308,6 +308,9 @@ states:
         grc=0
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
+        GATE_REPO="{{.inputs.repo}}" GATE_BRANCH="$branch" \
+        GATE_PUSH_REPO="$(jq -r '.headRepository.nameWithOwner // empty' "$d/pr.json")" \
+        GATE_TITLE="Address review comment on {{.inputs.repo}}#{{.inputs.pr}}" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: change not pushed (gate $grc)"; git checkout -- .; git clean -fdq; exit 0; }
       fi
@@ -351,7 +354,7 @@ states:
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/reply.md" \
+        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/reply.md" GATE_REPO="{{.inputs.repo}}" \
           "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: reply not published (gate $grc)"; touch "$d/gated"; exit 0; }
       fi

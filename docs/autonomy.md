@@ -13,7 +13,18 @@ publishes, and has no way to skip the gate.
 | `observe` | note only | note only |
 | `propose` | hold | refused |
 | `act` | allow | refused |
-| `auto` | allow | allow, except class 2 (refused) |
+| `auto` | allow | allow for the dot's own and dependency-bot pull requests, except class 2 (refused) |
+
+### Merge scope
+
+At `auto`, a merge is allowed by default only for a pull request the dot wrote or
+a dependency bot wrote (`dependabot`, `renovate`, `github-actions`, with or
+without `[bot]` or `app/`). `GATE_PR_AUTHOR` is the author, `DOT_LOGIN` the dot's
+login (default: the login `gh` is signed in as). Anyone else's pull request, or
+an unknown author, is refused (exit 5) and the reason names the author. The
+opt-in `GATE_MERGE_SCOPE=all` (read from the run environment by `review-pr` and
+`tend-repo`) widens it to every author; class 2 and the ceiling still apply.
+There is no per-repository key for it yet.
 
 Class 3 (human diagnosis) yields a note only for every action at every non-empty
 ceiling. Class 2 is never merged by the dot. An empty `ITEM_CLASS` means "not
@@ -36,6 +47,13 @@ is refused (5), never allowed.
 
 `AUTONOMY`, `ITEM_CLASS` (optional), `STATE_DIR` (default `/state`), `GATE_REF`
 (what is published, for the trace), `GATE_ARTIFACT` (the prepared comment or patch).
+`GATE_REPO` (`owner/repo`) is exported at every call so the circuit breaker finds its
+file. `GATE_PR_AUTHOR`, `DOT_LOGIN`, `GATE_MERGE_SCOPE` decide the merge scope.
+`GATE_BRANCH`, `GATE_BASE`, `GATE_PUSH_REPO`, `GATE_TITLE`, `GATE_CLOSES` are optional
+and only end up in a held record (`docs/publish-held.md`), one line each, control
+characters dropped, a line omitted when unset. Every workflow call passes the ones it
+knows at that point. With `autonomy` empty the gate is not called, so none of this
+exists.
 
 ## How a step calls it
 
@@ -86,6 +104,6 @@ an outside item. Its gate calls still carry no class, only the ceiling counts.
 - `docs/breaker.md`: the optional circuit breaker that lowers `auto` to `act` after a revert
   or a red default branch.
 - `docs/publish-held.md`: the `publish-held` workflow that releases a record held at `propose`.
-  `propose` is still refused by the config until a release button exists.
+  `propose` is accepted by the config now that this workflow exists.
 - `docs/autonomy-view.md`: the read-only dashboard page for notes and held records.
 

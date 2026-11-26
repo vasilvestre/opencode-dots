@@ -20,8 +20,11 @@ the log line says who and when.
 ## The record
 
 `bin/publish-gate` writes `action`, `ref`, `autonomy`, `class`, `artifact`,
-`reason`. A workflow that wants a push or a pull request to be releasable also
-writes these optional lines (all validated, none is code):
+`reason`, then the optional lines below for each of `GATE_BRANCH`, `GATE_BASE`,
+`GATE_PUSH_REPO`, `GATE_TITLE`, `GATE_CLOSES` that the calling step set (a line is
+omitted when unset; values are cut to one line without control characters). The
+workflows `fix-issue`, `reply-pr`, `fix-ci`, `review-pr` and `tend-repo` set them
+where the value is known. `publish-held` validates each; none is code:
 
 | Field | Used by | Meaning |
 | --- | --- | --- |
@@ -30,6 +33,10 @@ writes these optional lines (all validated, none is code):
 | `push-repo` | push | `OWNER/REPO` to push to (a fork); default the pull request head or `ref` |
 | `title` | push | commit message for a plain `git diff` patch |
 | `closes` | open-pr | issue number, appended to the body as `Closes #N` |
+
+A push from `fix-issue` or `tend-repo` names no `push-repo`: the release pushes to
+the repository of the `ref`, which is wrong for a fork the dot has no write access
+to. Such a record needs `push-repo` added by hand.
 
 ## What it does
 
