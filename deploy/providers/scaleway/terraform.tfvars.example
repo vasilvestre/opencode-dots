@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (ignored by git) and fill in. Placeholders only.
+project_id        = "00000000-0000-0000-0000-000000000000"
+ssh_public_key    = "ssh-ed25519 AAAA... you@host"
+ssh_allowed_cidrs = ["203.0.113.7/32"]
+
+# Optional, shown with their defaults.
+# zone  = "pl-waw-2"
+# type  = "STARDUST1-S"
+# image = "debian_trixie"
+# name  = "dots"

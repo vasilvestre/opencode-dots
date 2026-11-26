@@ -28,3 +28,10 @@ notifications.json
 notifications.json.*.bak
 # /api/save backups (ADR 0004), pruned to the last twenty per file at runtime.
 *.*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].bak
+# OpenTofu: variables, state and provider cache stay local (ADR 0028).
+*.tfvars
+!*.tfvars.example
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
