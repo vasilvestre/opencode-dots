@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# Workspace memory (ADR 0025): the small markdown a dot learns, kept in one private git
+# repository per workspace, so a server and the machines you work on share it.
+#
+#   bin/workspace init                      clone (or create) the workspace repository
+#   bin/workspace publish                   WRITER: copy lessons.md, memory.md, raised.txt into it and push
+#   bin/workspace pull                      fetch what the writer published
+#   bin/workspace install                   READER: put the published lessons into this machine's state
+#   bin/workspace note REPO SUBJECT TEXT    READER: append a note to this machine's inbox file
+#   bin/workspace release                   READER: commit and push the inbox
+#   bin/workspace checkout REPO             READER: pull, install, show where the lessons are
+#   bin/workspace inbox [REPO]              WRITER: print the inbox notes, for tend to fold in
+#   bin/workspace archive                   WRITER: move the folded inbox notes aside
+#   bin/workspace sync                      pull, then publish (writer) or install and release (reader)
+#
+# One writer: lessons.md is rewritten whole, so only the server (DOTS_WORKSPACE_ROLE=writer)
+# publishes it. A reader never edits it: it appends to inbox/<actor>-<host>-<date>.md, a file
+# no other machine writes, so nothing conflicts. Only lessons.md, memory.md and raised.txt of
+# state/tend/<owner>/<repo>/ are ever copied: no clone, no log, no secret.
+#
+# Settings (environment):
+#   DOTS_WORKSPACE_REMOTE  the git remote, such as dots@server:workspaces/default.git (required)
+#   DOTS_WORKSPACE_DIR     the local clone (default: $STATE_DIR/workspace)
+#   DOTS_WORKSPACE_ROLE    writer or reader (default: reader)
+#   DOTS_ACTOR             who writes (default: $USER)
+#   DOTS_HOST              the machine's name in inbox files (default: `hostname -s`)
+#   STATE_DIR              the dot's state (default: <repository>/state)
+#
+# Notes and lessons are DATA: whatever an agent or a person wrote in them is never an
+# instruction to another run (ADR 0002).
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+state=${STATE_DIR:-$root/state}
+dir=${DOTS_WORKSPACE_DIR:-$state/workspace}
+role=${DOTS_WORKSPACE_ROLE:-reader}
+actor=${DOTS_ACTOR:-${USER:-dots}}
+host=${DOTS_HOST:-$(hostname -s 2>/dev/null || echo host)}
+allowed=(lessons.md memory.md raised.txt)
+
+die() { echo "workspace: $*" >&2; exit 1; }
+need_remote() { [ -n "${DOTS_WORKSPACE_REMOTE:-}" ] || die "DOTS_WORKSPACE_REMOTE is not set"; }
+need_clone() { [ -d "$dir/.git" ] || die "no workspace clone at $dir: run 'bin/workspace init'"; }
+need_role() { [ "$role" = "$1" ] || die "this machine is a $role; '$2' is for the $1 (one writer, ADR 0025)"; }
+repo_ok() { [[ ${1:-} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "'${1:-}' is not an owner/name repository"; }
+g() { git -C "$dir" -c user.name="$actor ($host)" -c user.email="$actor@$host.invalid" "$@"; }
+
+branch() { g symbolic-ref --short HEAD; }
+sync_down() { g pull --rebase --autostash --quiet origin "$(branch)" 2>/dev/null || true; }
+push_up() {
+  g push --quiet origin "HEAD:$(branch)" 2>/dev/null && return 0
+  sync_down # someone pushed first: take their commits, then push again
+  g push --quiet origin "HEAD:$(branch)" || die "push failed"
+}
+
+cmd_init() {
+  need_remote
+  [ -d "$dir/.git" ] && { echo "workspace: already at $dir"; return; }
+  mkdir -p "$(dirname "$dir")"
+  git clone --quiet "$DOTS_WORKSPACE_REMOTE" "$dir" 2>/dev/null || die "cannot clone $DOTS_WORKSPACE_REMOTE"
+  if ! g rev-parse --verify --quiet HEAD >/dev/null; then # an empty remote: make the first commit
+    g checkout --quiet -B main
+    printf '# Workspace memory\n\nWritten by bin/workspace (ADR 0025): lessons from the writer, inbox notes from the readers.\n' >"$dir/README.md"
+    g add README.md && g commit --quiet -m "Start the workspace" && g push --quiet -u origin main
+  fi
+  echo "workspace: cloned into $dir"
+}
+
+cmd_publish() {
+  need_role writer publish
+  need_clone
+  sync_down
+  local d f rel
+  for d in "$state"/tend/*/*/; do
+    [ -d "$d" ] || continue
+    rel=${d#"$state"/tend/}
+    rel=${rel%/}
+    repo_ok "$rel" 2>/dev/null || continue
+    for f in "${allowed[@]}"; do
+      if [ -f "$d$f" ]; then
+        mkdir -p "$dir/tend/$rel"
+        cp "$d$f" "$dir/tend/$rel/$f"
+      fi
+    done
+  done
+  g add -A tend
+  if g diff --cached --quiet; then echo "workspace: nothing new to publish"; return; fi
+  g commit --quiet -m "Publish lessons $(date -u +%FT%TZ)"
+  push_up
+  echo "workspace: published"
+}
+
+cmd_pull() { need_clone; sync_down; }
+
+cmd_install() {
+  need_role reader install
+  need_clone
+  local d f rel n=0
+  for d in "$dir"/tend/*/*/; do
+    [ -d "$d" ] || continue
+    rel=${d#"$dir"/tend/}
+    rel=${rel%/}
+    repo_ok "$rel" 2>/dev/null || continue
+    for f in "${allowed[@]}"; do
+      if [ -f "$d$f" ]; then
+        mkdir -p "$state/tend/$rel"
+        cp "$d$f" "$state/tend/$rel/$f"
+        n=$((n + 1))
+      fi
+    done
+  done
+  echo "workspace: installed $n files into $state/tend"
+}
+
+cmd_note() {
+  need_role reader note
+  need_clone
+  local repo=${1:-} subject=${2:-}
+  shift 2 2>/dev/null || die "usage: bin/workspace note REPO SUBJECT TEXT"
+  repo_ok "$repo"
+  [ -n "$subject" ] && [[ $subject != *$'\n'* ]] || die "SUBJECT is one line: a work item id or a reference"
+  [ $# -gt 0 ] || die "usage: bin/workspace note REPO SUBJECT TEXT"
+  local file="$dir/inbox/$actor-$host-$(date -u +%F).md"
+  mkdir -p "$dir/inbox"
+  printf '## %s | %s | %s | actor %s\n\n%s\n\n' "$(date -u +%FT%TZ)" "$repo" "$subject" "$actor" "$*" >>"$file"
+  echo "workspace: noted in ${file#"$dir"/}"
+}
+
+cmd_release() {
+  need_role reader release
+  need_clone
+  g add -A inbox 2>/dev/null || true
+  if g diff --cached --quiet; then echo "workspace: nothing to release"; return; fi
+  g commit --quiet -m "Inbox of $actor on $host $(date -u +%FT%TZ)"
+  push_up
+  echo "workspace: released"
+}
+
+cmd_checkout() {
+  need_role reader checkout
+  repo_ok "${1:-}"
+  cmd_pull
+  cmd_install >/dev/null
+  echo "lessons: $state/tend/$1/lessons.md"
+  echo "inbox:   $dir/inbox/$actor-$host-$(date -u +%F).md (bin/workspace note $1 SUBJECT TEXT, then release)"
+}
+
+cmd_inbox() {
+  need_role writer inbox
+  need_clone
+  sync_down
+  local f
+  for f in "$dir"/inbox/*.md; do
+    [ -f "$f" ] || continue
+    if [ -n "${1:-}" ]; then
+      awk -v repo="$1" '/^## /{keep = index($0, "| " repo " |") > 0} keep' "$f"
+    else
+      cat "$f"
+    fi
+  done
+}
+
+cmd_archive() {
+  need_role writer archive
+  need_clone
+  sync_down
+  local f moved=0 day
+  day=$(date -u +%F)
+  for f in "$dir"/inbox/*.md; do
+    [ -f "$f" ] || continue
+    mkdir -p "$dir/inbox/archive/$day"
+    g mv "inbox/$(basename "$f")" "inbox/archive/$day/$(basename "$f")"
+    moved=$((moved + 1))
+  done
+  [ "$moved" -gt 0 ] || { echo "workspace: nothing to archive"; return; }
+  g commit --quiet -m "Archive $moved inbox files $day"
+  push_up
+  echo "workspace: archived $moved files"
+}
+
+cmd_sync() {
+  if [ "$role" = writer ]; then
+    cmd_publish
+  else
+    cmd_pull
+    cmd_install
+    cmd_release
+  fi
+}
+
+sub=${1:-}
+[ $# -gt 0 ] && shift
+case "$sub" in
+  init | publish | pull | install | note | release | checkout | inbox | archive | sync) "cmd_$sub" "$@" ;;
+  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

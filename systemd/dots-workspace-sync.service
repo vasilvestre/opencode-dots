@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync the workspace memory: pull the lessons, release the inbox (bin/workspace, ADR 0025)
+
+# Copy systemd/dots-workspace.env.example to ~/.config/dots/workspace.env and fill it in.
+# On the server (DOTS_WORKSPACE_ROLE=writer) `sync` publishes the lessons instead.
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/dots/workspace.env
+WorkingDirectory=%h/projects/perso/opencode-dots
+ExecStart=%h/projects/perso/opencode-dots/bin/workspace sync
+TimeoutStartSec=120
