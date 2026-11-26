@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests what bin/tend posts to awf serve for each tend.list line. A line with only
 # `repo auto_merge` must post exactly the body it always did; the optional
-# autonomy= and upstream= fields add inputs of the same names.
+# autonomy=, upstream= and identity= fields add inputs of the same names.
 set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
@@ -49,6 +49,11 @@ check "autonomy is posted" \
   test "$(run 'acme/app false autonomy=propose')" = '{"inputs":{"repo":"acme/app","auto_merge":"false","dry_run":"false","autonomy":"propose"}}'
 check "autonomy and upstream are posted" \
   test "$(run 'acme/app true autonomy=auto upstream=up/tool=3,o/x=2')" = '{"inputs":{"repo":"acme/app","auto_merge":"true","dry_run":"false","autonomy":"auto","upstream":"up/tool=3,o/x=2"}}'
+check "identity is posted" \
+  test "$(run 'acme/app false identity=signed')" = '{"inputs":{"repo":"acme/app","auto_merge":"false","dry_run":"false","identity":"signed"}}'
+check "all three fields are posted" \
+  test "$(run 'acme/app true autonomy=act upstream=up/tool=3 identity=marker')" = '{"inputs":{"repo":"acme/app","auto_merge":"true","dry_run":"false","autonomy":"act","upstream":"up/tool=3","identity":"marker"}}'
+check "an unknown identity skips the repository" test -z "$(run 'acme/app false identity=loud')"
 check "an unknown ceiling skips the repository" test -z "$(run 'acme/app false autonomy=god')"
 check "a bad upstream skips the repository" test -z "$(run 'acme/app false autonomy=auto upstream=nonsense')"
 check "an unknown field skips the repository" test -z "$(run 'acme/app false foo=1')"

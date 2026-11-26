@@ -33,6 +33,8 @@ type TendEntry struct {
 	// Autonomy and Upstream are empty unless the repository sets them.
 	Autonomy string
 	Upstream string
+	// Identity is empty unless the repository sets the key.
+	Identity string
 }
 
 // Output is everything the features add up to. Files carries extra generated

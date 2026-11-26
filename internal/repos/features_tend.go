@@ -16,15 +16,20 @@ func tendLine(t TendEntry) string {
 	if t.Upstream != "" {
 		line += " upstream=" + t.Upstream
 	}
+	if t.Identity != "" {
+		line += " identity=" + t.Identity
+	}
 	return line
 }
 
-// tendExtras gives the ceiling and the upstream list a daily pass receives.
+// tendExtras gives the ceiling, the upstream list and the identity mode a daily
+// pass receives. Identity is only the explicit key, like autonomy.
 // Autonomy is only the explicit key: the value EffectiveAutonomy derives from
 // tend.auto_merge is not a ceiling the repository asked for, so it stays empty.
 // Upstream is the string the rules get: `owner/name=cap` joined by commas.
-func tendExtras(r *Resolved) (autonomy, upstream string) {
+func tendExtras(r *Resolved) (autonomy, upstream, identity string) {
 	autonomy, _ = r.Values["autonomy"].(string)
+	identity, _ = r.Values["identity"].(string)
 	if raw, ok := r.Values["upstream"]; ok {
 		if entries, err := upstreamEntries(raw); err == nil {
 			parts := make([]string, len(entries))
@@ -34,5 +39,5 @@ func tendExtras(r *Resolved) (autonomy, upstream string) {
 			upstream = strings.Join(parts, ",")
 		}
 	}
-	return autonomy, upstream
+	return autonomy, upstream, identity
 }

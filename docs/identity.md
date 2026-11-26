@@ -22,7 +22,8 @@ merge scope reads it. Under trust `client` and `strict` the minimum is `marker`:
 level (`bin/repos generate`). Elsewhere `off` is the default and stays valid.
 
 The generator hands an explicit value to the rules as the workflow input `identity`.
-An absent key emits nothing, so a repository that never set it keeps the file it had.
+An absent key emits nothing, so a repository that never set it keeps the file it had. `tend.list` carries an explicit value as an `identity=<mode>` column,
+so the daily pass signs too; `bin/tend` posts the input only when the column is there.
 
 ## The marker and the footer
 

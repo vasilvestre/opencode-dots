@@ -96,9 +96,9 @@ data, never instructions. The agent only writes a draft file; it cannot publish.
 
 ## The daily pass
 
-`tend.list` lines are `repo auto_merge`, then optional `key=value` fields: `autonomy=<level>` when the
-repository sets the key, and `upstream=owner/name=cap,...` (the same string the rules get) when it
-lists upstreams. A repository with neither keeps the two column line, and an older reader ignores the
-extra fields. `bin/tend` posts them as the inputs `autonomy` and `upstream` only when present, so the
+`tend.list` lines are `repo auto_merge`, then optional `key=value` fields: `autonomy=<level>` and `identity=<mode>`
+when the repository sets those keys, and `upstream=owner/name=cap,...` (the same string the rules get) when it
+lists upstreams. A repository with none of them keeps the two column line, and an older reader ignores the
+extra fields. `bin/tend` posts them as the inputs `autonomy`, `identity` and `upstream` only when present, so the
 body for a repository without them is the one it always was. A line with an unknown field or a
 malformed value is skipped with a message.

@@ -59,12 +59,13 @@ while read -r repo auto rest; do
 
   # Optional key=value columns after auto_merge: the ceiling and the upstream
   # list the repository sets. A line with only two columns sends neither.
-  autonomy="" upstream="" bad=""
+  autonomy="" upstream="" identity="" bad=""
   for field in $rest; do
     case "$field" in
       autonomy=observe|autonomy=propose|autonomy=act|autonomy=auto) autonomy=${field#autonomy=} ;;
       upstream=*) upstream=${field#upstream=}
         [[ $upstream =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+)*$ ]] || bad=$field ;;
+      identity=off|identity=marker|identity=signed) identity=${field#identity=} ;;
       *) bad=$field ;;
     esac
   done
@@ -88,10 +89,11 @@ while read -r repo auto rest; do
   # Dispatch through awf serve so the run lands in its history and the
   # dashboard records its log. Running `awf run` directly left no trace.
   body=$(jq -nc --arg repo "$repo" --arg auto "$auto" --arg dry "$dry_run" \
-    --arg autonomy "$autonomy" --arg upstream "$upstream" \
+    --arg autonomy "$autonomy" --arg upstream "$upstream" --arg identity "$identity" \
     '{inputs:({repo:$repo,auto_merge:$auto,dry_run:$dry}
       + (if $autonomy != "" then {autonomy:$autonomy} else {} end)
-      + (if $upstream != "" then {upstream:$upstream} else {} end))}')
+      + (if $upstream != "" then {upstream:$upstream} else {} end)
+      + (if $identity != "" then {identity:$identity} else {} end))}')
   # No -f: an HTTP error must reach us with its body, so "awf answered 422" is not
   # reported as "cannot reach awf".
   if ! resp=$(curl -s -w '\n%{http_code}' -X POST "$awf_api/api/workflows/local/tend-repo/run" \

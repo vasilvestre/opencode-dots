@@ -30,6 +30,9 @@ func TestTendListLines(t *testing.T) {
   acme/ceiling:
     tend: true
     autonomy: propose
+  acme/ident:
+    tend: true
+    identity: marker
   acme/up:
     tend: {auto_merge: true}
     autonomy: auto
@@ -39,6 +42,7 @@ func TestTendListLines(t *testing.T) {
 		"acme/plain false",
 		"acme/merge true", // derived auto is not a ceiling: nothing new
 		"acme/ceiling false autonomy=propose",
+		"acme/ident false identity=marker",
 		"acme/up true autonomy=auto upstream=up/tool=2,o/x=5",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
