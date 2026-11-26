@@ -42,10 +42,14 @@ your mind by writing a new one that supersedes it.
 | [0032](0032-trust-levels-per-repository.md) | A repository has a trust level that limits the rest of its configuration | accepted | 2026-11-26 |
 | [0033](0033-hybrid-executors.md) | An executor can be a list, and what every executor runs is checked | proposed | 2026-11-26 |
 | [0034](0034-dot-identity-in-github.md) | The dot says who it is in GitHub, and the identity is a per-repository choice | proposed | 2026-11-26 |
-| [0035](0035-team-shapes-one-dot-per-person-or-team.md) | A dot serves a person or a team, and we name the shapes we support | proposed | 2026-11-26 |
+| [0035](0035-a-dot-is-an-engine-instance-with-a-policy-profile.md) | A dot is an instance of the engine with a policy profile | proposed | 2026-11-26 |
 | [0036](0036-model-budgets-and-caps.md) | Model spending has a payer, a budget and a hard cap | proposed | 2026-11-26 |
 | [0037](0037-dashboard-users-and-roles.md) | The dashboard has users, roles and an audit trail | proposed | 2026-11-26 |
 | [0038](0038-what-two-dots-share.md) | Two dots on one repository share metadata and reviewed lessons, never code or raw memory | proposed | 2026-11-26 |
+| [0039](0039-work-sources-are-adapters.md) | Work sources are adapters that feed work items | proposed | 2026-11-26 |
+| [0040](0040-classification-and-autonomy-ceiling.md) | Each item is classified, each repository has an autonomy ceiling, the action is the lower of the two | proposed | 2026-11-26 |
+| [0041](0041-linking-work-items-is-a-proposal.md) | Linking work items across sources is a proposal; merging stays explicit | proposed | 2026-11-26 |
+| [0042](0042-workstations-are-workers-of-an-instance.md) | A workstation is a worker that joins an instance | proposed | 2026-11-26 |
 
 ## When to write one
 

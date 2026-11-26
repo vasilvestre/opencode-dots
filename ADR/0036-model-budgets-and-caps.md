@@ -25,7 +25,7 @@ A cost per task cap aborts a single run cleanly.
 
 Needs a store for spend by period (the control-plane database,
 [0024](0024-control-plane-database.md)), a check before dispatch, and a clear message when a
-task is refused. It makes team use ([0035](0035-team-shapes-one-dot-per-person-or-team.md))
+task is refused. It makes team use ([0035](0035-a-dot-is-an-engine-instance-with-a-policy-profile.md))
 possible, and rules out unmetered shared use.
 
 ## Alternatives

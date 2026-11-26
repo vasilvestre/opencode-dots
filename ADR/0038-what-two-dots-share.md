@@ -9,7 +9,7 @@
 
 [0029](0029-independent-servers-and-contexts.md) keeps servers independent, which is right for
 confidentiality. People still run two dots: a personal one and a team's, or one per teammate
-([0035](0035-team-shapes-one-dot-per-person-or-team.md)). Without a rule they meet on the same
+([0035](0035-a-dot-is-an-engine-instance-with-a-policy-profile.md)). Without a rule they meet on the same
 repository: a double review, contradictory comments, two pushes. The claim machinery
 ([0026](0026-claims-and-presence.md)) stops a bot pushing over a human, not a bot over a bot.
 Memory per workspace has one writer ([0025](0025-workspace-memory-single-writer.md)).

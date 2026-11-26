@@ -15,7 +15,9 @@ Each case has a stable id (A1, B2, ...) that issues and records cite.
 | Owner of the dot | a person, a company, a client, a community |
 | GitHub identity | personal account, dedicated bot account, GitHub App, company account |
 | Trust of the code | public, private personal, a third party's, code that must not leave |
-| Autonomy | observes, comments, pushes on delegation, opens its own pull requests, merges |
+| Source of work | GitHub issues and pull requests, vulnerable dependencies, Sentry issues, a company tracker |
+| Autonomy ceiling | `observe`, `propose`, `act`, `auto` (the code of a whole repository), see ADR 0040 |
+| Class of an item | complete fix, fix with reinforced review, human diagnosis (ADR 0040) |
 | Who pays for models | me, the team, the client, a quota per person |
 | Availability | machine on and off, always on |
 
@@ -63,7 +65,9 @@ Each case has a stable id (A1, B2, ...) that issues and records cite.
 
 ## C. Several dots that meet
 
-- **C1. My personal dot and my team's dot.** Two independent servers, two contexts I
+- **C1. My personal dot and my company's dot.** Two independent instances of the same
+  engine under two profiles (ADR 0035): the personal one at `auto` on repositories I
+  maintain, the company one on a private network at `act` at most. Two contexts I
   pick per device. The personal dot never sees a client repository. Expects: a
   context selector with a strong visual cue, a unified view of metadata only
   ("3 reviews wait for me"), and notifications that carry no content.
@@ -116,6 +120,37 @@ Each case has a stable id (A1, B2, ...) that issues and records cite.
 | The dot is wrong | easy undo, the correction feeds the lessons |
 | Cost runaway | a hard cap, not only an alert |
 
+## F. Sources of work
+
+- **F1. Vulnerable dependencies.** `composer audit`, advisories and Dependabot alerts
+  become work items. Expects: a check that the package is installed and the
+  vulnerable code reachable, an upgrade pull request or a justified ignore, and
+  nothing merged at a low ceiling.
+- **F2. Production errors.** A Sentry issue becomes a work item with its stack trace
+  as data, never as instruction. Expects: a class (complete fix, reinforced review,
+  human diagnosis), a pull request when the cause is local, and a note on the Sentry
+  issue otherwise.
+- **F3. Company tickets.** A ticket in a company tracker maps to a repository. An
+  unmapped project stays diagnosis-only. The note on the ticket is internal.
+- **F4. One cause, three reports.** An issue, a ticket and a Sentry issue describe the
+  same defect. Expects: the dot proposes the link, a person or a threshold confirms
+  it, and one pull request closes the cluster (ADR 0041). Across a trust boundary
+  the link carries references, not content.
+
+## G. Autonomy
+
+- **G1. A repository the dot owns.** At `auto` it owns the code: picks the code work
+  worth doing, keeps dependencies current, reviews and merges. It never deploys,
+  never publishes a release, never sets priorities: those are CI/CD and project
+  management.
+- **G2. A repository the dot only watches.** `observe`: analysis and internal notes,
+  no patch.
+- **G3. Everything waits for a click.** `propose`: the patch is prepared and held in
+  the dashboard until a person publishes it.
+- **G4. A local worker.** A developer's workstation pulls the tasks it may take from
+  the company instance and runs them with its own models (ADR 0042). A strict
+  repository is never sent to it.
+
 ## Expectations by theme
 
 **Visibility.** An activity feed per repository, pull request and person. Live state
@@ -153,12 +188,22 @@ never on a public interface. The agent writes nothing remote, shell steps do
 | --- | --- | --- | --- |
 | A1, A2, A3 | local, server, executor | health alerts, phone view | 0027, 0031, 0033 |
 | A5 | outside text is data | first-contribution filters, read log | |
-| B1 | partly | an identity distinct from the owner | 0034 |
+| B1, A6 | partly | an identity distinct from the owner | 0034 |
 | B2, B4 | no | dedicated identity, roles and sign-in on the dashboard | 0034, 0037 |
 | B6 | no | budgets, caps, cost per person | 0036 |
-| B-D team shapes | no | which shape we serve | 0035 |
-| C1 | proposed | unified view, context selector | 0029 |
+| Personal and company profiles | no | policy profiles on one engine | 0035 |
+| C1 | proposed | unified view, context selector | 0029, 0035 |
 | C2, C3, C4 | no | lock between bots, what two dots share | 0038 |
 | C5 | partly | migration tool | 0025, 0029 |
 | D1, D3 | trust levels | no-network runner, evidence export | 0032 |
 | D2, D4, D6 | no | audit, retention and purge, client access, quotas | 0036, 0037 |
+| F1, F2, F3 | GitHub only | adapters for advisories, Sentry, a company tracker | 0039 |
+| F4 | no | link proposals | 0041 |
+| G1 to G3 | a few switches (`auto_merge`, `fix_issue`) | classification, the four ceilings | 0040 |
+| G4 | executor by tunnel | workers that connect out | 0033, 0042 |
+
+## Open: what is offered
+
+Whether the engine is ever sold, and where a public part ends and an offered part begins, is
+not decided. The project is open source today, and ADR 0035 keeps the sources, the runner and
+the workflows separable so that the question can wait.
