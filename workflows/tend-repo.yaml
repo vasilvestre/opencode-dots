@@ -93,6 +93,10 @@ states:
       git -C "$src" fetch --quiet "$url" "refs/heads/$branch"
       git -C "$src" worktree prune
       git -C "$src" worktree remove --force "$d/work" 2>/dev/null || true
+      # The worktree is disposable. One left by another machine, or by a clone that moved,
+      # names a gitdir that does not exist here: `worktree remove` cannot clear it and
+      # `worktree add` then refuses the existing directory.
+      rm -rf "$d/work"
       git -C "$src" worktree add --quiet --detach "$d/work" FETCH_HEAD
       git -C "$d/work" log --oneline -1
     timeout: 300
