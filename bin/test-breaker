@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# bin/breaker against a fake gh. No network, no repository.
+#
+#   bin/test-breaker
+set -uo pipefail
+cd "$(dirname "$0")/.."
+breaker=$PWD/bin/breaker
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+fail=0
+
+mkdir -p "$work/bin" "$work/fake"
+cat > "$work/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "api user") echo '{"login":"dotbot"}' ;;
+  "pr list"*) cat "$FAKE/prs.json" ;;
+  "api repos/"*"/commits/"*"/check-runs")
+    sha=${2#*/commits/}; sha=${sha%%/*}
+    cat "$FAKE/checks-$sha.json" 2>/dev/null || echo '{"check_runs":[]}' ;;
+  *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$work/bin/gh"
+export PATH=$work/bin:$PATH FAKE=$work/fake STATE_DIR=$work/state BREAKER_WHO=tester
+
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+old=$(date -u -d '-30 days' +%Y-%m-%dT%H:%M:%SZ)
+early=$(date -u -d '-2 days' +%Y-%m-%dT%H:%M:%SZ)
+later=$(date -u -d '-1 days' +%Y-%m-%dT%H:%M:%SZ)
+
+pr() { # NUMBER AUTHOR MERGEDBY TITLE MERGEDAT SHA [BODY] [LABEL] [PATH]
+  jq -n --argjson n "$1" --arg a "$2" --arg m "$3" --arg t "$4" --arg at "$5" --arg sha "$6" \
+    --arg body "${7:-}" --arg label "${8:-}" --arg path "${9:-src/x.go}" \
+    '{number:$n,title:$t,body:$body,author:{login:$a},mergedBy:{login:$m},mergedAt:$at,
+      mergeCommit:{oid:$sha},url:"https://example.test/pr/\($n)",
+      labels:(if $label=="" then [] else [{name:$label}] end),files:[{path:$path}]}'
+}
+prs() { jq -s . > "$FAKE/prs.json"; }
+
+# run NAME WANT_RC [SUBJECTS]; the repo is acme/app
+run() {
+  local got
+  "$breaker" check acme/app "${3:-}" 2>"$work/err"
+  got=$?
+  [ "$got" = "$2" ] || { echo "FAIL $1: want rc $2, got $got ($(cat "$work/err"))"; fail=1; }
+}
+tripped() { [ -e "$STATE_DIR/breaker/acme__app.json" ]; }
+expect() { # NAME tripped|clear
+  if [ "$2" = tripped ]; then tripped || { echo "FAIL $1: no breaker file"; fail=1; }
+  else tripped && { echo "FAIL $1: breaker file written"; fail=1; }; fi
+}
+clear_state() { rm -rf "$STATE_DIR"; rm -f "$FAKE"/checks-*; }
+
+# 1. nothing wrong
+clear_state
+{ pr 1 dotbot dotbot "Fix a" "$early" aaa; pr 2 human human "Other" "$early" bbb; } | prs
+run "clean" 0; expect "clean" clear
+
+# 2. a later revert of the dot's merge
+clear_state
+{ pr 1 dotbot dotbot "Fix a" "$early" aaa; pr 3 human human 'Revert "Fix a"' "$later" ccc "Reverts #1"; } | prs
+run "revert" 3; expect "revert" tripped
+[ "$(jq -r .reason "$STATE_DIR/breaker/acme__app.json")" = revert ] || { echo "FAIL revert reason"; fail=1; }
+[ "$(jq -r .pr "$STATE_DIR/breaker/acme__app.json")" = 1 ] || { echo "FAIL revert pr"; fail=1; }
+# already tripped: no second trip
+run "already" 0
+
+# 3. a revert that is older than the merge does not count
+clear_state
+{ pr 1 dotbot dotbot "Fix a" "$later" aaa; pr 3 human human 'Revert "Fix a"' "$early" ccc "Reverts #1"; } | prs
+run "revert-before" 0; expect "revert-before" clear
+
+# 4. a revert of a human's merge does not count
+clear_state
+{ pr 2 human human "Other" "$early" bbb; pr 3 human human 'Revert "Other"' "$later" ccc "Reverts #2"; } | prs
+run "revert-human" 0; expect "revert-human" clear
+
+# 5. a red check on the merge commit
+clear_state
+pr 1 dotbot dotbot "Fix a" "$early" aaa | prs
+echo '{"check_runs":[{"name":"ci","conclusion":"success"},{"name":"tests","conclusion":"failure"}]}' > "$FAKE/checks-aaa.json"
+run "red" 3; expect "red" tripped
+[ "$(jq -r .reason "$STATE_DIR/breaker/acme__app.json")" = red-check ] || { echo "FAIL red reason"; fail=1; }
+
+# 6. green checks, and a merge older than the window
+clear_state
+{ pr 1 dotbot dotbot "Fix a" "$early" aaa; pr 4 dotbot dotbot "Old" "$old" ddd; } | prs
+echo '{"check_runs":[{"name":"ci","conclusion":"success"}]}' > "$FAKE/checks-aaa.json"
+echo '{"check_runs":[{"name":"ci","conclusion":"failure"}]}' > "$FAKE/checks-ddd.json"
+run "green-old" 0; expect "green-old" clear
+
+# 7. authored by the dot but merged by a person still counts
+clear_state
+{ pr 1 dotbot human "Fix a" "$early" aaa; pr 3 human human 'Revert "Fix a"' "$later" ccc "Reverts #1"; } | prs
+run "author" 3; expect "author" tripped
+
+# 8. subjects: a path and a label trip on their own, others do not
+clear_state
+pr 1 dotbot dotbot "Touch db" "$early" aaa "" "" db/migrate/001.sql | prs
+run "subject-path" 3 "db/migrate"; expect "subject-path" tripped
+clear_state
+pr 1 dotbot dotbot "Labelled" "$early" aaa "" security src/x.go | prs
+run "subject-label" 3 "security,db/"; expect "subject-label" tripped
+clear_state
+pr 1 dotbot dotbot "Plain" "$early" aaa | prs
+run "subject-none" 0 "security,db/"; expect "subject-none" clear
+
+# 9. status, reset, and a reset sticks
+clear_state
+{ pr 1 dotbot dotbot "Fix a" "$early" aaa; pr 3 human human 'Revert "Fix a"' "$later" ccc "Reverts #1"; } | prs
+run "pre-reset" 3
+"$breaker" status 2>&1 | grep -q 'acme/app' || { echo "FAIL status does not list the repo"; fail=1; }
+"$breaker" reset acme/app 2>/dev/null || { echo "FAIL reset"; fail=1; }
+expect "reset" clear
+grep -q 'reset acme/app by tester' "$STATE_DIR/breaker/log.txt" || { echo "FAIL reset not logged"; fail=1; }
+sleep 1
+run "after-reset" 0; expect "after-reset" clear
+"$breaker" reset acme/app 2>/dev/null && { echo "FAIL reset of an untripped repo succeeded"; fail=1; }
+
+# 10. check-all reads the list; bad input
+clear_state
+printf '# comment\nacme/app\n' > "$work/list"
+pr 1 dotbot dotbot "Fix a" "$early" aaa | prs
+BREAKER_LIST=$work/list "$breaker" check-all 2>/dev/null || { echo "FAIL check-all"; fail=1; }
+"$breaker" check notarepo 2>/dev/null && { echo "FAIL bad repo accepted"; fail=1; }
+
+if [ "$fail" = 0 ]; then echo "breaker: all cells pass"; fi
+exit "$fail"

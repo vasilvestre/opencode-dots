@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Circuit breaker (ADR 0040, docs/breaker.md). When a merge made by the dot is
+# reverted, or its commit has a red check, or it touches a given subject, the
+# repository drops from `auto` to `act`: bin/publish-gate reads the file this
+# writes. Raising it again is a human act: `bin/breaker reset`.
+#
+#   bin/breaker check OWNER/REPO [SUBJECTS]   look, trip if needed (SUBJECTS: a,b,c)
+#   bin/breaker check-all                     check every line of $BREAKER_LIST
+#   bin/breaker status                        what is tripped
+#   bin/breaker reset OWNER/REPO              a person raises the repository again
+#
+# Environment:
+#   STATE_DIR      where breaker/ lives (default /state).
+#   DOT_LOGIN      the dot's GitHub login (default: the login `gh` is signed in as).
+#   BREAKER_DAYS   how far back merges are looked at (default 7).
+#   BREAKER_LIST   lines "owner/repo" or "owner/repo=subject,subject" (default breaker.list).
+#   BREAKER_WHO    who resets (default the unix user), written to the log.
+#
+# Exit codes of check: 0 nothing (or already tripped), 3 tripped by this call, 1 cannot look.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+state=${STATE_DIR:-/state}
+dir=$state/breaker
+days=${BREAKER_DAYS:-7}
+
+slug() { printf '%s' "${1/\//__}"; }
+
+check() { # REPO [SUBJECTS]
+  local repo=$1 subjects=${2:-} file since login prs now
+  case "$repo" in */*) ;; *) echo "breaker: '$repo' is not OWNER/REPO" >&2; return 1 ;; esac
+  file=$dir/$(slug "$repo").json
+  if [ -e "$file" ]; then
+    echo "breaker: $repo already tripped ($(jq -r .reason "$file"))" >&2
+    return 0
+  fi
+  login=${DOT_LOGIN:-$(gh api user | jq -r .login)} || return 1
+  [ -n "$login" ] || { echo "breaker: no login for the dot (set DOT_LOGIN)" >&2; return 1; }
+  since=$(date -u -d "-$days days" +%Y-%m-%dT%H:%M:%SZ)
+  # After a reset only newer merges count, or the same revert would trip it again.
+  if [ -s "$dir/$(slug "$repo").since" ]; then
+    local reset; reset=$(cat "$dir/$(slug "$repo").since")
+    [[ "$reset" > "$since" ]] && since=$reset
+  fi
+  prs=$(gh pr list --repo "$repo" --state merged --limit 200 \
+    --json number,title,body,author,mergedBy,mergedAt,mergeCommit,labels,files,url) || return 1
+
+  local mine
+  mine=$(jq -c --arg login "$login" --arg since "$since" '
+    [.[] | select(.mergedAt >= $since and (.mergedBy.login == $login or .author.login == $login))]
+    | sort_by(.mergedAt)' <<<"$prs")
+
+  local reason="" pr="" url="" detail=""
+  local m n
+  # 1. a later revert of a merge by the dot
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    n=$(jq -r .number <<<"$m")
+    rev=$(jq -c --argjson m "$m" '
+      [.[] | select(.number != $m.number and .mergedAt > $m.mergedAt
+        and (.title | test("^revert"; "i"))
+        and (((.title + " " + (.body // "")) | test("#" + ($m.number | tostring) + "([^0-9]|$)"))
+          or (.title | contains($m.title))))] | first // empty' <<<"$prs")
+    if [ -n "$rev" ]; then
+      reason=revert pr=$n url=$(jq -r .url <<<"$m")
+      detail="reverted by #$(jq -r .number <<<"$rev")"
+      break
+    fi
+  done < <(jq -c '.[]' <<<"$mine")
+
+  # 2. a red check on the merge commit
+  if [ -z "$reason" ]; then
+    local sha red
+    while IFS= read -r m; do
+      [ -n "$m" ] || continue
+      sha=$(jq -r '.mergeCommit.oid // empty' <<<"$m")
+      [ -n "$sha" ] || continue
+      red=$(gh api "repos/$repo/commits/$sha/check-runs" 2>/dev/null |
+        jq -r '[.check_runs[]? | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")') || red=""
+      if [ -n "$red" ]; then
+        n=$(jq -r .number <<<"$m")
+        reason=red-check pr=$n url=$(jq -r .url <<<"$m")
+        detail="red on ${sha:0:8}: $red"
+        break
+      fi
+    done < <(jq -c '.[]' <<<"$mine")
+  fi
+
+  # 3. a merge touching a subject (a label, or a path prefix)
+  if [ -z "$reason" ] && [ -n "$subjects" ]; then
+    local hit
+    hit=$(jq -c --arg subjects "$subjects" '
+      ($subjects | split(",")) as $s
+      | [.[] | . as $p | select(any($s[];
+          . as $x | (($p.labels // []) | map(.name) | index($x)) != null
+            or any(($p.files // [])[]; .path | startswith($x))))] | first // empty' <<<"$mine")
+    if [ -n "$hit" ]; then
+      reason=subject pr=$(jq -r .number <<<"$hit") url=$(jq -r .url <<<"$hit")
+      detail="touches a given subject ($subjects)"
+    fi
+  fi
+
+  [ -n "$reason" ] || { echo "breaker: $repo ok" >&2; return 0; }
+
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  mkdir -p "$dir"
+  jq -n --arg repo "$repo" --arg reason "$reason" --arg detail "$detail" \
+    --argjson pr "$pr" --arg url "$url" --arg at "$now" \
+    '{repo:$repo, reason:$reason, detail:$detail, pr:$pr, url:$url, tripped_at:$at}' > "$file.tmp"
+  mv "$file.tmp" "$file"
+  echo "breaker: $repo tripped: $reason on #$pr ($detail); autonomy auto lowered to act until a person runs: bin/breaker reset $repo" >&2
+  return 3
+}
+
+case "${1:-}" in
+  check)
+    [ $# -ge 2 ] || { echo "usage: bin/breaker check OWNER/REPO [SUBJECTS]" >&2; exit 1; }
+    check "$2" "${3:-}" || exit $?
+    ;;
+  check-all)
+    list=${BREAKER_LIST:-breaker.list}
+    [ -r "$list" ] || { echo "breaker: no list at $list" >&2; exit 1; }
+    rc=0
+    while IFS= read -r line; do
+      line=${line%%#*}
+      [ -n "${line// /}" ] || continue
+      repo=${line%%=*}
+      subs=""; [ "$repo" = "$line" ] || subs=${line#*=}
+      check "$repo" "$subs" || { r=$?; [ "$r" = 3 ] || rc=1; }
+    done < "$list"
+    exit "$rc"
+    ;;
+  status)
+    shopt -s nullglob
+    n=0
+    for f in "$dir"/*.json; do
+      n=1
+      jq -r '"\(.repo)\ttripped \(.tripped_at)\t\(.reason)\t#\(.pr)\t\(.detail)"' "$f"
+    done
+    [ "$n" = 1 ] || echo "breaker: nothing tripped"
+    ;;
+  reset)
+    [ $# -ge 2 ] || { echo "usage: bin/breaker reset OWNER/REPO" >&2; exit 1; }
+    f=$dir/$(slug "$2").json
+    [ -e "$f" ] || { echo "breaker: $2 is not tripped" >&2; exit 1; }
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    who=${BREAKER_WHO:-$(id -un)}
+    mkdir -p "$dir"
+    printf '%s reset %s by %s (was: %s)\n' "$now" "$2" "$who" "$(jq -r '.reason + " #" + (.pr|tostring)' "$f")" >> "$dir/log.txt"
+    printf '%s' "$now" > "$dir/$(slug "$2").since"
+    rm -f "$f"
+    echo "breaker: $2 reset by $who; autonomy applies again" >&2
+    ;;
+  *)
+    echo "usage: bin/breaker check OWNER/REPO [SUBJECTS] | check-all | status | reset OWNER/REPO" >&2
+    exit 1
+    ;;
+esac
