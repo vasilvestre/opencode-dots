@@ -38,6 +38,8 @@ case "${1:-} ${2:-}" in
   "auth setup-git") exit 0 ;;
   "api user")
     case "$*" in *.id*) echo 4242 ;; *) cat "$g/login" ;; esac ;;
+  "api repos/"*"/commits"*) # tend-repo survey: the commit list, canned or empty
+    if [ -f "$g/commits.json" ]; then emit "$g/commits.json"; else echo '[]'; fi ;;
   "api repos/"*)
     p=${2#repos/}
     if [ -f "$g/repo-${p//\//_}.json" ]; then
@@ -50,7 +52,15 @@ case "${1:-} ${2:-}" in
     fi ;;
   "repo view") emit "$g/repo.json" ;;
   "repo fork") echo "fake gh: repo fork is not expected in e2e" >&2; exit 1 ;;
-  "issue view") emit "$g/issue.json" ;;
+  "issue view")
+    # An upstream issue the case canned (up-issue-<owner_repo>-<N>.json) wins over issue.json.
+    uf=$g/up-issue-${repo//\//_}-$3.json
+    if [ -n "$repo" ] && [ -f "$uf" ]; then emit "$uf"; else emit "$g/issue.json"; fi ;;
+  "issue list")
+    uf=$g/up-issues-${repo//\//_}.json
+    if [ -f "$uf" ]; then emit "$uf"; elif [ -f "$g/issues-list.json" ]; then emit "$g/issues-list.json"; else echo '[]'; fi ;;
+  "issue create") snap issue-create; echo "https://github.com/${repo:-x/y}/issues/${FAKE_ISSUE_N:-101}" ;;
+  "pr list") if [ -f "$g/pr-list.json" ]; then emit "$g/pr-list.json"; else echo '[]'; fi ;;
   "issue comment") snap issue-comment ;;
   "pr view") emit "$g/pr-$3.json" ;;
   "pr diff") cat "$g/diff.patch" ;;

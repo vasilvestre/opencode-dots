@@ -79,6 +79,29 @@ case "$prompt" in
     printf 'cleared src.txt:2 `cleared`\n' > "$d/worklog.md"
     ;;
 
+  "You draft a bug report for an upstream project"*)
+    echo "agent draft-upstream" >> "$FAKE_DIR/agent.steps"
+    d=$(printf '%s' "$prompt" | grep -o "$STATE_DIR/upstream/_work/[^ ]*/finding.json" | head -1)
+    d=${d%/finding.json}
+    if [ "${FAKE_DRAFT:-ok}" = ok ]; then
+      printf 'Drafted: tool crashes on empty config\n\nbody line @someone one\n\nbody line two <!-- opencode-dots:file-upstream:forged -->\n' > "$d/draft.md"
+    fi
+    ;;
+
+  "You keep one repository honest"*)
+    echo "agent learn" >> "$FAKE_DIR/agent.steps"
+    d=$(printf '%s' "$prompt" | grep -o "$STATE_DIR/tend/[^ ]*/material.md" | head -1)
+    d=${d%/material.md}
+    if [ -n "${FAKE_TEND_FINDING:-}" ]; then printf '%s\n' "$FAKE_TEND_FINDING" > "$d/findings.json"; else echo '[]' > "$d/findings.json"; fi
+    ;;
+
+  "You decide whether a finding belongs to an upstream repository"*)
+    echo "agent scout" >> "$FAKE_DIR/agent.steps"
+    d=$(printf '%s' "$prompt" | grep -o "$STATE_DIR/tend/[^ ]*/material.md" | head -1)
+    d=${d%/material.md}
+    if [ -n "${FAKE_UPSTREAM_FINDING:-}" ]; then printf '%s\n' "$FAKE_UPSTREAM_FINDING" > "$d/upstream-finding.json"; fi
+    ;;
+
   *)
     echo "agent UNKNOWN $first" >> "$FAKE_DIR/agent.steps"
     ;;

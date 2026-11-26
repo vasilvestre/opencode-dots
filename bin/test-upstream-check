@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# bin/upstream-check against a fake gh. No network, no repository.
+#
+#   bin/test-upstream-check
+set -uo pipefail
+cd "$(dirname "$0")/.."
+chk=$PWD/bin/upstream-check
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+fail=0
+
+mkdir -p "$work/bin" "$work/fake"
+cat > "$work/bin/gh" <<'GH'
+#!/usr/bin/env bash
+# gh issue view N --repo R --json ...: answered from $FAKE/issue-N.json
+[ "$1 $2" = "issue view" ] || { echo "fake gh: unexpected $*" >&2; exit 1; }
+f=$FAKE/issue-$3.json
+[ -f "$f" ] && cat "$f" || exit 1
+GH
+chmod +x "$work/bin/gh"
+export PATH=$work/bin:$PATH FAKE=$work/fake STATE_DIR=$work/state
+u=$STATE_DIR/upstream/up__tool
+mkdir -p "$u"
+
+issue() { # NUMBER STATE REASON [LABEL]
+  jq -n --arg s "$2" --arg r "$3" --arg l "${4:-}" \
+    '{state:$s, stateReason:$r, labels:(if $l == "" then [] else [{name:$l}] end)}' > "$FAKE/issue-$1.json"
+}
+ledger() { # EPOCH KIND NUMBER
+  printf '%s\t2026-01-01T00:00:00Z\t%s\th%s\thttps://github.com/up/tool/issues/%s\ttitle %s\n' "$1" "$2" "$3" "$3" "$3" >> "$u/ledger.tsv"
+}
+run() { "$chk" "$@" >"$work/out" 2>&1; echo $?; }
+is() { [ "$1" = "$2" ] || { echo "FAIL $3: want $2, got $1"; cat "$work/out"; fail=1; }; }
+reset() { mkdir -p "$u"; rm -f "$u/off" "$u/ledger.tsv" "$FAKE"/issue-*.json; }
+
+reset
+ledger 100 filed 1; ledger 200 filed 2
+issue 1 CLOSED NOT_PLANNED; issue 2 CLOSED NOT_PLANNED
+is "$(run check up/tool)" 10 "two not planned trip"
+{ [ -s "$u/off" ] && grep -q 'issues/2' "$u/off" && grep -q 'issues/1' "$u/off"; } || { echo "FAIL off file lacks the issues"; fail=1; }
+is "$(run check up/tool)" 0 "already off is left alone"
+grep -q 'already off' "$work/out" || { echo "FAIL already off not said"; fail=1; }
+"$chk" status > "$work/out"; grep -q '^up/tool: off' "$work/out" || { echo "FAIL status does not say off"; fail=1; }
+is "$(run reset up/tool)" 0 "reset"
+[ ! -e "$u/off" ] || { echo "FAIL reset left the file"; fail=1; }
+"$chk" status > "$work/out"; grep -q '^up/tool: on' "$work/out" || { echo "FAIL status does not say on"; fail=1; }
+
+reset
+ledger 100 filed 1; ledger 200 filed 2
+issue 1 CLOSED COMPLETED invalid; issue 2 CLOSED DUPLICATE
+is "$(run check)" 10 "label invalid and duplicate trip (no argument: every ledger)"
+
+reset
+ledger 100 filed 1; ledger 200 filed 2; ledger 300 filed 3
+issue 1 CLOSED NOT_PLANNED; issue 2 CLOSED COMPLETED; issue 3 CLOSED NOT_PLANNED
+is "$(run check up/tool)" 0 "invalid, completed, invalid does not trip"
+[ ! -e "$u/off" ] || { echo "FAIL tripped on a broken run"; fail=1; }
+
+reset
+ledger 100 filed 1; ledger 200 filed 2; ledger 300 filed 3
+issue 1 CLOSED NOT_PLANNED; issue 2 CLOSED NOT_PLANNED; issue 3 OPEN ""
+is "$(run check up/tool)" 10 "an open issue in between is ignored"
+reset
+ledger 100 filed 1; ledger 200 filed 2
+issue 1 OPEN ""; issue 2 CLOSED NOT_PLANNED
+is "$(run check up/tool)" 0 "one closure is not two"
+
+reset
+ledger 100 held 1; ledger 150 skipped 2; ledger 200 filed 3; ledger 300 filed 4
+issue 3 CLOSED NOT_PLANNED
+is "$(run check up/tool)" 0 "an unreadable issue is not counted"
+issue 4 CLOSED NOT_PLANNED
+is "$(run check up/tool)" 10 "held and skipped rows are not issues"
+
+is "$(run check nonsense)" 2 "bad repository name"
+is "$(run bogus)" 2 "unknown command"
+is "$(run reset)" 2 "reset needs a repository"
+rm -rf "$u"
+is "$(run check up/tool)" 0 "no ledger"
+
+if [ "$fail" = 0 ]; then echo "upstream-check: all cells pass"; fi
+exit "$fail"

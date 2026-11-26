@@ -15,6 +15,14 @@ publishes, and has no way to skip the gate.
 | `act` | allow | refused |
 | `auto` | allow | allow for the dot's own and dependency-bot pull requests, except class 2 (refused) |
 
+### The action `file-issue` (ADR 0043)
+
+`bin/publish-gate file-issue` is for creating an issue on an upstream tracker (`docs/upstream.md`).
+It is wider than the others, so only `auto` allows it: `propose` holds it (the record also has a
+`target:` line, from `GATE_TARGET`), `observe` writes a note, `act` is refused (exit 5, "writing on
+an upstream tracker needs auto"). An empty ceiling stays the legacy allow, but the only caller,
+`workflows/file-upstream.yaml`, never runs without a ceiling.
+
 ### Merge scope
 
 At `auto`, a merge is allowed by default only for a pull request the dot wrote or
@@ -91,6 +99,7 @@ At `propose`, when the push of `fix-issue` is held the same step also writes the
 | `reply-pr` | `push`, `post` (comment) |
 | `fix-ci` | `push` |
 | `fix-issue` | `push`, `open-pr`, the issue comment in `push` and `notify` |
+| `file-upstream` | `file` (`file-issue`, on an upstream repository) |
 | `tend-repo` | `file` (issue, as comment), `patch` (push, open-pr), merge; the nested `review-pr` run receives the same ceiling |
 
 The hidden `_fix-issue-*` workflows publish nothing, so they carry no gate.

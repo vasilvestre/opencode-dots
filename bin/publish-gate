@@ -3,7 +3,7 @@
 # step calls it before it comments, pushes, opens a pull request or merges. The
 # agent never calls it and cannot skip it: it runs in shell steps only.
 #
-#   bin/publish-gate ACTION        ACTION: comment | push | open-pr | merge
+#   bin/publish-gate ACTION        ACTION: comment | push | open-pr | merge | file-issue
 #
 # Environment:
 #   AUTONOMY       observe | propose | act | auto. Empty: legacy, allow everything.
@@ -19,6 +19,8 @@
 #                  optional: written into a held record as `branch`, `base`, `push-repo`,
 #                  `title`, `closes` so workflows/publish-held.yaml can release it
 #                  (docs/publish-held.md). A value is cut to one line, control characters dropped.
+#   GATE_TARGET   file-issue only: the upstream OWNER/REPO the issue is for. Written into a held
+#                  record as `target:` (ADR 0043, docs/upstream.md).
 #   GATE_PR_AUTHOR login of the pull request author, for a merge at auto (ADR 0040).
 #   DOT_LOGIN      the dot's own login (default: the login `gh` is signed in as).
 #   GATE_MERGE_SCOPE  own (default) | all. At auto a merge is allowed for pull requests the dot
@@ -30,14 +32,14 @@
 #   3 hold       propose: the artifact reference is written under $STATE_DIR/held/.
 #   4 note only  observe or class 3: an internal note is written under $STATE_DIR/notes/.
 #   5 refused    the action is never allowed here (a merge below auto, a class 2 merge,
-#                a merge of someone else's pull request, an unknown value).
+#                a merge of someone else's pull request, file-issue below auto, an unknown value).
 # The caller treats every non-zero code as "do not publish" and exits 0 itself.
 set -euo pipefail
 
 action=${1:-}
 case "$action" in
-  comment|push|open-pr|merge) ;;
-  *) echo "publish-gate: unknown action '$action' (comment, push, open-pr, merge)" >&2; exit 5 ;;
+  comment|push|open-pr|merge|file-issue) ;;
+  *) echo "publish-gate: unknown action '$action' (comment, push, open-pr, merge, file-issue)" >&2; exit 5 ;;
 esac
 
 level=${AUTONOMY:-}
@@ -93,7 +95,7 @@ record() { # DIR REASON
     printf 'reason: %s\n' "$2"
     if [ "$1" = held ]; then
       local pair key var val
-      for pair in branch:GATE_BRANCH base:GATE_BASE push-repo:GATE_PUSH_REPO title:GATE_TITLE closes:GATE_CLOSES; do
+      for pair in branch:GATE_BRANCH base:GATE_BASE push-repo:GATE_PUSH_REPO title:GATE_TITLE closes:GATE_CLOSES target:GATE_TARGET; do
         key=${pair%%:*}
         var=${pair#*:}
         val=$(printf '%s' "${!var:-}" | head -n 1 | tr -d '\000-\037\177')
@@ -144,6 +146,10 @@ case "$level" in
     exit 3
     ;;
   act)
+    if [ "$action" = file-issue ]; then
+      echo "publish-gate: file-issue on $ref refused: writing on an upstream tracker needs auto" >&2
+      exit 5
+    fi
     if [ "$action" = merge ]; then
       echo "publish-gate: merge on $ref refused: autonomy act never merges" >&2
       exit 5

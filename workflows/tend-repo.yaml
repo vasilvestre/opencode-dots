@@ -21,6 +21,13 @@ inputs:
     description: ceiling from the repository (observe, propose, act, auto); empty means no ceiling, ADR 0040
     validation:
       pattern: '^(observe|propose|act|auto)?$'
+  - name: upstream
+    type: string
+    required: false
+    default: ""
+    description: upstream repositories the dot may report to, owner/name=weekly cap joined by commas; empty means none, ADR 0043
+    validation:
+      pattern: '^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+)*)?$'
   - name: dry_run
     type: boolean
     required: false
@@ -237,8 +244,51 @@ states:
       Answer in one short paragraph: the lessons and memory you changed, the
       findings you wrote, and the fix you made or why you made none.
     timeout: 1200
-    on_success: file
+    on_success: upstream_gate
     on_failure: error
+
+  # Upstream defects (ADR 0043, docs/upstream.md). With no `upstream` input this
+  # step only prints LEGACY: no file is read or written, no agent runs, and the
+  # run goes to `file` exactly as before. Otherwise file-upstream looks for a
+  # defect in a listed upstream (its scout agent), and files it there.
+  upstream_gate:
+    type: step
+    command: |
+      set -eu
+      d=${STATE_DIR:-/state}/tend/{{.inputs.repo}}
+      if [ -z "{{.inputs.upstream}}" ]; then
+        printf LEGACY
+        exit 0
+      fi
+      rm -f "$d/upstream-finding.json"
+      if [ "{{.inputs.autonomy}}" != "auto" ]; then
+        echo "upstream: not looked at, autonomy is '{{.inputs.autonomy}}' and filing upstream needs auto"
+        printf LEGACY
+        exit 0
+      fi
+      printf UPSCOUT
+    timeout: 30
+    transitions:
+      - when: 'states.upstream_gate.Output contains "UPSCOUT"'
+        goto: upstream_file
+    on_success: file
+    on_failure: file
+
+  upstream_file:
+    type: call_workflow
+    workflow: file-upstream
+    inputs:
+      repo: "{{.inputs.repo}}"
+      upstream: "{{.inputs.upstream}}"
+      autonomy: "{{.inputs.autonomy}}"
+      finding_file: "{{.env.STATE_DIR}}/tend/{{.inputs.repo}}/upstream-finding.json"
+      draft: "true"
+      scout: "true"
+      dry_run: "{{.inputs.dry_run}}"
+      model: "{{.inputs.model}}"
+    timeout: 1500
+    on_success: file
+    on_failure: file
 
   file:
     type: step

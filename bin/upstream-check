@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# The breaker of ADR 0043, per upstream repository. Two issues the dot filed
+# there that the maintainers closed as not planned or invalid, in a row, switch
+# filing to that upstream off until a person turns it back on.
+#
+#   bin/upstream-check check [OWNER/REPO ...]   look at the issues filed, trip the switch if needed
+#                                               (no argument: every upstream with a ledger)
+#   bin/upstream-check status                   one line per upstream: on or off
+#   bin/upstream-check reset OWNER/REPO         a person turns it back on
+#
+# It reads STATE_DIR/upstream/<owner>__<repo>/ledger.tsv (the `filed` rows keep
+# the issue URL) and asks `gh issue view` for each issue's state. It only reads
+# GitHub. Tripping writes STATE_DIR/upstream/<owner>__<repo>/off; the file-upstream
+# workflow stops while that file exists.
+#
+# "Closed as invalid": the issue is closed and its state reason is NOT_PLANNED
+# (or DUPLICATE), or it carries the label invalid, wontfix or "not a bug".
+# "In a row": of the issues that ended closed, the two filed last, whatever their
+# order of closing; one closed as done breaks the run. An issue still open counts
+# for nothing either way. What the maintainers wrote is never read, only those
+# fields.
+#
+# Exit: 0 nothing tripped, 10 an upstream was tripped by this call, 2 bad usage.
+set -euo pipefail
+
+state=${STATE_DIR:-/state}
+root=$state/upstream
+
+usage() { sed -n '2,20p' "$0" >&2; exit 2; }
+
+valid() { [[ ${1:-} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; }
+
+# invalid_closure OWNER/REPO NUMBER: prints invalid, valid (closed otherwise) or open.
+verdict() {
+  local json
+  if ! json=$(gh issue view "$2" --repo "$1" --json state,stateReason,labels 2>/dev/null); then
+    echo unknown
+    return
+  fi
+  printf '%s' "$json" | jq -r '
+    if (.state | ascii_downcase) != "closed" then "open"
+    elif ((.stateReason // "") | ascii_upcase) as $r | ($r == "NOT_PLANNED" or $r == "DUPLICATE") then "invalid"
+    elif ([.labels[]?.name | ascii_downcase] | any(. == "invalid" or . == "wontfix" or . == "not a bug")) then "invalid"
+    else "valid" end' 2>/dev/null || echo unknown
+}
+
+check_one() { # OWNER/REPO ; returns 10 when tripped by this call
+  local repo=$1 slug u ledger url num v last=() refs=() out
+  slug=${repo//\//__}
+  u=$root/$slug
+  ledger=$u/ledger.tsv
+  if [ -e "$u/off" ]; then
+    echo "$repo: already off"
+    return 0
+  fi
+  [ -f "$ledger" ] || { echo "$repo: no ledger"; return 0; }
+  # Newest filed first.
+  while IFS=$'\t' read -r _ _ kind _ url _; do
+    [ "$kind" = filed ] || continue
+    num=${url##*/}
+    [[ $num =~ ^[0-9]+$ ]] || continue
+    v=$(verdict "$repo" "$num")
+    case "$v" in
+      invalid|valid) last+=("$v"); refs+=("$url") ;;
+    esac
+    [ "${#last[@]}" -lt 2 ] || break
+  done < <(sort -t$'\t' -k1,1nr "$ledger")
+  if [ "${#last[@]}" = 2 ] && [ "${last[0]}" = invalid ] && [ "${last[1]}" = invalid ]; then
+    out="two issues in a row closed as invalid: ${refs[0]} ${refs[1]}"
+    {
+      printf '%s\n' "$out"
+      printf 'at: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'reset: bin/upstream-check reset %s\n' "$repo"
+    } > "$u/off"
+    echo "$repo: switched off, $out"
+    return 10
+  fi
+  echo "$repo: stays on"
+}
+
+cmd=${1:-}
+[ -n "$cmd" ] || usage
+shift || true
+case "$cmd" in
+  check)
+    repos=("$@")
+    if [ "${#repos[@]}" = 0 ]; then
+      for f in "$root"/*/ledger.tsv; do
+        [ -f "$f" ] || continue
+        slug=${f%/ledger.tsv}
+        slug=${slug##*/}
+        case "$slug" in _*) continue ;; esac
+        repos+=("${slug/__//}")
+      done
+    fi
+    rc=0
+    for r in ${repos[@]+"${repos[@]}"}; do
+      valid "$r" || { echo "upstream-check: bad repository '$r'" >&2; exit 2; }
+      one=0
+      check_one "$r" || one=$?
+      [ "$one" != 10 ] || rc=10
+    done
+    exit "$rc"
+    ;;
+  status)
+    for d in "$root"/*/; do
+      [ -d "$d" ] || continue
+      slug=${d%/}
+      slug=${slug##*/}
+      case "$slug" in _*) continue ;; esac
+      if [ -e "$d/off" ]; then echo "${slug/__//}: off ($(head -n1 "$d/off"))"; else echo "${slug/__//}: on"; fi
+    done
+    ;;
+  reset)
+    valid "${1:-}" || usage
+    rm -f "$root/${1//\//__}/off"
+    echo "$1: filing is on again"
+    ;;
+  *) usage ;;
+esac

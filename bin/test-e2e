@@ -5,7 +5,7 @@
 # repository. See docs/e2e.md for the matrix, the fakes and the known defects.
 #
 #   bin/test-e2e                 everything
-#   bin/test-e2e fix-issue       one section: fix-issue review classify held baseline
+#   bin/test-e2e fix-issue       one section: fix-issue review classify held baseline upstream
 #   E2E_KEEP=1 bin/test-e2e ...  keep the scratch trees (their paths are printed)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -28,6 +28,9 @@ want() { [ "$only" = all ] || [ "$only" = "$1" ]; }
 BASELINE_REV=0a28bc8~1
 
 CEILINGS="observe propose act auto"
+
+# The commit before ADR 0043 was implemented: its tend-repo is the legacy one.
+UPSTREAM_BASE_REV=44ae246
 
 # ---------------------------------------------------------------- fix-issue --
 # fix_case MODE CEILING CLASS: one fix-issue run on a fresh case, left in $T.
@@ -535,9 +538,256 @@ section_baseline() {
   done
 }
 
+# ---------------------------------------------------------------- upstream --
+# file-upstream and the tend-repo hook (ADR 0043). UP is the one listed upstream.
+UP=up/tool
+UPSLUG=up__tool
+
+# up_case LABEL [full|nolog] [upstream] [title]: a case with a finding on disk.
+up_case() {
+  local label=$1 ev=${2:-full} tgt=${3:-$UP} title=${4:-"Tool crashes on an empty config"}
+  case_new "upstream $label"
+  mkdir -p "$T/state/f"
+  jq -n --arg t "$title" --arg u "$tgt" --arg ev "$ev" '{title:$t, upstream:$u,
+    evidence:{command:"tool run --config empty.toml", versions:"tool 1.2.3, go 1.24",
+      log:(if $ev == "nolog" then "" else "panic: nil map in loadConfig\n  at config.go:41" end),
+      expected:"a clear error about the empty file"}}' > "$T/state/f/finding.json"
+}
+up_ledger() { echo "$T/state/upstream/$UPSLUG/ledger.tsv"; }
+up_filed() { grep -c "	filed	" "$(up_ledger)" 2>/dev/null || true; }
+# up_run CEILING [key=value ...]
+up_run() {
+  local aut=$1
+  shift
+  run_wf file-upstream repo=$REPO "upstream=$UP=${CAP:-2}" "autonomy=$aut" "finding_file=$T/state/f/finding.json" "$@"
+}
+up_created() { gh_once "^gh issue create --repo $UP "; }
+# Nothing was written anywhere: no issue, no comment, no pull request.
+up_no_write() { gh_none '^gh issue (create|comment|edit|close)' && gh_none '^gh pr '; }
+# Only creates, only on the upstream.
+up_only_create() { gh_none '^gh issue (comment|edit|close)' && gh_none '^gh pr ' && gh_none "^gh issue create --repo $REPO"; }
+up_decision() { grep -q "$1" "$T/state/upstream/decisions.tsv"; }
+up_posted() { cat "$T/fake/posted/"*issue-create.md; }
+up_posted_has() { up_posted | grep -q -- "$1"; }
+up_posted_lacks() { ! up_posted | grep -q -- "$1"; }
+
+section_upstream() {
+  say "== upstream: file-upstream and the tend-repo hook (ADR 0043) =="
+  local rec
+
+  up_case "auto with evidence"
+  up_run auto
+  check "upstream auto: run succeeds" test "$RC" = 0
+  check "upstream auto: one issue created on the upstream" up_created
+  check "upstream auto: no agent step without draft" agent_idle draft-upstream
+  check "upstream auto: only a create on the upstream" up_only_create
+  check "upstream auto: the body says an automated agent filed it, naming the dot" up_posted_has 'Filed by an automated agent (the dot `tester`)'
+  check "upstream auto: the body ends with the machine marker" bash -c "up_posted() { cat $T/fake/posted/*issue-create.md; }; up_posted | tail -n1 | grep -Eq '^<!-- opencode-dots:file-upstream:[0-9a-f]{16} -->\$'"
+  check "upstream auto: the body carries the evidence" up_posted_has 'panic: nil map in loadConfig'
+  check "upstream auto: the body carries the versions" up_posted_has 'tool 1.2.3'
+  check "upstream auto: the body names no own repository" up_posted_lacks "$REPO"
+  check "upstream auto: a filed row is in the ledger" test "$(up_filed)" = 1
+  case_done
+
+  up_case "auto with a drafting agent"
+  up_run auto draft=true
+  check "upstream draft: the agent drafted" agent_ran draft-upstream
+  check "upstream draft: the draft title is used" gh_some '^gh issue create --repo up/tool --title Drafted: tool crashes'
+  check "upstream draft: a forged marker in the draft is dropped, one marker remains" test "$(up_posted | grep -c 'opencode-dots:file-upstream')" = 1
+  check "upstream draft: a mention is defused" up_posted_has '@ someone'
+  check "upstream draft: no live mention" up_posted_lacks '@someone'
+  check "upstream draft: the footer is still there" up_posted_has 'Filed by an automated agent'
+  case_done
+
+  up_case "a draft that was not written falls back to the evidence"
+  FAKE_DRAFT=none up_run auto draft=true
+  check "upstream draft missing: the evidence body is filed" up_posted_has 'panic: nil map'
+  check "upstream draft missing: with the original title" gh_some '^gh issue create --repo up/tool --title Tool crashes on an empty config'
+  case_done
+
+  up_case "refused at act"
+  up_run act
+  check "upstream act: run succeeds" test "$RC" = 0
+  check "upstream act: no write at all" up_no_write
+  check "upstream act: the refusal is recorded" up_decision 'gate said 5'
+  check "upstream act: the gate reason is in the log" grep -q 'needs auto' "$T/out.log"
+  check "upstream act: nothing held" test "$(held_of file-issue)" = 0
+  case_done
+
+  up_case "held at propose, then released"
+  up_run propose
+  check "upstream propose: nothing created" up_no_write
+  check "upstream propose: one held record" test "$(held_of file-issue)" = 1
+  rec=$(held_id file-issue)
+  check "upstream propose: the record names the target" grep -qx "target: $UP" "$T/state/held/$rec"
+  check "upstream propose: the record names the title" grep -qx 'title: Tool crashes on an empty config' "$T/state/held/$rec"
+  up_run propose
+  check "upstream propose: the same finding is not held twice" test "$(held_of file-issue)" = 1
+  up_run act "release=$rec"
+  check "upstream release: the issue is created once" up_created
+  check "upstream release: the record moved to released/" test -e "$T/state/held/released/$rec" -a ! -e "$T/state/held/$rec"
+  check "upstream release: the body is the held one, footer included" up_posted_has 'Filed by an automated agent'
+  check "upstream release: a filed row follows the held row" test "$(up_filed)" = 1
+  case_done
+
+  up_case "release of a record that is not file-issue"
+  mkdir -p "$T/state/held"
+  printf 'action: comment\nref: x/y#1\nartifact: none\n' > "$T/state/held/x-comment.txt"
+  up_run act release=x-comment.txt
+  check "upstream release: a comment record is refused" up_no_write
+  case_done
+
+  up_case "note at observe"
+  up_run observe
+  check "upstream observe: one note" test "$(note_of file-issue)" = 1
+  check "upstream observe: nothing written" up_no_write
+  case_done
+
+  up_case "duplicate by title, open"
+  printf '[{"number":5,"title":"Tool crashes on empty config","body":"x","state":"OPEN","url":"https://github.com/up/tool/issues/5"}]\n' > "$T/fake/gh/up-issues-up_tool.json"
+  up_run auto
+  check "upstream duplicate: nothing created" up_no_write
+  check "upstream duplicate: the reason names the issue" up_decision 'duplicate on up/tool: #5 (open)'
+  check "upstream duplicate: the ledger keeps a skipped row" grep -q '	skipped	' "$(up_ledger)"
+  check "upstream duplicate: the search covered open and closed" gh_some '^gh issue list --repo up/tool --state all'
+  up_run auto
+  check "upstream duplicate: a second run stops on the ledger without a new search" test "$(gh_count '^gh issue list')" = 1
+  case_done
+
+  up_case "duplicate by error string, closed"
+  printf '[{"number":9,"title":"Unrelated words here","body":"we see panic: nil map in loadConfig again","state":"CLOSED","url":"https://github.com/up/tool/issues/9"}]\n' > "$T/fake/gh/up-issues-up_tool.json"
+  up_run auto
+  check "upstream duplicate (closed, same error): nothing created" up_no_write
+  check "upstream duplicate (closed, same error): recorded" up_decision '#9 (closed)'
+  case_done
+
+  up_case "duplicate search fails"
+  printf 'not json\n' > "$T/fake/gh/up-issues-up_tool.json"
+  up_run auto
+  check "upstream unreadable search answer: nothing created" up_no_write
+  case_done
+
+  up_case "weekly cap reached"
+  mkdir -p "$T/state/upstream/$UPSLUG"
+  now=$(date +%s)
+  for k in 3 4; do printf '%s\t-\tfiled\th%s\thttps://github.com/up/tool/issues/%s\told\n' "$((now - k * 86400))" "$k" "$k" >> "$(up_ledger)"; done
+  up_run auto
+  check "upstream weekly cap: nothing created" up_no_write
+  check "upstream weekly cap: recorded" up_decision 'weekly cap reached for up/tool (2 of 2)'
+  check "upstream weekly cap: no search was made" gh_none '^gh issue list'
+  case_done
+
+  up_case "daily cap reached"
+  mkdir -p "$T/state/upstream/$UPSLUG"
+  printf '%s\t-\tfiled\th1\thttps://github.com/up/tool/issues/1\trecent\n' "$(( $(date +%s) - 3600 ))" >> "$(up_ledger)"
+  CAP=20 up_run auto
+  check "upstream daily cap: nothing created though the week allows 20" up_no_write
+  check "upstream daily cap: recorded" up_decision 'daily cap reached'
+  case_done
+
+  up_case "no evidence" nolog
+  up_run auto
+  check "upstream no evidence: run succeeds" test "$RC" = 0
+  check "upstream no evidence: no gh call on a tracker" gh_none '^gh issue'
+  check "upstream no evidence: an internal note is written" test "$(note_of file-issue)" = 1
+  check "upstream no evidence: the reason is recorded" up_decision 'no evidence'
+  case_done
+
+  up_case "unlisted repository" full other/thing
+  up_run auto
+  check "upstream unlisted: nothing created" up_no_write
+  check "upstream unlisted: no gh call about issues" gh_none '^gh issue'
+  check "upstream unlisted: recorded" up_decision 'other/thing is not in the upstream list'
+  case_done
+
+  up_case "the repository itself" full "$REPO"
+  up_run auto
+  check "upstream self: nothing created" up_no_write
+  case_done
+
+  up_case "no ceiling"
+  up_run ""
+  check "upstream without a ceiling: nothing created" up_no_write
+  check "upstream without a ceiling: recorded" up_decision 'no autonomy ceiling'
+  case_done
+
+  up_case "off switch after two invalid closures"
+  mkdir -p "$T/state/upstream/$UPSLUG"
+  now=$(date +%s)
+  for k in 10 9; do
+    printf '%s\t-\tfiled\th%s\thttps://github.com/up/tool/issues/%s\told %s\n' "$((now - k * 86400))" "$k" "$k" "$k" >> "$(up_ledger)"
+    printf '{"state":"CLOSED","stateReason":"NOT_PLANNED","labels":[]}\n' > "$T/fake/gh/up-issue-up_tool-$k.json"
+  done
+  (cd "$REPO_ROOT" && PATH="$E2E_DIR/fakes:$PATH" FAKE_DIR="$T/fake" STATE_DIR="$T/state" bin/upstream-check check "$UP" > "$T/check.out" 2>&1)
+  check "upstream breaker: upstream-check tripped (exit 10)" test "$?" = 10
+  check "upstream breaker: the off file exists" test -s "$T/state/upstream/$UPSLUG/off"
+  up_run auto
+  check "upstream breaker: filing stops" up_no_write
+  check "upstream breaker: the reason says switched off" up_decision 'switched off'
+  rm -f "$T/state/upstream/$UPSLUG/off" "$T/state/upstream/$UPSLUG/ledger.tsv"
+  up_run auto
+  check "upstream breaker: after a reset the finding files" up_created
+  case_done
+
+  say "-- upstream: the tend-repo hook --"
+  local tf='[{"title":"Own bug","body":"b","confidence":"high","evidence":"x","issue":true}]'
+  local uf='{"title":"Tool crashes on an empty config","upstream":"up/tool","evidence":{"command":"tool run","versions":"tool 1.2.3","log":"panic: nil map","expected":"an error"}}'
+  local uf2='{"title":"Other crash","upstream":"other/thing","evidence":{"command":"tool run","versions":"tool 1.2.3","log":"panic: nil map","expected":"an error"}}'
+  case_new "tend upstream hook"
+  FAKE_TEND_FINDING="$tf" FAKE_UPSTREAM_FINDING="$uf" run_wf tend-repo repo=$REPO auto_merge=false autonomy=auto "upstream=$UP=2"
+  check "tend hook: the run succeeds" test "$RC" = 0
+  check "tend hook: the scout ran" agent_ran scout
+  check "tend hook: the issue went to the upstream" up_created
+  check "tend hook: the subject is recorded in raised.txt as upstream" grep -q '^upstream	Tool crashes' "$T/state/tend/$REPO/raised.txt"
+  case_done
+
+  case_new "tend upstream hook, unlisted target"
+  FAKE_TEND_FINDING="$tf" FAKE_UPSTREAM_FINDING="$uf2" run_wf tend-repo repo=$REPO auto_merge=false autonomy=auto "upstream=$UP=2"
+  check "tend hook unlisted: nothing on any upstream" gh_none '^gh issue create --repo (up|other)/'
+  check "tend hook unlisted: the own finding is filed as before" gh_once "^gh issue create --repo $REPO"
+  case_done
+
+  case_new "tend upstream hook below auto"
+  FAKE_TEND_FINDING="$tf" FAKE_UPSTREAM_FINDING="$uf" run_wf tend-repo repo=$REPO auto_merge=false autonomy=act "upstream=$UP=2"
+  check "tend hook at act: the scout never runs" agent_idle scout
+  check "tend hook at act: nothing upstream" gh_none '^gh issue create --repo up/'
+  case_done
+
+  say "-- upstream: tend-repo with no upstream key equals the run before the feature --"
+  local base=$E2E_TMP/up-baseline-wf which
+  if ! git rev-parse --verify -q "$UPSTREAM_BASE_REV^{commit}" >/dev/null; then
+    say "SKIP  upstream baseline: $UPSTREAM_BASE_REV is not in this clone"
+    return
+  fi
+  rm -rf "$base"
+  mkdir -p "$base"
+  git archive "$UPSTREAM_BASE_REV" workflows | tar -x -C "$base"
+  for which in old new; do
+    if [ "$which" = old ]; then case_new "tend baseline old" "$base/workflows"; else case_new "tend baseline new"; fi
+    FAKE_TEND_FINDING="$tf" run_wf tend-repo repo=$REPO auto_merge=false autonomy=act
+    {
+      echo "rc=$RC"
+      norm_log
+      echo "--- posted"
+      for f in "$T/fake/posted/"*; do [ -f "$f" ] && { basename "$f" | sed 's/^[0-9]*-//'; cat "$f"; }; done
+      echo "--- state"
+      (cd "$T/state" && find . -type f ! -name '*.lock' | grep -vE '\.fake-|/work/|push\.log' | sort)
+      echo "--- raised"
+      cat "$T/state/tend/$REPO/raised.txt" 2>/dev/null
+      echo "--- agents"
+      sort "$T/fake/agent.steps"
+    } > "$E2E_TMP/ub.$which"
+    case_done
+  done
+  check "tend baseline: no upstream key, the run equals the one before (calls, bodies, state, agents)" cmp -s "$E2E_TMP/ub.old" "$E2E_TMP/ub.new"
+  check "tend baseline: the compared record shows the own issue" grep -q 'gh issue create' "$E2E_TMP/ub.new"
+  cmp -s "$E2E_TMP/ub.old" "$E2E_TMP/ub.new" || diff "$E2E_TMP/ub.old" "$E2E_TMP/ub.new" | head -20
+}
+
 want fix-issue && section_fix_issue
 want classify && section_classify
 want review && section_review
 want held && section_held
 want baseline && section_baseline
+want upstream && section_upstream
 summary

@@ -96,6 +96,25 @@ AUTONOMY=auto STATE_DIR=$state GATE_PR_AUTHOR=me DOT_LOGIN=me GATE_REF=unknown "
 [ $? = 0 ] || { echo "FAIL breaker applied without a repository"; fail=1; }
 rm -rf "$state/breaker"
 
+# file-issue (ADR 0043): auto allows, propose holds, observe notes, act refuses.
+check "" "" file-issue 0
+check auto "" file-issue 0
+check propose "" file-issue 3
+check observe "" file-issue 4
+check act "" file-issue 5
+check auto 3 file-issue 4
+AUTONOMY=act STATE_DIR=$state GATE_REF=up/tool "$gate" file-issue 2>"$state/err"
+grep -q 'writing on an upstream tracker needs auto' "$state/err" || { echo "FAIL file-issue act reason"; fail=1; }
+rm -rf "$state/held"
+AUTONOMY=propose STATE_DIR=$state GATE_REF=up/tool GATE_ARTIFACT=/x/issue.md GATE_TITLE="A title" GATE_TARGET=up/tool "$gate" file-issue 2>/dev/null
+f=$(ls "$state"/held/*file-issue*.txt)
+grep -qx 'target: up/tool' "$f" && grep -qx 'title: A title' "$f" && grep -qx 'artifact: /x/issue.md' "$f" || { echo "FAIL file-issue held record"; fail=1; }
+# A tripped breaker on the dot's own repository lowers auto to act: refused.
+mkdir -p "$state/breaker"; echo '{}' > "$state/breaker/o__r.json"
+AUTONOMY=auto STATE_DIR=$state GATE_REF=up/tool GATE_REPO=o/r "$gate" file-issue 2>/dev/null
+[ $? = 5 ] || { echo "FAIL file-issue allowed with a tripped breaker"; fail=1; }
+rm -rf "$state/breaker" "$state/held"
+
 # Bad input is refused, never allowed.
 check bogus 1 comment 5
 check auto 9 comment 5

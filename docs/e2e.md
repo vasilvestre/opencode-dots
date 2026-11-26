@@ -7,7 +7,7 @@ and the publishing steps, and then asks what reached "GitHub".
 
 ```bash
 bin/test-e2e                  # everything, about a minute
-bin/test-e2e fix-issue        # one section: fix-issue classify review held baseline
+bin/test-e2e fix-issue        # one section: fix-issue classify review held baseline upstream
 E2E_KEEP=1 bin/test-e2e held  # keep the scratch trees (paths are printed)
 ```
 
@@ -71,6 +71,18 @@ request body, comments), the files on every origin branch, the list of state
 files, the agent steps that ran (so no classification call), and that no note or
 held record exists. If the commit is not in the clone (shallow checkout) the
 section is skipped with a message.
+
+## Upstream (ADR 0043)
+
+Section `upstream` runs `file-upstream` and the `tend-repo` hook with the fake `gh` (`issue list`,
+`issue create` and canned upstream issues `up-issues-<owner_repo>.json`, `up-issue-<owner_repo>-<N>.json`)
+and the stub agent (`draft-upstream`, `learn`, `scout`). Cases: filed at `auto` (footer, marker,
+evidence, create only), a drafting agent, a missing draft, refused at `act`, held at `propose` and
+released, note at `observe`, duplicate by title and by error string (open and closed), unreadable
+search, weekly and daily cap, no evidence, unlisted repository, the repository itself, no ceiling,
+the off switch after two closures (`bin/upstream-check`), the tend hook (listed, unlisted, below
+`auto`), and the legacy baseline: `tend-repo` before ADR 0043 (`UPSTREAM_BASE_REV`) against the current
+one with no `upstream` input, compared on calls, bodies, state and agent steps.
 
 ## Defects found by the harness, now fixed
 
