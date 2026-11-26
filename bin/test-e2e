@@ -1002,7 +1002,63 @@ YAML
   done
 }
 
+# -------------------------------------------------------------------- race --
+# Two runs on two pull requests of one repository share one clone. The old
+# workflows read the clone's fetch-head file after their fetch, so a run could
+# check out the other one's commit. A git shim sleeps after each fetch to widen
+# the window, so the race is provoked on purpose. RACE_WF_DIR points the test at
+# another set of workflows (to show it fails on the old ones).
+section_race() {
+  say "== race: two review-pr runs on one clone, at the same time =="
+  local wf i n sha sha7 sha8 pids shimdir=$E2E_TMP/gitshim real
+  for wf in review-pr reply-pr fix-ci fix-issue tend-repo; do
+    check "$wf never reads the shared fetch-head file" bash -c "! grep -q FETCH_HEAD '${RACE_WF_DIR:-workflows}/$wf.yaml'"
+  done
+  real=$(command -v git)
+  mkdir -p "$shimdir"
+  cat > "$shimdir/git" <<SHIM
+#!/usr/bin/env bash
+"$real" "\$@"; rc=\$?
+case " \$* " in *" fetch "*) sleep "0.\$((RANDOM % 4 + 2))" ;; esac
+exit \$rc
+SHIM
+  chmod +x "$shimdir/git"
+  for i in 1 2 3 4 5; do
+    case_new "race $i" "${RACE_WF_DIR:-$REPO_ROOT/workflows}"
+    seed_pr 7 fix/7-20260101-0000 "$LOGIN"; sha7=$PR_SHA
+    # A later date makes the second commit differ from the first (same tree).
+    GIT_AUTHOR_DATE=2026-01-02T00:00:00Z GIT_COMMITTER_DATE=2026-01-02T00:00:00Z seed_pr 8 feature/other "$LOGIN"; sha8=$PR_SHA
+    # One clone for both, made before they start so they do not race to clone.
+    mkdir -p "$T/work/tester"
+    git clone -q --filter=blob:none --no-checkout "https://github.com/$REPO.git" "$T/work/$REPO" 2>/dev/null
+    pids=()
+    for n in 7 8; do
+      sha=$sha7; [ "$n" = 8 ] && sha=$sha8
+      (
+        sleep "0.$((RANDOM % 3))"
+        cd "$T/proj" || exit 99
+        export PATH="$shimdir:$E2E_DIR/fakes:$PATH" HOME="$T/home" FAKE_DIR="$T/fake" \
+          STATE_DIR="$T/state" WORK_ROOT="$T/work" REPOS_MAP="$T/repos.map" DOTS_HOME="$T/dots" \
+          GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_CONFIG_SYSTEM=/dev/null GIT_ALLOW_PROTOCOL=file \
+          GIT_TERMINAL_PROMPT=0 CI_WAIT_SECONDS=2 FAKE_REVIEW=clean-merge
+        unset DISCORD_WEBHOOK GH_TOKEN GITHUB_TOKEN
+        awf run review-pr --storage "$T/awf$n" --output buffered \
+          --input repo=$REPO --input pr=$n --input "sha=$sha" > "$T/out.$n.log" 2>&1
+      ) &
+      pids+=($!)
+    done
+    wait "${pids[@]}"
+    # The fetch step prints the HEAD of the work tree it made; the tree itself is
+    # removed when the run ends.
+    check "race $i: run 7 work HEAD is its own pull request" test "$(sed -n 's/.*checked out \([0-9a-f]\{40\}\).*/\1/p' "$T/out.7.log")" = "$sha7"
+    check "race $i: run 8 work HEAD is its own pull request" test "$(sed -n 's/.*checked out \([0-9a-f]\{40\}\).*/\1/p' "$T/out.8.log")" = "$sha8"
+    check "race $i: no private fetch ref left in the clone" test -z "$(git -C "$T/work/$REPO" for-each-ref refs/dots)"
+    case_done
+  done
+}
+
 want fix-issue && section_fix_issue
+want race && section_race
 want classify && section_classify
 want review && section_review
 want held && section_held

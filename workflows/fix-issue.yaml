@@ -100,10 +100,16 @@ states:
         [ -d "$src/.git" ] || git clone --quiet --filter=blob:none --no-checkout "$url" "$src"
       fi
       gh auth setup-git
-      git -C "$src" fetch --quiet "$url" "refs/heads/$branch"
+      # Never the clone's fetch-head file: it is one file in a clone every run on this repository
+      # shares, so a concurrent run overwrites it. Fetch into a ref private to
+      # this step run, and delete it on every exit.
+      ref="refs/dots/fetch/fix-issue-{{.inputs.issue}}-$$"
+      trap 'git -C "$src" update-ref -d "$ref" 2>/dev/null || true' EXIT
+      git -C "$src" fetch --quiet "$url" "+refs/heads/$branch:$ref"
       git -C "$src" worktree prune
       git -C "$src" worktree remove --force "$d/work" 2>/dev/null || true
-      git -C "$src" worktree add --quiet --detach "$d/work" FETCH_HEAD
+      git -C "$src" worktree add --quiet --detach "$d/work" "$ref"
+      git -C "$src" update-ref -d "$ref"
       git -C "$d/work" log --oneline -1
 
       # The lessons and memory a tend pass already wrote for this repository.
@@ -278,8 +284,11 @@ states:
       # the pull request opens with conflicts. A rebase that cannot apply is not
       # a reason to lose the work: push as is and let the log say so.
       base=$(cat "$d/default_branch")
-      if git -C "$work" fetch --quiet "https://github.com/$repo.git" "refs/heads/$base"; then
-        if git -C "$work" rebase --quiet FETCH_HEAD; then
+      # A private ref, not the shared fetch-head file: the clone is shared with concurrent runs.
+      rref="refs/dots/fetch/fix-issue-$$-rebase"
+      trap 'git -C "$work" update-ref -d "$rref" 2>/dev/null || true' EXIT
+      if git -C "$work" fetch --quiet "https://github.com/$repo.git" "+refs/heads/$base:$rref"; then
+        if git -C "$work" rebase --quiet "$rref"; then
           echo "rebased onto $base" | tee -a "$d/push.log"
         else
           git -C "$work" rebase --abort

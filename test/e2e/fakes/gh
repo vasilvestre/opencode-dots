@@ -40,6 +40,10 @@ case "${1:-} ${2:-}" in
     case "$*" in *.id*) echo 4242 ;; *) cat "$g/login" ;; esac ;;
   "api repos/"*"/commits"*) # tend-repo survey: the commit list, canned or empty
     if [ -f "$g/commits.json" ]; then emit "$g/commits.json"; else echo '[]'; fi ;;
+  "api repos/"*"/pulls/"*) # the live head of a pull request, from pr-N.json
+    n=${2##*/pulls/}
+    jq -n --arg s "$(jq -r .headRefOid "$g/pr-$n.json")" '{head:{sha:$s}}' > "$g/.pull-$n.json"
+    emit "$g/.pull-$n.json" ;;
   "api repos/"*)
     p=${2#repos/}
     if [ -f "$g/repo-${p//\//_}.json" ]; then

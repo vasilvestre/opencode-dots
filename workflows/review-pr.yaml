@@ -175,14 +175,28 @@ states:
       gh auth setup-git
       # The pull ref lives on the base repository and points at the head commit,
       # fork or not, so the reviewer reads exactly what the pull request shows.
+      # Never the clone's fetch-head file: it is one file in a clone every run on this repository
+      # shares, so a concurrent run overwrites it. Fetch into refs private to
+      # this step run, and delete them on every exit.
+      ref="refs/dots/fetch/review-pr-$$-{{.inputs.pr}}"
+      dref="refs/dots/fetch/review-pr-$$-{{.inputs.pr}}-default"
+      trap 'git -C "$src" update-ref -d "$ref" 2>/dev/null || true; git -C "$src" update-ref -d "$dref" 2>/dev/null || true' EXIT
       git -C "$src" fetch --quiet "https://github.com/{{.inputs.repo}}.git" \
-        "refs/pull/{{.inputs.pr}}/head"
+        "+refs/pull/{{.inputs.pr}}/head:$ref"
       git -C "$src" worktree prune
-      git -C "$src" worktree add --quiet --detach "$d/work" FETCH_HEAD
+      git -C "$src" worktree add --quiet --detach "$d/work" "$ref"
       got=$(git -C "$d/work" rev-parse HEAD)
       echo "checked out $got"
       if [ "$got" != "{{.inputs.sha}}" ]; then
-        echo "warning: head moved since the event, reviewing $got" >&2
+        # Either the pull request moved on since the event (fine: review the new
+        # head), or the checkout is not the pull request at all (a bug: stop).
+        live=$(gh api "repos/{{.inputs.repo}}/pulls/{{.inputs.pr}}" --jq .head.sha 2>/dev/null || true)
+        if [ -n "$live" ] && [ "$live" = "$got" ]; then
+          echo "warning: head moved since the event, reviewing $got" >&2
+        else
+          echo "error: checked out $got, but the event said {{.inputs.sha}} and the pull request head is ${live:-unreadable}; refusing to review the wrong code" >&2
+          exit 1
+        fi
       fi
 
       # The maintainers' charter: .dots/review.md on the DEFAULT branch of the
@@ -194,11 +208,11 @@ states:
       default=$(gh repo view "{{.inputs.repo}}" --json defaultBranchRef \
         --jq .defaultBranchRef.name 2>/dev/null || true)
       if [ -n "$default" ] && git -C "$src" fetch --quiet \
-        "https://github.com/{{.inputs.repo}}.git" "refs/heads/$default" 2>/dev/null; then
-        mode=$(git -C "$src" ls-tree FETCH_HEAD .dots/review.md 2>/dev/null | cut -d' ' -f1)
+        "https://github.com/{{.inputs.repo}}.git" "+refs/heads/$default:$dref" 2>/dev/null; then
+        mode=$(git -C "$src" ls-tree "$dref" .dots/review.md 2>/dev/null | cut -d' ' -f1)
         case "$mode" in
           100644|100755)
-            git -C "$src" show "FETCH_HEAD:.dots/review.md" > "$d/charter.raw" 2>/dev/null || : > "$d/charter.raw"
+            git -C "$src" show "$dref:.dots/review.md" > "$d/charter.raw" 2>/dev/null || : > "$d/charter.raw"
             if [ -s "$d/charter.raw" ]; then
               {
                 echo "Maintainers' charter, read from the default branch ($default)."

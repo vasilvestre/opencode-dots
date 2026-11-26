@@ -120,14 +120,20 @@ states:
         [ -d "$src/.git" ] || git clone --quiet --filter=blob:none --no-checkout "$url" "$src"
       fi
       gh auth setup-git
-      git -C "$src" fetch --quiet "$url" "refs/heads/$branch"
+      # Never the clone's fetch-head file: it is one file in a clone every run on this repository
+      # shares, so a concurrent run overwrites it. Fetch into a ref private to
+      # this step run, and delete it on every exit.
+      ref="refs/dots/fetch/tend-repo-$$"
+      trap 'git -C "$src" update-ref -d "$ref" 2>/dev/null || true' EXIT
+      git -C "$src" fetch --quiet "$url" "+refs/heads/$branch:$ref"
       git -C "$src" worktree prune
       git -C "$src" worktree remove --force "$d/work" 2>/dev/null || true
       # The worktree is disposable. One left by another machine, or by a clone that moved,
       # names a gitdir that does not exist here: `worktree remove` cannot clear it and
       # `worktree add` then refuses the existing directory.
       rm -rf "$d/work"
-      git -C "$src" worktree add --quiet --detach "$d/work" FETCH_HEAD
+      git -C "$src" worktree add --quiet --detach "$d/work" "$ref"
+      git -C "$src" update-ref -d "$ref"
       git -C "$d/work" log --oneline -1
     timeout: 300
     on_success: learn

@@ -86,9 +86,15 @@ states:
         fi
       fi
       gh auth setup-git
-      git -C "$src" fetch --quiet "$url" "refs/heads/$branch"
+      # Never the clone's fetch-head file: it is one file in a clone every run on this repository
+      # shares, so a concurrent run overwrites it. Fetch into a ref private to
+      # this step run, and delete it on every exit.
+      ref="refs/dots/fetch/fix-ci-{{.inputs.pr}}-$$"
+      trap 'git -C "$src" update-ref -d "$ref" 2>/dev/null || true' EXIT
+      git -C "$src" fetch --quiet "$url" "+refs/heads/$branch:$ref"
       git -C "$src" worktree prune
-      git -C "$src" worktree add --quiet --detach "$d/work" FETCH_HEAD
+      git -C "$src" worktree add --quiet --detach "$d/work" "$ref"
+      git -C "$src" update-ref -d "$ref"
       git -C "$d/work" log --oneline -1
 
       # The failing checks and the tail of their logs: the only evidence the
