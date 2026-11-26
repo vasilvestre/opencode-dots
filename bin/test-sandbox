@@ -63,13 +63,63 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
     echo "skip real-container tests: no local image starting with dots- (set DOTS_TEST_IMAGE)"
   else
     work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
-    if bin/sandbox-run "$img" "$work" -- sh -c 'wget -q -T 2 -O- http://1.1.1.1 >/dev/null 2>&1 || curl -s -m 2 http://1.1.1.1 >/dev/null 2>&1'; then
-      bad "network is reachable"; else ok "network blocked"; fi
-    if bin/sandbox-run "$img" "$work" -- sh -c 'touch /x 2>/dev/null'; then bad "root is writable"; else ok "root read-only"; fi
-    if bin/sandbox-run "$img" "$work" -- sh -c 'touch /work/x 2>/dev/null'; then bad "workdir writable by default"; else ok "workdir read-only by default"; fi
-    DOTS_SANDBOX_WRITABLE=1 bin/sandbox-run "$img" "$work" -- sh -c 'touch /work/x' && [ -f "$work/x" ] && ok "workdir writable on request" || bad "workdir writable on request"
-    got=0; DOTS_SANDBOX_TIMEOUT=2 bin/sandbox-run "$img" "$work" -- sh -c 'sleep 30' >/dev/null 2>&1 || got=$?
-    [ "$got" = 124 ] && ok "timeout kills the run" || bad "timeout kills the run ($got)"
+    run() { bin/sandbox-run "$img" "$work" -- "$@"; }
+    # each check is a positive proof: the probe prints a marker the guarantee makes true
+    out=$(run sh -c 'ls /sys/class/net' 2>&1 || true)
+    [ "$out" = lo ] && ok "network: only loopback exists" || bad "network: interfaces are '$out'"
+    out=$(run sh -c 'wget -q -T 3 -O- http://1.1.1.1 >/dev/null 2>&1 && echo reached || echo blocked' 2>&1 || true)
+    [ "$out" = blocked ] && ok "network: outbound connection fails" || bad "network: outbound connection ($out)"
+    out=$(run sh -c 'nc -w 2 -z 1.1.1.1 80 >/dev/null 2>&1 && echo reached || echo blocked' 2>&1 || true)
+    [ "$out" = blocked ] && ok "network: raw tcp connect fails" || bad "network: raw tcp connect ($out)"
+    out=$(run sh -c 'touch /x 2>&1 || echo denied' 2>&1 || true)
+    case "$out" in *denied*) ok "root read-only: write to / fails" ;; *) bad "root read-only ($out)" ;; esac
+    out=$(run sh -c 'echo 1 > /etc/x 2>&1 || echo denied; mkdir /usr/x 2>&1 || echo denied' 2>&1 || true)
+    [ "$(printf '%s\n' "$out" | grep -c denied)" = 2 ] && ok "root read-only: /etc and /usr not writable" || bad "root read-only /etc /usr ($out)"
+    out=$(run sh -c 'grep CapEff /proc/self/status' 2>&1 || true)
+    case "$out" in *0000000000000000) ok "capabilities: effective set empty" ;; *) bad "capabilities ($out)" ;; esac
+    out=$(run sh -c 'grep CapBnd /proc/self/status' 2>&1 || true)
+    case "$out" in *0000000000000000) ok "capabilities: bounding set empty" ;; *) bad "capabilities bounding ($out)" ;; esac
+    out=$(run sh -c 'chown 0:0 /tmp 2>&1 || echo denied' 2>&1 || true)
+    case "$out" in *denied*|*"not permitted"*) ok "capabilities: chown refused" ;; *) bad "capabilities chown ($out)" ;; esac
+    out=$(run sh -c 'grep NoNewPrivs /proc/self/status' 2>&1 || true)
+    case "$out" in *1) ok "no-new-privileges set" ;; *) bad "no-new-privileges ($out)" ;; esac
+    out=$(run id -u 2>&1 || true)
+    [ "$out" = "$(id -u)" ] && ok "runs as the caller's uid" || bad "uid is '$out'"
+    # pids: the same 40 background sleepers fail to fork at a limit of 8 and succeed at 256
+    spawn='for i in $(seq 40); do sleep 2 & done; echo forked; wait'
+    out=$(DOTS_SANDBOX_PIDS=8 run sh -c "$spawn" 2>&1 || true)
+    ctl=$(DOTS_SANDBOX_PIDS=256 run sh -c "$spawn" 2>&1 || true)
+    if printf '%s' "$out" | grep -q "can't fork" && [ "$ctl" = forked ]; then ok "pids limit bites (control passes)"; else bad "pids limit ($out | $ctl)"; fi
+    # memory: 32m limit, allocate ~200m in the shell's memory: the kernel kills it (137)
+    got=0; DOTS_SANDBOX_MEMORY=32m run sh -c 'x=$(head -c 200000000 /dev/zero | tr "\0" a); echo survived' >"$work.out" 2>&1 || got=$?
+    if [ "$got" != 0 ] && ! grep -q survived "$work.out"; then ok "memory limit bites (exit $got)"; else bad "memory limit ($got)"; fi
+    rm -f "$work.out"
+    # tmpfs size cap
+    out=$(DOTS_SANDBOX_TMPFS_SIZE=4m run sh -c 'dd if=/dev/zero of=/tmp/f bs=1M count=20 2>&1 | grep -c "No space" ' 2>&1 || true)
+    [ "$out" = 1 ] && ok "tmpfs size cap bites" || bad "tmpfs size cap ($out)"
+    out=$(run sh -c 'echo hi > /tmp/f && cat /tmp/f' 2>&1 || true)
+    [ "$out" = hi ] && ok "/tmp is writable" || bad "/tmp writable ($out)"
+    out=$(run sh -c 'echo "#!/bin/sh" > /tmp/e; chmod +x /tmp/e; /tmp/e 2>&1 || echo denied' 2>&1 || true)
+    case "$out" in *denied*|*"Permission denied"*) ok "/tmp is noexec" ;; *) bad "/tmp noexec ($out)" ;; esac
+    # WORKDIR: read-only by default, read-write on request, the only writable place besides /tmp
+    if run sh -c 'touch /work/x 2>/dev/null'; then bad "workdir writable by default"; else ok "workdir read-only by default"; fi
+    [ ! -e "$work/x" ] && ok "nothing reached the host workdir" || bad "host workdir was written"
+    chmod 777 "$work"
+    DOTS_SANDBOX_WRITABLE=1 run sh -c 'touch /work/x' && [ -f "$work/x" ] && ok "workdir writable on request" || bad "workdir writable on request"
+    out=$(DOTS_SANDBOX_WRITABLE=1 run sh -c 'for d in / /etc /usr /bin /root /var /home; do touch $d/probe 2>/dev/null && echo writable:$d; done; true' 2>&1 || true)
+    [ -z "$out" ] && ok "writable workdir leaves the rest of the root read-only" || bad "unexpected writable places: $out"
+    # timeout: the sleeper dies, status is 124, and no container is left behind
+    got=0; DOTS_SANDBOX_TIMEOUT=2 run sleep 30 >/dev/null 2>&1 || got=$?
+    [ "$got" = 124 ] && ok "timeout kills the run (124)" || bad "timeout kills the run ($got)"
+    sleep 1
+    left=$(docker ps -aq --filter name=dots-sandbox- | wc -l)
+    [ "$left" = 0 ] && ok "timeout leaves no container behind" || bad "$left container(s) left after timeout"
+    # the command's own exit status passes through
+    got=0; run sh -c 'exit 7' >/dev/null 2>&1 || got=$?
+    [ "$got" = 7 ] && ok "exit status passes through" || bad "exit status ($got)"
+    # an image outside the prefix is refused before docker runs, even when it exists locally
+    got=0; bin/sandbox-run alpine:latest "$work" -- true >/dev/null 2>&1 || got=$?
+    [ "$got" = 2 ] && ok "existing image outside the prefix refused" || bad "image outside prefix ($got)"
   fi
 else
   echo "skip real-container tests: docker not available"
