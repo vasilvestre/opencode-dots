@@ -83,7 +83,7 @@ render_units() {
     *) at=$DOTS_HOME ;;
   esac
   local src="$DOTS_HOME/systemd" dst="$HOME/.config/systemd/user" u
-  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer dots-workspace-sync.service dots-workspace-sync.timer dots-claim.service dots-claim.timer; do
+  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer dots-workspace-sync.service dots-workspace-sync.timer dots-claim.service dots-claim.timer dots-awf-gh-executor@.service dots-awf-gh-executor@.timer; do
     [ -f "$src/$u" ] || { warn "$src/$u is missing, skipped"; continue; }
     sed -e "s|%h/projects/perso/opencode-dots|$at|g" \
       -e "s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |" \
