@@ -51,7 +51,7 @@ install_opencode() {
     major=$(opencode --version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\)\..*/\1/p' | head -1)
   fi
   if [ "$major" = "$OPENCODE_MAJOR" ]; then
-    log "opencode $(opencode --version): already installed"
+    log "already installed: $(opencode --version)"
     return
   fi
   log "opencode (installer: $OPENCODE_INSTALL_URL)"

@@ -41,7 +41,7 @@ run_user
 run_user
 run_as_dots() { su - dots -c "export PATH=\$HOME/.local/bin:\$HOME/.opencode/bin:\$PATH; $*"; }
 check "awf 0.12.0" run_as_dots 'awf --version | grep -q 0.12.0'
-check "opencode major 2" run_as_dots 'opencode --version | grep -q "^2\\."'
+check "opencode major 2" run_as_dots 'opencode --version | grep -q "v2\\."'
 check "repository cloned" test -d /home/dots/dots/.git
 check "workflows linked for awf" test -L /home/dots/.config/awf/workflows
 for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer; do
