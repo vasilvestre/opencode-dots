@@ -34,6 +34,10 @@ disk as ES modules, with no build step.
 | `/api/save` (PUT) | writes one editable file, keeps a `.bak` |
 | `/api/models` (GET) | lists presets, migration status, model variables with preset and override, and available local model IDs |
 | `/api/models` (PUT) | updates presets and overrides, then projects resolved workflow defaults |
+| `/api/autonomy` | `state/notes/`, `state/held/` and `state/held/released/` (what the autonomy ceiling kept), read only |
+| `/api/autonomy/artifact?kind=&name=` | the artifact one gate file points at, as text, inside `state/` only |
+| `/api/autonomy/release` (POST) | starts `publish-held` through awf with `{id}`, after checking the record; the dashboard never publishes |
+| `/api/health` | `state/health.json` written by `bin/health --json`, with its modification time; read only |
 | `/api/notifications` (GET) | reads the Discord webhook setting from `notifications.json`, or the disabled defaults |
 | `/api/notifications` (PUT) | saves the Discord webhook setting under the same write lock and keeps a `.bak` |
 | `/awf/*` | proxied to `AWF_URL`, default `http://127.0.0.1:2511` |
@@ -136,6 +140,21 @@ counted once.
   dialog with `repo` and `pr` filled in, so nothing starts without a click.
 - `/api/ask/answer` is idempotent per `run_id`: a page that reloads mid-run
   appends nothing twice.
+
+## AUTONOMY AND HEALTH
+
+`release.go` holds both. `POST /api/autonomy/release` takes `{"id": "<held file
+name>"}` and checks, in order: `POST`, trusted `Host` and `Origin`, JSON content
+type, 4 KiB cap, a gate file name (`autonomyNameRE`), not already under
+`held/released/` (409), a regular file under `held/` (404). It then calls
+`startRun("publish-held", {id})`, the same path as Ask, never `awf run`, and
+answers `{execution_id}`. awf refusing the run gives 502. The workflow moves the
+record; the dashboard never does and holds no GitHub token (ADR 0040). awf's run
+request takes inputs only, so `RELEASED_BY` cannot be set here: the log names the
+account behind the workflow's token. `GET /api/autonomy` also lists `released`.
+`GET /api/health` answers `{present:false}` for a missing or unparsable file,
+else `overall`, `checks` and `mtime`; the page treats a file over 30 minutes old
+as stale.
 
 ## RULES
 

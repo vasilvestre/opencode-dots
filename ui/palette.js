@@ -9,6 +9,8 @@ const SECTIONS = [
   ["Repos", "repos"],
   ["Cost", "costs"],
   ["Memory", "memory"],
+  ["Autonomy", "autonomy"],
+  ["Health", "health"],
 ];
 
 // Ctrl+K: jump to a section, a workflow or a config file by typing a few

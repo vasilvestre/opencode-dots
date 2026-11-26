@@ -163,6 +163,8 @@ func main() {
 	mux.HandleFunc("/api/claims", d.claims)
 	mux.HandleFunc("/api/autonomy", d.autonomy)
 	mux.HandleFunc("/api/autonomy/artifact", d.autonomyArtifact)
+	mux.HandleFunc("/api/autonomy/release", d.autonomyRelease)
+	mux.HandleFunc("/api/health", d.health)
 	mux.HandleFunc("/api/notifications", d.notifications)
 	mux.HandleFunc("/api/source", d.source)
 	mux.HandleFunc("/api/save", d.saveFile)

@@ -181,8 +181,9 @@ func (d *dash) autonomy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string][]gateItem{
-		"notes": d.gateItems("notes"),
-		"held":  d.gateItems("held"),
+		"notes":    d.gateItems("notes"),
+		"held":     d.gateItems("held"),
+		"released": d.releasedItems(),
 	})
 }
 
