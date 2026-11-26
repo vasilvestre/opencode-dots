@@ -13,6 +13,10 @@ decide when.
 | `fix-ci` | `awf-gh`, on `checks-failed` | yes, one per red commit | yes, on your own pull request branch |
 | `ask-pr` | the Ask button on a pull request card | yes, one per message | no |
 
+A hidden workflow, `_classify-item`, is not in this table: another workflow
+calls it, or you run it by hand. It rates one work item 1, 2 or 3 and posts
+nothing. See `docs/classification.md`.
+
 Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
 that is an absolute host path, because the local opencode server resolves paths
 on the host.
@@ -21,6 +25,26 @@ Every workflow that writes asks `bin/held REPO BRANCH` before it commits or
 pushes. Exit 3 means a human holds a claim on that branch, so the run writes
 `stuck.md` (or `held.md`) and pushes nothing. Exit 1 means the check could not
 run, which logs a line and does not block. See `docs/claims.md`.
+
+## Autonomy input
+
+`review-pr`, `reply-pr`, `fix-ci`, `fix-issue` and `tend-repo` declare an
+optional `autonomy` input: `observe`, `propose`, `act` or `auto`, default empty
+(ADR 0040). Before each publication (comment, push, pull request, merge) a shell
+step runs `bin/publish-gate` when the input is set, and a declined action exits
+0 without publishing. An empty input never calls the script, so the workflow
+behaves as it did before the gate. `tend-repo` passes its value to the nested
+`review-pr` run. Details and exit codes: `docs/autonomy.md`.
+
+## `_classify-item`
+
+Hidden (leading underscore, ADR 0021), never dispatched. Inputs: `repo`, `key`
+(item reference such as `issue-12`), `text` (title and body) and `model`. The
+agent writes `answer.json` and `item.txt`; a shell step checks the answer with
+`jq`, raises the level to 3 when the item prose matches a word of
+`workflows/data/classify-floor.txt`, and writes
+`classify/<owner>/<name>/<key>.json` plus a history line when the level changes.
+It comments, labels and pushes nothing. See `docs/classification.md`.
 
 ## Model inputs and presets
 

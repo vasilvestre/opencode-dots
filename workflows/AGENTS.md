@@ -1,6 +1,6 @@
 # workflows/
 
-Six awf state machines. Each file is a whole workflow: inputs, states, terminal
+Six awf state machines and the hidden `_` helpers. Each file is a whole workflow: inputs, states, terminal
 states. `docs/workflows.md` explains what each one does; this file holds the
 rules for editing them.
 
@@ -138,6 +138,21 @@ rules for editing them.
   does. `automerge` is unchanged: not delegated. Never pass comment text to a
   shell; use jq. ADR 0015.
 - `reply-pr`: `only_authors` in `awf-gh.yaml` keeps other people's PRs out.
+
+## AUTONOMY CEILING
+
+- `bin/publish-gate ACTION` decides whether a shell step may publish (comment,
+  push, open-pr, merge). Only shell steps call it, never the agent. Exit 0
+  allows, 3 holds, 4 is a note only, 5 refuses. `docs/autonomy.md`, ADR 0040.
+- `review-pr`, `reply-pr`, `fix-ci`, `fix-issue` and `tend-repo` take an optional
+  `autonomy` input (default empty, pattern `^(observe|propose|act|auto)?$`).
+- An empty `autonomy` must stay legacy: wrap the call in
+  `if [ -n "{{.inputs.autonomy}}" ]` so the script is not even run, and the step
+  behaves as before the gate. A declined action exits 0.
+- A new publishing step needs the gate, with the patch or comment written to a
+  file first (`GATE_ARTIFACT`). `bin/test-publish-gate` covers the script.
+- `_classify-item` writes `classify/<owner>/<name>/<key>.json` and publishes
+  nothing; see `docs/classification.md`.
 
 ## DO NOT
 

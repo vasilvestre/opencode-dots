@@ -18,11 +18,13 @@ ADR/           decision records: index in README.md, one file per decision
 agent/         opencode config mounted into the container: AGENTS.md, agents/assistant.md
 bin/           configure (mode chooser), tend (daily dispatch), adr (records)
 cmd/dashboard/ Go server for the activity page
+cmd/health/    one-command health check, exit 0 healthy, 1 degraded, 2 down
 cmd/repos/     CLI that generates awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
-internal/      models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite)
+internal/      models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite); sources/: inbound adapters (advisory, jira, sentry) to envelopes
 model-presets.yaml  global model presets projected into workflow defaults
-docs/          workflow reference, memory-design rationale
+docs/          workflow reference, memory design, autonomy, classification, runner, health, sources
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
+deploy/sandbox/ Dockerfile of the throwaway test image for bin/sandbox-run
 deploy/        a server as code (ADR 0028): providers/<name> (OpenTofu), types/local (system.sh, user.sh, push.sh), test/
 systemd/       user units and timers
 ui/            dashboard: index.html shell, ES modules, no build step
@@ -44,6 +46,11 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Dashboard edits a config file | `/api/save` in `main.go` | allowlist and backups, see ADR 0004 |
 | Manage global model presets | `model-presets.yaml`, Config Model defaults | eager projection, see ADR 0018 and `cmd/dashboard/AGENTS.md` |
 | Which repositories, and what the dot does on each | `repos.yaml` (copy `repos.example.yaml`) | source of truth, see ADR 0022 and `internal/repos/AGENTS.md` |
+| Autonomy ceiling at publishing steps | `bin/publish-gate`, `docs/autonomy.md` | optional `autonomy` input, empty stays legacy |
+| Classify a work item (level 1, 2, 3) | `workflows/_classify-item.yaml`, `docs/classification.md` | hidden, posts nothing |
+| Work source adapters | `internal/sources`, `docs/sources.md` | not wired to a watcher yet |
+| Run untrusted steps in a container | `bin/sandbox-run`, `bin/patch-guard`, `docs/runner.md` | not wired to a workflow yet |
+| Is the dot alive | `cmd/health`, `docs/health.md` | `make health` |
 | Add a key a repository accepts | `internal/repos/features_*.go` | one feature = one file, `bin/repos features` lists them |
 
 ## CONVENTIONS
@@ -97,6 +104,8 @@ make logs
 make down
 make awf-gh      # one polling pass, for testing by hand
 make repos       # regenerate awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
+make script-tests # bin/test-publish-gate, test-classify, test-sandbox (offline)
+make health      # build bin/health and run it
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
 make health      # go build ./cmd/health, then run it: exit 0 healthy, 1 degraded, 2 down
 bin/tend         # one tend-repo run per repository with tend enabled (tend.list)
