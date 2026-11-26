@@ -637,6 +637,80 @@ section_upstream() {
   check "upstream release: a comment record is refused" up_no_write
   case_done
 
+  # publish-held releases a file-issue record through file-upstream (the dashboard's Release).
+  # up_hold: a case with one held record, its id in $rec.
+  up_hold() {
+    up_case "publish-held $1"
+    up_run propose
+    rec=$(held_id file-issue)
+    : > "$T/fake/gh.log"
+  }
+  up_rel() { run_wf publish-held "id=$rec" "repo=$REPO" "upstream=$UP=${CAP:-2}"; }
+  up_stays() { test -e "$T/state/held/$rec" -a ! -e "$T/state/held/released/$rec"; }
+
+  up_hold "release succeeds"
+  up_rel
+  check "publish-held file-issue: the run succeeds" test "$RC" = 0
+  check "publish-held file-issue: one issue created, on the upstream" up_created
+  check "publish-held file-issue: only a create" up_only_create
+  check "publish-held file-issue: the duplicate search ran first" gh_some '^gh issue list --repo up/tool --state all'
+  check "publish-held file-issue: the held body is filed, footer included" up_posted_has 'Filed by an automated agent'
+  check "publish-held file-issue: the record moved to released/" test -e "$T/state/held/released/$rec" -a ! -e "$T/state/held/$rec"
+  check "publish-held file-issue: a log line names the record" grep -q "file-issue.*$rec" "$T/state/held/released.log"
+  check "publish-held file-issue: a filed row in the ledger" test "$(up_filed)" = 1
+  check "publish-held file-issue: no lock left" test ! -e "$T/state/held/.release-$rec"
+  check "publish-held file-issue: no agent step" agent_idle draft-upstream
+  up_rel
+  check "publish-held file-issue: a second release is refused" test "$RC" != 0
+  check "publish-held file-issue: ... and files nothing more" up_created
+  check "publish-held file-issue: ... and says already released" grep -q 'already released' "$T/out.log"
+  case_done
+
+  up_hold "release refused on a duplicate"
+  printf '[{"number":5,"title":"Tool crashes on empty config","body":"x","state":"OPEN","url":"https://github.com/up/tool/issues/5"}]\n' > "$T/fake/gh/up-issues-up_tool.json"
+  up_rel
+  check "publish-held duplicate: the run fails" test "$RC" != 0
+  check "publish-held duplicate: nothing created" up_no_write
+  check "publish-held duplicate: the record stays held" up_stays
+  check "publish-held duplicate: the reason names the issue" grep -q 'duplicate on up/tool: #5' "$T/out.log"
+  check "publish-held duplicate: no lock left" test ! -e "$T/state/held/.release-$rec"
+  case_done
+
+  up_hold "release refused at the weekly cap"
+  now=$(date +%s)
+  for k in 3 4; do printf '%s\t-\tfiled\th%s\thttps://github.com/up/tool/issues/%s\told\n' "$((now - k * 86400))" "$k" "$k" >> "$(up_ledger)"; done
+  up_rel
+  check "publish-held cap: the run fails" test "$RC" != 0
+  check "publish-held cap: nothing created" up_no_write
+  check "publish-held cap: the record stays held" up_stays
+  check "publish-held cap: the reason is the cap" grep -q 'weekly cap reached for up/tool' "$T/out.log"
+  case_done
+
+  up_hold "release refused with the off switch"
+  printf 'two closed as invalid\n' > "$T/state/upstream/$UPSLUG/off"
+  up_rel
+  check "publish-held off: the run fails" test "$RC" != 0
+  check "publish-held off: nothing created" up_no_write
+  check "publish-held off: the record stays held" up_stays
+  check "publish-held off: the reason says switched off" grep -q 'switched off' "$T/out.log"
+  case_done
+
+  up_hold "release refused without a target"
+  sed -i '/^target: /d' "$T/state/held/$rec"
+  up_rel
+  check "publish-held no target: the run fails" test "$RC" != 0
+  check "publish-held no target: nothing created, no search" gh_none '^gh issue'
+  check "publish-held no target: the record stays held" up_stays
+  check "publish-held no target: the message says so" grep -q 'names no target' "$T/out.log"
+  case_done
+
+  up_hold "release refused when the target is no longer listed"
+  run_wf publish-held "id=$rec" "repo=$REPO" "upstream=other/thing=2"
+  check "publish-held unlisted: the run fails" test "$RC" != 0
+  check "publish-held unlisted: nothing created, no search" gh_none '^gh issue'
+  check "publish-held unlisted: the record stays held" up_stays
+  case_done
+
   up_case "note at observe"
   up_run observe
   check "upstream observe: one note" test "$(note_of file-issue)" = 1

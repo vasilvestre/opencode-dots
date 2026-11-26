@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
+
+	"gopkg.in/yaml.v3"
 )
 
 // A click on Release files an approval: it starts the publish-held workflow
@@ -80,12 +83,71 @@ func (d *dash) autonomyRelease(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusNotFound, map[string]string{"error": "no such held record"})
 		return
 	}
-	id, err := d.startRun("publish-held", map[string]string{"id": in.ID})
+	inputs := map[string]string{"id": in.ID}
+	if text, ok := readCapped(filepath.Join(d.state, "held", in.ID), autonomyNoteCap); ok {
+		if it, ok := parseGateFile(in.ID, "held", text); ok && it.Action == "file-issue" {
+			// The workflow repeats the checks of file-upstream, which needs the
+			// repository the record came from and that repository's upstream list.
+			repo, list := d.upstreamOf(text, it.Target)
+			if repo == "" || list == "" {
+				writeJSONStatus(w, http.StatusUnprocessableEntity, map[string]string{"error": "cannot tell which repository this file-issue record belongs to, or its upstream list is not in awf-gh.yaml; run publish-held with repo and upstream"})
+				return
+			}
+			inputs["repo"], inputs["upstream"] = repo, list
+		}
+	}
+	id, err := d.startRun("publish-held", inputs)
 	if err != nil {
 		writeJSONStatus(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, map[string]string{"execution_id": id})
+}
+
+// fileUpstreamSourceRE reads the source repository out of the path the gate
+// recorded for a file-issue body: STATE/upstream/_work/OWNER/REPO/issue.md.
+var fileUpstreamSourceRE = regexp.MustCompile(`/upstream/_work/([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/issue\.md$`)
+
+// upstreamOf finds the repository a file-issue record came from and its
+// `upstream` input (owner/name=cap joined by commas) in the watcher config. The
+// record's `source` line names the repository; without it, the one repository
+// whose list holds the target. Empty strings when it cannot tell.
+func (d *dash) upstreamOf(text, target string) (string, string) {
+	var cfg struct {
+		Repos []struct {
+			Repo   string            `yaml:"repo"`
+			Inputs map[string]string `yaml:"inputs"`
+		} `yaml:"repos"`
+	}
+	if yaml.Unmarshal([]byte(readFile(d.awfgh, 1<<20)), &cfg) != nil {
+		return "", ""
+	}
+	lists := map[string]string{}
+	for _, e := range cfg.Repos {
+		if l := e.Inputs["upstream"]; l != "" {
+			lists[e.Repo] = l
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if v, ok := strings.CutPrefix(line, "source: "); ok {
+			if m := fileUpstreamSourceRE.FindStringSubmatch(strings.TrimSpace(v)); m != nil {
+				return m[1], lists[m[1]]
+			}
+			break
+		}
+	}
+	found, list := "", ""
+	for repo, l := range lists {
+		for _, e := range strings.Split(l, ",") {
+			if strings.EqualFold(strings.SplitN(e, "=", 2)[0], target) {
+				if found != "" {
+					return "", ""
+				}
+				found, list = repo, l
+			}
+		}
+	}
+	return found, list
 }
 
 // health serves what bin/health --json last wrote. Read only.

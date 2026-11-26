@@ -164,4 +164,59 @@ ok o5.txt; has o5.txt "ls-remote --exit-code --heads https://github.com/me/r.git
 rec o3.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md" "branch: main"
 nope o3.txt "never a pull request from main"
 
+# file-issue: the route, the prep checks and the verify step. The checks of the
+# repository itself belong to file-upstream (bin/test-e2e upstream).
+step_of() { # STATE > script
+  awk -v st="$1" '$0 == "  " st ":"{s=1;next} s&&/^    command: \|/{c=1;next} c&&/^    timeout:/{exit} c{sub(/^      /,""); print}' "$wf"
+}
+step_of route > "$root/route.sh"; step_of prep > "$root/prep.sh"; step_of verify > "$root/verify.sh"
+for f in route prep verify; do [ -s "$root/$f.sh" ] || { echo "FAIL: cannot extract $f"; exit 1; }; done
+# fi_run STEP ID REPO LIST [ENV=VAL...]
+fi_run() {
+  local s=$1 id=$2 repo=$3 list=$4; shift 4
+  sed "s|{{.inputs.id}}|$id|g; s|{{.inputs.repo}}|$repo|g; s|{{.inputs.upstream}}|$list|g" "$root/$s.sh" > "$root/fi.sh"
+  env PATH="$bin:$PATH" STATE_DIR="$state" "$@" sh "$root/fi.sh" > "$root/out" 2>&1
+}
+fi_nope() { # STEP ID REPO LIST WANT
+  if fi_run "$1" "$2" "$3" "$4"; then echo "FAIL $2: $1 expected a refusal"; fail=1; return; fi
+  grep -q -- "$5" "$root/out" || { echo "FAIL $2: no '$5' in: $(tail -2 "$root/out" | tr '\n' ' ')"; fail=1; }
+}
+mkdir -p "$state/held/artifacts/x"
+printf 'body\n' > "$state/held/artifacts/x/issue.md"
+L='up/tool=2'
+good() { printf '%s\n' "action: file-issue" "ref: up/tool" "autonomy: propose" "artifact: $state/held/artifacts/x/issue.md" "title: Tool crashes" "target: up/tool" "$@"; }
+
+good > "$state/held/fi.txt"
+fi_run route fi.txt a/b "$L" && grep -q FILEISSUE "$root/out" || { echo "FAIL route: file-issue"; fail=1; }
+fi_run route c.txt a/b "$L"; grep -q PLAIN "$root/out" || { echo "FAIL route: comment record"; fail=1; }
+fi_run route absent.txt a/b "$L"; grep -q PLAIN "$root/out" || { echo "FAIL route: absent record"; fail=1; }
+fi_run prep fi.txt a/b "$L" || { echo "FAIL prep: good record: $(tail -2 "$root/out" | tr '\n' ' ')"; fail=1; }
+[ -d "$state/held/.release-fi.txt" ] || { echo "FAIL prep: no lock"; fail=1; }
+fi_nope prep fi.txt a/b "$L" "already running"
+fi_run verify fi.txt a/b "$L" 2>/dev/null && { echo "FAIL verify: record still held"; fail=1; }
+grep -q "stays held" "$root/out" || { echo "FAIL verify: reason"; fail=1; }
+[ ! -d "$state/held/.release-fi.txt" ] || { echo "FAIL verify: lock left"; fail=1; }
+cp "$state/held/fi.txt" "$state/held/released/fi.txt"; rm "$state/held/fi.txt"
+fi_run verify fi.txt a/b "$L" || { echo "FAIL verify: released record"; fail=1; }
+fi_nope prep fi.txt a/b "$L" "already released"
+
+printf '%s\n' "action: file-issue" "ref: up/tool" "artifact: $state/held/artifacts/x/issue.md" "title: T" > "$state/held/notarget.txt"
+fi_nope prep notarget.txt a/b "$L" "names no target"
+good > "$state/held/badtarget.txt"; sed -i 's|^target: .*|target: up/tool; rm|' "$state/held/badtarget.txt"
+fi_nope prep badtarget.txt a/b "$L" "bad target"
+printf '%s\n' "action: file-issue" "ref: up/tool" "artifact: none" "title: T" "target: up/tool" > "$state/held/noart.txt"
+fi_nope prep noart.txt a/b "$L" "no artifact"
+printf '%s\n' "action: file-issue" "ref: up/tool" "artifact: $state/gone.md" "title: T" "target: up/tool" > "$state/held/gone2.txt"
+fi_nope prep gone2.txt a/b "$L" "body is missing"
+printf '%s\n' "action: file-issue" "ref: up/tool" "artifact: $root/outside.md" "title: T" "target: up/tool" > "$state/held/out2.txt"
+fi_nope prep out2.txt a/b "$L" "outside the state"
+good > "$state/held/ok2.txt"
+fi_nope prep ok2.txt "" "" "needs the inputs repo"
+fi_nope prep ok2.txt a/b "other/x=2" "not in the upstream list"
+fi_nope prep ok2.txt up/tool "$L" "the repository itself"
+for f in notarget badtarget noart gone2 out2 ok2; do
+  [ -f "$state/held/$f.txt" ] || { echo "FAIL $f: record should stay"; fail=1; }
+  [ ! -d "$state/held/.release-$f.txt" ] || { echo "FAIL $f: lock left on a refusal"; fail=1; }
+done
+
 [ "$fail" = 0 ] && echo "ok: publish-held" || exit 1
