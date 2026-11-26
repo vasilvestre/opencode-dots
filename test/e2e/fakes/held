@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fake bin/held (the claim check): $FAKE_HELD_RC, default 0 (free).
+echo "held $*" >> "${FAKE_DIR:-/dev/null}/held.log"
+exit "${FAKE_HELD_RC:-0}"

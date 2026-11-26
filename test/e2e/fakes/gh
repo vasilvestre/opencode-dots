@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Fake gh for test/e2e. Every call is appended to $FAKE_DIR/gh.log. Read calls
+# are answered from canned files under $FAKE_DIR/gh; publishing calls only log
+# (the body files they are given are copied to $FAKE_DIR/posted/). It never
+# touches the network and knows no credentials.
+set -u
+: "${FAKE_DIR:?FAKE_DIR not set}"
+g=$FAKE_DIR/gh
+echo "gh $*" >> "$FAKE_DIR/gh.log"
+
+jqx=""
+bodyfile=""
+repo=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[i]}" in
+    --jq) jqx=${args[i+1]:-} ;;
+    --body-file) bodyfile=${args[i+1]:-} ;;
+    --repo) repo=${args[i+1]:-} ;;
+  esac
+done
+
+emit() { # FILE: print the canned JSON, through --jq when given
+  [ -f "$1" ] || { echo "fake gh: no canned file $1" >&2; exit 1; }
+  if [ -n "$jqx" ]; then jq -r "$jqx" "$1"; else cat "$1"; fi
+}
+snap() { # KIND: keep what a publishing call was given
+  mkdir -p "$FAKE_DIR/posted"
+  local n
+  n=$(find "$FAKE_DIR/posted" -type f | wc -l)
+  if [ -n "$bodyfile" ] && [ -f "$bodyfile" ]; then
+    cp "$bodyfile" "$FAKE_DIR/posted/$(printf %03d "$n")-$1.md"
+  fi
+  return 0
+}
+
+case "${1:-} ${2:-}" in
+  "auth setup-git") exit 0 ;;
+  "api user")
+    case "$*" in *.id*) echo 4242 ;; *) cat "$g/login" ;; esac ;;
+  "api repos/"*)
+    p=${2#repos/}
+    if [ -f "$g/repo-${p//\//_}.json" ]; then
+      emit "$g/repo-${p//\//_}.json"
+    elif [ -f "$g/repo.json" ] && [ "$p" = "$(jq -r .full_name "$g/repo.json")" ]; then
+      emit "$g/repo.json"
+    else
+      echo "gh: Not Found (HTTP 404)" >&2
+      exit 1
+    fi ;;
+  "repo view") emit "$g/repo.json" ;;
+  "repo fork") echo "fake gh: repo fork is not expected in e2e" >&2; exit 1 ;;
+  "issue view") emit "$g/issue.json" ;;
+  "issue comment") snap issue-comment ;;
+  "pr view") emit "$g/pr-$3.json" ;;
+  "pr diff") cat "$g/diff.patch" ;;
+  "pr checks") if [ -f "$g/checks.json" ]; then cat "$g/checks.json"; else echo '[]'; fi ;;
+  "pr comment") snap pr-comment ;;
+  "pr create") snap pr-create; echo "https://github.com/${repo:-x/y}/pull/99" ;;
+  "pr merge") exit 0 ;;
+  "run view") exit 0 ;;
+  *) echo "fake gh: unhandled call: $*" >&2; echo "UNHANDLED gh $*" >> "$FAKE_DIR/gh.log"; exit 1 ;;
+esac

@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Stub agent CLI standing in for `opencode` in test/e2e. awf calls it as
+# `opencode run PROMPT`; the stub recognises the step from the prompt, writes
+# the canned files that step is allowed to write, and logs the step name to
+# $FAKE_DIR/agent.log. It never reads the network and runs no model.
+#
+# Knobs (environment, set by the harness per case):
+#   FAKE_CLASS   1|2|3 (valid answer of that level), bad (invalid JSON), none (no file)
+#   FAKE_FIX     patch (edit + fix.md + answer.md), decline (answer.md only),
+#                half (edit, no fix.md)
+#   FAKE_REVIEW  clean-merge | finding-then-merge | finding-hold
+set -u
+: "${FAKE_DIR:?}" "${STATE_DIR:?}"
+[ "${1:-}" = run ] || exit 0          # `opencode mcp list` and the like
+prompt=${2:-}
+echo "opencode-stub $(printf '%s' "$prompt" | head -1)" >> "$FAKE_DIR/agent.log"
+
+first=$(printf '%s' "$prompt" | head -1)
+case "$prompt" in
+  "You classify one work item of "*)
+    repo=$(printf '%s' "$first" | sed -n 's/^You classify one work item of \([^,]*\), reference \(.*\)\.$/\1/p')
+    key=$(printf '%s' "$first" | sed -n 's/^You classify one work item of \([^,]*\), reference \(.*\)\.$/\2/p')
+    echo "agent classify $repo $key" >> "$FAKE_DIR/agent.steps"
+    w=$STATE_DIR/classify/$repo/work-$key
+    mkdir -p "$w"
+    case "${FAKE_CLASS:-1}" in
+      none) exit 0 ;;
+      bad) printf 'not json at all\n' > "$w/answer.json"; exit 0 ;;
+    esac
+    printf '%s\n' "$prompt" | sed -n '/^<item>$/,/^<\/item>$/p' | sed '1d;$d' > "$w/item.txt"
+    jq -n --argjson l "${FAKE_CLASS:-1}" \
+      '{level:$l, justification:"canned rating", confidence:0.9, missing:[], evidence:["src.txt"]}' > "$w/answer.json"
+    ;;
+
+  "You fix one reported defect in "*)
+    repo=$(printf '%s' "$first" | sed -n 's/^You fix one reported defect in \([^,]*\), issue #\(.*\)\.$/\1/p')
+    iss=$(printf '%s' "$first" | sed -n 's/^You fix one reported defect in \([^,]*\), issue #\(.*\)\.$/\2/p')
+    echo "agent fix $repo $iss" >> "$FAKE_DIR/agent.steps"
+    d=$STATE_DIR/fix/$repo/issue-$iss
+    printf 'canned worklog\n' > "$d/worklog.md"
+    case "${FAKE_FIX:-patch}" in
+      patch)
+        echo "fixed" >> "$d/work/src.txt"
+        printf 'Fix the crash on empty input\n\nSymptom, cause at src.txt:1, fix.\n' > "$d/fix.md"
+        printf 'Proof at src.txt:1, fixed.\n' > "$d/answer.md"
+        ;;
+      half)
+        echo "fixed" >> "$d/work/src.txt"
+        printf 'Stopped halfway.\n' > "$d/answer.md"
+        ;;
+      decline)
+        printf 'The report is already fixed in src.txt:1.\n' > "$d/answer.md"
+        ;;
+    esac
+    ;;
+
+  "You review pull request "*)
+    ref=$(printf '%s' "$first" | sed -n 's/^You review pull request \(.*\)\.$/\1/p')
+    pr=${ref##*#}
+    d=$(printf '%s' "$prompt" | grep -o "$STATE_DIR/reviews/pr[0-9]*-[0-9a-f]*" | head -1)
+    echo "agent review $ref" >> "$FAKE_DIR/agent.steps"
+    n=$(( $(cat "$STATE_DIR/.fake-review-$pr" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$STATE_DIR/.fake-review-$pr"
+    clean() { printf '## Correctness\nNothing to report.\n\n## Security\nNothing to report.\n' > "$d/review.md"; echo merge > "$d/verdict.txt"; }
+    finding() { printf '## Correctness\n- src.txt:1 breaks on empty input\n\n## Security\nNothing to report.\n' > "$d/review.md"; echo hold > "$d/verdict.txt"; }
+    case "${FAKE_REVIEW:-clean-merge}" in
+      clean-merge) clean ;;
+      finding-then-merge) if [ "$n" = 1 ]; then finding; else clean; fi ;;
+      finding-hold) finding ;;
+    esac
+    ;;
+
+  "You clear the review findings on my pull request"*)
+    ref=$(printf '%s' "$prompt" | tr '\n' ' ' | sed -n 's/.*pull request \([^ ]*#[0-9]*\) so it can merge.*/\1/p')
+    d=$(printf '%s' "$prompt" | grep -o "$STATE_DIR/reviews/pr[0-9]*-[0-9a-f]*" | head -1)
+    echo "agent address $ref" >> "$FAKE_DIR/agent.steps"
+    echo "cleared" >> "$d/work/src.txt"
+    printf 'Clear the empty input finding\n\nsrc.txt now handles it.\n' > "$d/fixmsg.md"
+    printf 'cleared src.txt:2 `cleared`\n' > "$d/worklog.md"
+    ;;
+
+  *)
+    echo "agent UNKNOWN $first" >> "$FAKE_DIR/agent.steps"
+    ;;
+esac
+echo '{"type":"text"}'
+exit 0
