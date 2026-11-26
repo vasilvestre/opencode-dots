@@ -49,6 +49,13 @@ Smallest first step: add `dot` to `internal/repos` (one feature file) and have t
 `awf-gh.yaml` drop every rule for a repository whose `dot` is not this server's id. Leave the claim
 channel and shared lessons for a later record.
 
+First step built: `settings.dot_id` and the per-repository `dot` key (`internal/repos/features_dot.go`,
+`docs/dots.md`). A repository whose `dot` differs from this server's id is left out of `awf-gh.yaml`,
+`tend.list`, `repos.map`, `sync.map`, `breaker.list` and any executor watcher file, and each generated
+file says how many were skipped, never which. `dot` without `dot_id` is refused. A configuration
+without the key generates byte-identical files. There is still no exchange between servers; the claim
+channel, shared lessons and the `bin/health` warning remain open, so this record stays proposed.
+
 ### Options
 
 | Option | What it costs | What it rules out |

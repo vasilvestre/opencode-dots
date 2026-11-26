@@ -44,6 +44,8 @@ type Output struct {
 	Tend     []TendEntry
 	Checkout []CheckoutEntry
 	Files    map[string][]string
+	// Skipped counts the repositories left out because another dot owns them.
+	Skipped int
 }
 
 // CheckoutEntry is one line of the generated repos.map.
@@ -119,6 +121,16 @@ func Generate(doc *Document) (*Output, error) {
 	out := &Output{Files: map[string][]string{}}
 	var problems []string
 	for _, r := range resolved {
+		if v, ok := r.Values["dot"]; ok {
+			if err := registry["dot"].Check(v); err != nil {
+				problems = append(problems, fmt.Sprintf("%s: dot: %v", r.Name, err))
+				continue
+			}
+			if foreignDot(r) {
+				out.Skipped++
+				continue
+			}
+		}
 		from := len(out.Rules)
 		for _, key := range order {
 			value, ok := r.Values[key]

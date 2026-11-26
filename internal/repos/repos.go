@@ -38,6 +38,9 @@ type Settings struct {
 	// Trust is what this machine may hold and what a client repository may use
 	// (ADR 0032). It is a machine setting, like awf_url.
 	Trust TrustSettings `yaml:"trust"`
+	// DotID is this server's dot id (ADR 0038). A repository whose `dot` names another
+	// id is not acted on here. Empty means every repository is this server's.
+	DotID string `yaml:"dot_id"`
 }
 
 // TrustSettings is settings.trust (ADR 0032). Host is the highest level this

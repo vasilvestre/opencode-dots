@@ -46,6 +46,7 @@ func EffectiveSettings(doc, previous, override Settings) Settings {
 		StatePath: pick(override.StatePath, doc.StatePath, previous.StatePath, defaultStatePath),
 		MaxPerRun: defaultMaxPerRun,
 		Executors: doc.Executors,
+		DotID:     doc.DotID,
 	}
 	for _, n := range []int{override.MaxPerRun, doc.MaxPerRun, previous.MaxPerRun} {
 		if n > 0 {
@@ -122,10 +123,10 @@ func Render(out *Output, s Settings) (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		files[file] = body
+		files[file] = withSkipped(body, out.Skipped)
 	}
-	files[FileTend] = renderLines(out.Tend, tendLine)
-	files[FileCheckout] = renderLines(out.Checkout, func(c CheckoutEntry) string { return c.Repo + "=" + c.Path })
+	files[FileTend] = withSkipped(renderLines(out.Tend, tendLine), out.Skipped)
+	files[FileCheckout] = withSkipped(renderLines(out.Checkout, func(c CheckoutEntry) string { return c.Repo + "=" + c.Path }), out.Skipped)
 	for name, lines := range out.Files {
 		if name != filepath.Base(name) || strings.HasPrefix(name, ".") {
 			return nil, fmt.Errorf("feature file %q must be a plain file name", name)
@@ -133,7 +134,7 @@ func Render(out *Output, s Settings) (map[string][]byte, error) {
 		if _, taken := files[name]; taken || name == SourceFile {
 			return nil, fmt.Errorf("feature file %q collides with another generated file", name)
 		}
-		files[name] = []byte(commentHeader() + strings.Join(lines, "\n") + "\n")
+		files[name] = withSkipped([]byte(commentHeader()+strings.Join(lines, "\n")+"\n"), out.Skipped)
 	}
 	return files, nil
 }
@@ -288,6 +289,9 @@ func BuildDocument(doc *Document, dir string, override Settings) (map[string][]b
 		return nil, err
 	}
 	if err := checkTrust(doc.Settings); err != nil {
+		return nil, err
+	}
+	if err := checkDot(doc.Settings); err != nil {
 		return nil, err
 	}
 	out, err := Generate(doc)

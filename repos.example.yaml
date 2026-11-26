@@ -9,6 +9,10 @@ version: 1
 # `make configure` writes the ones that fit local or docker mode.
 settings:
   max_per_run: 6
+  # With two dots on one repository (ADR 0038): this server's own id. Then a
+  # repository's `dot:` names the dot that acts there, and every other server
+  # leaves it out of the generated files. See docs/dots.md.
+  # dot_id: workstation
   # A name for an awf serve that runs the tasks of the repositories which name
   # it with `executor:`. The watcher stays on this machine and writes one
   # awf-gh.<name>.yaml per executor (ADR 0031).
@@ -93,3 +97,10 @@ repos:
   # your-org/run-on-my-workstation:
   #   review: true
   #   executor: workstation
+
+  # Two dots, one repository: only the dot named here acts. A server whose
+  # settings.dot_id differs generates no rule, tend line, checkout or sync line
+  # for it. Needs settings.dot_id. To move it, change the key on both servers.
+  # your-org/shared-with-a-colleague:
+  #   dot: colleague
+  #   review: true
