@@ -218,3 +218,45 @@ func TestAutoMerge(t *testing.T) {
 		t.Fatal("a non boolean auto_merge must be refused")
 	}
 }
+
+// An edit from the dashboard must leave what it does not show alone: the executors of a
+// server (ADR 0031) and the `executor` key of a repository.
+const executorRepos = `version: 1
+settings:
+  executors:
+    pc: http://127.0.0.1:2512
+repos:
+  acme/remote:
+    review: true
+    executor: pc
+  acme/local:
+    tend: true
+`
+
+func TestEditsKeepTheExecutorsOfAServer(t *testing.T) {
+	for name, p := range map[string]reposPatch{
+		"a toggle on another repository":    {Repo: "acme/local", Key: "reply", Value: true},
+		"a toggle on the repository itself": {Repo: "acme/remote", Key: "reply", Value: true},
+		"adding a repository":               {Op: "add", Repo: "acme/new"},
+		"removing the other repository":     {Op: "remove", Repo: "acme/local"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := patch(t, executorRepos, p)
+			for _, want := range []string{"pc: http://127.0.0.1:2512", "executor: pc"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("%q lost after the edit:\n%s", want, out)
+				}
+			}
+			if _, err := buildReposConfig([]byte(out)); err != nil {
+				t.Errorf("the edited file no longer builds: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestADocumentWithExecutorsIsReadable(t *testing.T) {
+	r := rowOf(t, executorRepos, "acme/remote")
+	if !r.Features["review"].On {
+		t.Errorf("review should be on: %+v", r.Features["review"])
+	}
+}
