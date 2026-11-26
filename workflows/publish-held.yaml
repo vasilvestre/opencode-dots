@@ -157,6 +157,11 @@ states:
           case "$branch" in
             main|master) die "refused: never a pull request from $branch" ;;
           esac
+          # The pull request needs its branch on the remote. At propose, fix-issue
+          # holds the push first and this record second: release them in that order.
+          gh auth setup-git
+          git ls-remote --exit-code --heads "https://github.com/${push_repo:-$repo}.git" "$branch" >/dev/null 2>&1 \
+            || die "refused: branch $branch is not on ${push_repo:-$repo} yet; release the push record for $ref first, then this one"
           [ -n "$base" ] || base=$(gh api "repos/$repo" --jq .default_branch)
           prtitle=$(head -1 "$art")
           cp "$art" "$tmp/body.md"

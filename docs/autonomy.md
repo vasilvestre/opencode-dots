@@ -73,7 +73,15 @@ fi
 A declined action exits 0 (a guard is not an error). A missing script makes the
 call fail, which counts as refused: the gate fails closed when a ceiling is set.
 Before a push is held, the step writes the patch next to the run (`held.patch`)
-so the checkout can be removed without losing the work.
+so the checkout can be removed without losing the work. That file lives in a
+directory the next run wipes, so the gate copies the artifact of every held or
+note record to `held/artifacts/<record name>/` (`notes/artifacts/...`), points
+`artifact:` at the copy and keeps the original on a `source:` line (cap
+`GATE_ARTIFACT_CAP`, default 5 MiB; see `docs/publish-held.md`). The dashboard
+resolves the copy like any path under `STATE_DIR`.
+
+At `propose`, when the push of `fix-issue` is held the same step also writes the
+`open-pr` record, so a person can release the push and then the pull request.
 
 ## Where it is wired
 
@@ -95,6 +103,15 @@ works (`classify_check`, `classify_text`, `classify`, `level`; see
 and every `bin/publish-gate` call in the run passes it. A missing or invalid
 result is level 3: the run still analyses, and the gate turns each publication
 into a note. With no ceiling nothing is classified and `ITEM_CLASS` stays unset.
+
+`review-pr` classifies nothing itself, but a pull request that `fix-issue` opened
+has a head branch `fix/<N>-*`. With a ceiling set, `review-pr` reads
+`fix/<repo>/issue-<N>/item_class` for that branch and passes it as `ITEM_CLASS` to
+every gate call of the run (`post`, `push`, `automerge`). So a class 2 pull request
+is not merged at `auto`, and a class 3 one only produces notes. If the head is a
+`fix/<N>-*` branch and the file is missing or not 1, 2 or 3, the class is 3 (fail
+closed). Any other branch, including `fix/` with no number, has no class: only the
+ceiling counts. With no ceiling the step does not read the file.
 
 `tend-repo` does not classify: it files its own findings, it does not work from
 an outside item. Its gate calls still carry no class, only the ceiling counts.

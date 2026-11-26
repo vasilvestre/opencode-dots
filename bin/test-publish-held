@@ -38,6 +38,7 @@ case "$1" in
   clone) [ -z "${CLONE_FAIL:-}" ] || case "$*" in *"--branch $CLONE_FAIL "*) exit 128 ;; esac
          for a; do d=$a; done; mkdir -p "$d" ;;
   push) [ -z "${PUSH_FAIL:-}" ] || exit 1 ;;
+  ls-remote) [ -z "${NO_REMOTE_BRANCH:-}" ] || exit 2 ;;
 esac
 exit 0
 EOS
@@ -154,6 +155,12 @@ ok o1.txt
 has o1.txt "pr create --repo o/r --head fix/7-a --base main --title prepared text --body-file"; moved o1.txt
 rec o2.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md"
 nope o2.txt "no branch"; lacks o2.txt "pr create"
+rec o4.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md" "branch: fix/7-z" "closes: 7"
+nope o4.txt "is not on o/r yet; release the push record" NO_REMOTE_BRANCH=1
+lacks o4.txt "pr create"; stays o4.txt
+rec o5.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md" "branch: fix/7-y" "push-repo: me/r"
+nope o5.txt "is not on me/r yet" NO_REMOTE_BRANCH=1
+ok o5.txt; has o5.txt "ls-remote --exit-code --heads https://github.com/me/r.git fix/7-y"
 rec o3.txt "action: open-pr" "ref: o/r#7" "artifact: $state/a.md" "branch: main"
 nope o3.txt "never a pull request from main"
 

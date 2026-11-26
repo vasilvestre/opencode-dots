@@ -12,6 +12,9 @@
 #   GATE_REF       what is being published, e.g. OWNER/REPO#N (for the trace).
 #   GATE_REPO      OWNER/REPO, to look up a tripped circuit breaker (default: from GATE_REF).
 #   GATE_ARTIFACT  path of the prepared comment, patch or text (for the trace).
+#                  A held or note record keeps its own copy under held/artifacts/<record name>/
+#                  (or notes/artifacts/...): `artifact:` names the copy, `source:` the original
+#                  (cap GATE_ARTIFACT_CAP bytes, default 5242880; above it no copy is made).
 #   GATE_BRANCH, GATE_BASE, GATE_PUSH_REPO, GATE_TITLE, GATE_CLOSES
 #                  optional: written into a held record as `branch`, `base`, `push-repo`,
 #                  `title`, `closes` so workflows/publish-held.yaml can release it
@@ -60,12 +63,34 @@ esac
 # Write one small file saying what was not published and why. Failing to write it
 # must not turn a hold into an allow, so the exit code is the caller's, not this.
 record() { # DIR REASON
-  local dir=$state/$1 slug file
+  local dir=$state/$1 slug file name shown src= size cdir leaf
   slug=$(printf '%s' "$ref" | tr -c 'A-Za-z0-9._-' '_')
-  file=$dir/$(date -u +%Y%m%dT%H%M%SZ)-$action-$slug.txt
+  name=$(date -u +%Y%m%dT%H%M%SZ)-$action-$slug
+  file=$dir/$name.txt
+  shown=${artifact:-none}
+  # The workflow's artifact lives in a directory the next run wipes. Keep a copy
+  # under $dir/artifacts/<record name>/ and point the record at it; the original
+  # path goes on a `source` line. A missing, empty or too large artifact (cap
+  # GATE_ARTIFACT_CAP bytes, default 5 MiB) is not copied: the record keeps the
+  # original path, as before.
+  if [ -f "$artifact" ] && [ -s "$artifact" ]; then
+    size=$(wc -c < "$artifact" 2>/dev/null || echo 0)
+    if [ "$size" -le "${GATE_ARTIFACT_CAP:-5242880}" ]; then
+      cdir=$dir/artifacts/$name
+      leaf=$(printf '%s' "${artifact##*/}" | tr -c 'A-Za-z0-9._-' '_')
+      if mkdir -p "$cdir" 2>/dev/null && cp -- "$artifact" "$cdir/$leaf" 2>/dev/null; then
+        shown=$cdir/$leaf
+        src=$artifact
+      else
+        rm -rf "$cdir" 2>/dev/null || true
+      fi
+    fi
+  fi
   if mkdir -p "$dir" 2>/dev/null && {
-    printf 'action: %s\nref: %s\nautonomy: %s\nclass: %s\nartifact: %s\nreason: %s\n' \
-      "$action" "$ref" "$level" "${class:-none}" "${artifact:-none}" "$2"
+    printf 'action: %s\nref: %s\nautonomy: %s\nclass: %s\nartifact: %s\n' \
+      "$action" "$ref" "$level" "${class:-none}" "$shown"
+    [ -z "$src" ] || printf 'source: %s\n' "$src"
+    printf 'reason: %s\n' "$2"
     if [ "$1" = held ]; then
       local pair key var val
       for pair in branch:GATE_BRANCH base:GATE_BASE push-repo:GATE_PUSH_REPO title:GATE_TITLE closes:GATE_CLOSES; do

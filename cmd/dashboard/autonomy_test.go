@@ -119,3 +119,31 @@ func TestAutonomyArtifactEndpoint(t *testing.T) {
 		t.Fatalf("host: %d", r.Code)
 	}
 }
+
+// The gate keeps a copy of each artifact under held/artifacts/<record>/ and the
+// record points at it; the original path is on a source line.
+func TestAutonomyArtifactCopyUnderHeld(t *testing.T) {
+	d := gateFixture(t)
+	dir := filepath.Join(d.state, "held", "artifacts", "20261125T100000Z-push-acme_app_2")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "held.patch"), []byte("patch body"), 0o644)
+	rec := "action: push\nref: acme/app#2\nautonomy: propose\nclass: 1\nartifact: " + filepath.Join(dir, "held.patch") +
+		"\nsource: /state/fix/acme/app/issue-2/held.patch\nreason: r\n"
+	os.WriteFile(filepath.Join(d.state, "held", "20261125T100000Z-push-acme_app_2.txt"), []byte(rec), 0o644)
+
+	list := httptest.NewRecorder()
+	d.autonomy(list, httptest.NewRequest("GET", "http://127.0.0.1:8099/api/autonomy", nil))
+	body := list.Body.String()
+	if list.Code != 200 || !strings.Contains(body, "20261125T100000Z-push-acme_app_2.txt") || strings.Contains(body, `"name":"artifacts"`) {
+		t.Fatalf("list: %d %s", list.Code, body)
+	}
+	i := strings.Index(body, "20261125T100000Z-push-acme_app_2.txt")
+	if !strings.Contains(body[i:i+400], `"readable":true`) {
+		t.Fatalf("copy not readable: %s", body)
+	}
+	rr := httptest.NewRecorder()
+	d.autonomyArtifact(rr, httptest.NewRequest("GET", "http://127.0.0.1:8099/api/autonomy/artifact?kind=held&name=20261125T100000Z-push-acme_app_2.txt", nil))
+	if rr.Code != 200 || rr.Body.String() != "patch body" {
+		t.Fatalf("artifact: %d %s", rr.Code, rr.Body.String())
+	}
+}
