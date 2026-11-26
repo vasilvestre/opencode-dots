@@ -307,7 +307,56 @@ section_review() {
   : > "$T/fake/gh.log"
   FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=99 "sha=$sha" autonomy=auto
   check "chain: review-pr at auto ran to the end" test "$RC" = 0
-  known_defect D1 "chain: a pull request born from a class 2 item is not merged by review-pr at auto" gh_none '^gh pr merge'
+  check "chain: a pull request born from a class 2 item is not merged by review-pr at auto" gh_none '^gh pr merge'
+  check "chain: the refusal says class 2" grep -q 'class 2 is never merged' "$T/out.log"
+  check "chain: the review comment still went out (class 2 is not a note)" gh_once '^gh pr comment 99'
+  case_done
+
+  # The class file decides, branch by branch.
+  local cls
+  for cls in 1 3; do
+    case_new "review-pr class $cls at auto"
+    SEED_CLASS=$cls seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+    FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+    check "class $cls pull request, auto: run succeeds" test "$RC" = 0
+    if [ "$cls" = 1 ]; then
+      check "class 1 pull request, auto: merged" gh_once '^gh pr merge 7'
+      check "class 1 pull request, auto: commented" gh_once '^gh pr comment 7'
+    else
+      check "class 3 pull request, auto: not merged" gh_none '^gh pr merge'
+      check "class 3 pull request, auto: the review is a note, not a comment" bash -c "! grep -q '^gh pr comment' $T/fake/gh.log && [ $(note_of comment) = 1 ]"
+    fi
+    case_done
+  done
+  for cls in none 9; do
+    case_new "review-pr class $cls at auto"
+    SEED_CLASS=$cls seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+    [ "$cls" = none ] || printf '%s\n' "$cls" > "$T/state/fix/$REPO/issue-7/item_class"
+    FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+    check "class file '$cls' on a fix/7-* branch, auto: fails closed, not merged" gh_none '^gh pr merge'
+    check "class file '$cls' on a fix/7-* branch, auto: treated as class 3" grep -q 'class 3, a human diagnosis' "$T/out.log"
+    case_done
+  done
+  case_new "review-pr class missing at act"
+  SEED_CLASS=none seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=act
+  check "missing class file, act: fails closed, the review is a note" bash -c "[ $(note_of comment) = 1 ] && ! grep -q '^gh pr comment' $T/fake/gh.log"
+  case_done
+  case_new "review-pr class missing, legacy"
+  SEED_CLASS=none seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA"
+  check "missing class file, legacy: merged as before" gh_once '^gh pr merge 7'
+  check "missing class file, legacy: the gate is never called" bash -c "! grep -q publish-gate $T/out.log"
+  case_done
+  case_new "review-pr other branch at auto"
+  seed_pr 7 fix/crash-on-empty "$LOGIN"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+  check "a fix/ branch with no issue number carries no class: the ceiling decides, merged" gh_once '^gh pr merge 7'
+  case_done
+  case_new "review-pr other branch, not a number"
+  seed_pr 7 fix/7x-crash "$LOGIN"
+  FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto
+  check "fix/7x-* is not fix/<N>-*: no class, merged at auto" gh_once '^gh pr merge 7'
   case_done
 }
 
@@ -329,7 +378,46 @@ section_held() {
   check "release push: record moved to held/released/" bash -c "[ -f $T/state/held/released/$id ] && [ ! -f $T/state/held/$id ]"
   check "release push: released.log says who" grep -q "alice.*push.*$REPO#7" "$T/state/held/released.log"
   check "release push: re-releasing the same record is refused" bash -c "cd $T/proj && ! PATH=$E2E_DIR/fakes:\$PATH HOME=$T/home FAKE_DIR=$T/fake STATE_DIR=$T/state DOTS_HOME=$T/dots GIT_CONFIG_GLOBAL=$T/gitconfig awf run publish-held --storage $T/awf --input id=$id >/dev/null 2>&1"
-  known_defect D2 "release push: the pull request text is held too, so the person can open the pull request" bash -c "ls $T/state/held | grep -q -- '-open-pr-' || ls $T/state/held/released | grep -q -- '-open-pr-' || grep -q '^gh pr create' $T/fake/gh.log"
+  check "release push: no pull request opened by the push release alone" gh_none '^gh pr create'
+  check "release push: the open-pr record is still held for the person" test -n "$(held_id open-pr)"
+  local opid
+  opid=$(held_id open-pr)
+  check "release push: the open-pr record names fix.md, branch, base, title and closes" bash -c "f=$T/state/held/$opid; grep -q '^branch: fix/7-' \$f && grep -q '^base: main' \$f && grep -q '^title: Fix the crash on empty input' \$f && grep -q '^closes: 7' \$f && grep -q '^artifact: .*/held/artifacts/.*/fix.md' \$f"
+  RELEASED_BY=alice run_wf publish-held "id=$opid"
+  check "release open-pr after push: run succeeds" test "$RC" = 0
+  check "release open-pr after push: the pull request is created once, from the pushed branch" bash -c "[ \$(grep -cE '^gh pr create --repo tester/demo --head fix/7-[0-9-]+ --base main' $T/fake/gh.log) = 1 ]"
+  check "release open-pr after push: the body closes the issue" bash -c "grep -q 'Closes #7' $T/fake/posted/*pr-create.md"
+  check "release open-pr after push: record moved to held/released/" test -f "$T/state/held/released/$opid"
+  case_done
+
+  # The pull request first: refused until the branch is on the remote.
+  case_new "release open-pr before push"
+  FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose
+  check "propose: one push record and one open-pr record" bash -c "[ $(held_of push) = 1 ] && [ $(held_of open-pr) = 1 ]"
+  opid=$(held_id open-pr)
+  id=$(held_id push)
+  : > "$T/fake/gh.log"
+  run_wf publish-held "id=$opid"
+  check "release open-pr first: refused" test "$RC" != 0
+  check "release open-pr first: the message says to release the push first" grep -q 'is not on tester/demo yet; release the push record' "$T/out.log"
+  check "release open-pr first: no pull request opened" gh_none '^gh pr create'
+  check "release open-pr first: the record stays held" test -f "$T/state/held/$opid"
+  run_wf publish-held "id=$id"
+  run_wf publish-held "id=$opid"
+  check "release in order: push, then open-pr, succeeds" test "$RC" = 0
+  check "release in order: the pull request is opened" gh_once '^gh pr create'
+  case_done
+
+  # A claim on the branch holds the push and still leaves nothing to release.
+  case_new "propose with a claim"
+  FAKE_HELD_RC=3 FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose
+  check "propose, claimed branch: no push and no open-pr record" bash -c "[ $(held_of push) = 0 ] && [ $(held_of open-pr) = 0 ]"
+  case_done
+
+  # At act the push is allowed: no held open-pr record, the pull request opens.
+  case_new "act has no held records"
+  FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=act
+  check "act: the pull request is opened and nothing is held" bash -c "[ $(held_of open-pr) = 0 ] && grep -q '^gh pr create' $T/fake/gh.log"
   case_done
 
   # The held artifact lives inside the per-issue directory that the next
@@ -339,7 +427,20 @@ section_held() {
   id=$(held_id push)
   FAKE_FIX=decline FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose
   run_wf publish-held "id=$id"
-  known_defect D3 "a held push survives the next fix-issue run on the same issue" test "$RC" = 0
+  check "a held push survives the next fix-issue run on the same issue" test "$RC" = 0
+  check "a held push survives: the held change reached the branch" bash -c "git -C $T/remotes/tester/demo.git show \$(git -C $T/remotes/tester/demo.git for-each-ref --format='%(refname)' 'refs/heads/fix/7-*' | head -1):src.txt | grep -q fixed"
+  check "held record: artifact is a copy under held/artifacts, source is the original" bash -c "f=\$(ls $T/state/held/released/$id $T/state/held/$id 2>/dev/null | head -1); grep -q '^artifact: .*/held/artifacts/.*/held.patch' \$f && grep -q '^source: .*/fix/tester/demo/issue-7/held.patch' \$f"
+  case_done
+
+  # The rerun deletes the original answer too: the held comment keeps its copy.
+  case_new "release a held answer after a rerun"
+  FAKE_FIX=decline FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=propose
+  id=$(held_id comment)
+  check "decline at propose: the answer is held" test -n "$id"
+  rm -rf "$T/state/fix"
+  run_wf publish-held "id=$id"
+  check "held answer survives the wipe of its source directory" test "$RC" = 0
+  check "held answer survives: the comment was posted" gh_once '^gh issue comment 7'
   case_done
 
   # review-pr at propose: the comment is held and released.

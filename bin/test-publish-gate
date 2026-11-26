@@ -126,6 +126,41 @@ rm -rf "$state/notes"
 AUTONOMY=observe STATE_DIR=$state GATE_REF=o/r#7 GATE_BRANCH=b "$gate" push 2>/dev/null
 ! grep -q '^branch:' "$state"/notes/* || { echo "FAIL note carries branch"; fail=1; }
 
+# A held or note record keeps its own copy of the artifact (D3): the original can go.
+rm -rf "$state/held" "$state/notes"
+mkdir -p "$state/src"
+printf 'the patch\n' > "$state/src/held.patch"
+AUTONOMY=propose STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=$state/src/held.patch "$gate" push 2>/dev/null
+f=$(ls "$state"/held/*push*.txt)
+cp_path=$(sed -n 's/^artifact: //p' "$f")
+case "$cp_path" in "$state"/held/artifacts/*/held.patch) ;; *) echo "FAIL held artifact not under held/artifacts: $cp_path"; fail=1 ;; esac
+grep -qx "source: $state/src/held.patch" "$f" || { echo "FAIL held record lacks the source line"; fail=1; }
+rm -rf "$state/src"
+[ "$(cat "$cp_path" 2>/dev/null)" = "the patch" ] || { echo "FAIL the copy does not survive its source"; fail=1; }
+[ "$(ls "$state/held" | grep -c -v '^artifacts$')" = 1 ] || { echo "FAIL held/ holds more than the record and artifacts/"; fail=1; }
+# A note copies too, under notes/artifacts.
+rm -rf "$state/notes"
+mkdir -p "$state/src"; printf 'text\n' > "$state/src/answer.md"
+AUTONOMY=observe STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=$state/src/answer.md "$gate" comment 2>/dev/null
+grep -q "^artifact: $state/notes/artifacts/.*/answer.md$" "$state"/notes/*comment*.txt || { echo "FAIL note artifact not copied"; fail=1; }
+# Over the cap, a missing or an empty artifact: no copy, the original path stays, no source line.
+rm -rf "$state/held"
+AUTONOMY=propose STATE_DIR=$state GATE_ARTIFACT_CAP=3 GATE_REF=o/r#7 GATE_ARTIFACT=$state/src/answer.md "$gate" comment 2>/dev/null
+f=$(ls "$state"/held/*comment*.txt)
+grep -qx "artifact: $state/src/answer.md" "$f" && ! grep -q '^source:' "$f" && [ ! -e "$state/held/artifacts" ] \
+  || { echo "FAIL over-cap artifact was copied"; fail=1; }
+: > "$state/src/empty.md"
+for a in "$state/src/empty.md" "$state/src/nope.md" /x; do
+  rm -rf "$state/held"
+  AUTONOMY=propose STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=$a "$gate" comment 2>/dev/null
+  f=$(ls "$state"/held/*comment*.txt)
+  { grep -qx "artifact: $a" "$f" && ! grep -q '^source:' "$f"; } || { echo "FAIL $a: record changed"; fail=1; }
+done
+# Legacy writes nothing.
+rm -rf "$state/held" "$state/notes"
+STATE_DIR=$state GATE_REF=o/r#7 GATE_ARTIFACT=$state/src/answer.md "$gate" comment 2>/dev/null
+[ ! -e "$state/held" ] && [ ! -e "$state/notes" ] || { echo "FAIL legacy wrote a record"; fail=1; }
+
 # An unwritable state dir never turns a hold into an allow.
 AUTONOMY=propose STATE_DIR=/proc/nope GATE_REF=o/r#7 "$gate" comment 2>/dev/null
 [ $? = 3 ] || { echo "FAIL unwritable state dir changed the exit code"; fail=1; }

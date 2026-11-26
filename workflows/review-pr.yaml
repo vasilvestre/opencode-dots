@@ -609,10 +609,28 @@ states:
           } > "$body"
         fi
       fi
+      # The class of the item this pull request came from (ADR 0040). A fix-issue
+      # branch is fix/<N>-*: fix-issue wrote the class of issue N. With a ceiling
+      # set, a missing or invalid class on such a branch is 3 (fail closed). Other
+      # branches carry no class: only the ceiling counts.
+      item_class=
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        br=$(jq -r '.headRefName // empty' "$d/meta.json" 2>/dev/null || true)
+        case "$br" in
+          fix/[0-9]*-*)
+            n=${br#fix/}; n=${n%%-*}
+            case "$n" in
+              *[!0-9]*) ;;
+              *)
+                c=$(head -n 1 "${STATE_DIR:-/state}/fix/{{.inputs.repo}}/issue-$n/item_class" 2>/dev/null || true)
+                case "$c" in 1|2|3) item_class=$c ;; *) item_class=3 ;; esac ;;
+            esac ;;
+        esac
+      fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$body" GATE_REPO="{{.inputs.repo}}" \
+        ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$body" GATE_REPO="{{.inputs.repo}}" \
           "${DOTS_HOME:-/work}/bin/publish-gate" comment || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: review not published (gate $grc)"; touch "$d/gated"; exit 0; }
       fi
@@ -806,11 +824,29 @@ states:
         echo "pull request conflicts with its base, no push"
         exit 0
       fi
+      # The class of the item this pull request came from (ADR 0040). A fix-issue
+      # branch is fix/<N>-*: fix-issue wrote the class of issue N. With a ceiling
+      # set, a missing or invalid class on such a branch is 3 (fail closed). Other
+      # branches carry no class: only the ceiling counts.
+      item_class=
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        br=$(jq -r '.headRefName // empty' "$d/meta.json" 2>/dev/null || true)
+        case "$br" in
+          fix/[0-9]*-*)
+            n=${br#fix/}; n=${n%%-*}
+            case "$n" in
+              *[!0-9]*) ;;
+              *)
+                c=$(head -n 1 "${STATE_DIR:-/state}/fix/{{.inputs.repo}}/issue-$n/item_class" 2>/dev/null || true)
+                case "$c" in 1|2|3) item_class=$c ;; *) item_class=3 ;; esac ;;
+            esac ;;
+        esac
+      fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
+        ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
         GATE_REPO="{{.inputs.repo}}" GATE_BRANCH="$branch" GATE_PUSH_REPO="$head_repo" \
         GATE_TITLE="$(head -1 "$d/fixmsg.md")" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
@@ -866,10 +902,28 @@ states:
       esac
       jq -e '.body | test("Closes #[0-9]+")' "$d/meta.json" >/dev/null \
         || { echo "automerge: body has no Closes #N"; exit 0; }
+      # The class of the item this pull request came from (ADR 0040). A fix-issue
+      # branch is fix/<N>-*: fix-issue wrote the class of issue N. With a ceiling
+      # set, a missing or invalid class on such a branch is 3 (fail closed). Other
+      # branches carry no class: only the ceiling counts.
+      item_class=
+      if [ -n "{{.inputs.autonomy}}" ]; then
+        br=$(jq -r '.headRefName // empty' "$d/meta.json" 2>/dev/null || true)
+        case "$br" in
+          fix/[0-9]*-*)
+            n=${br#fix/}; n=${n%%-*}
+            case "$n" in
+              *[!0-9]*) ;;
+              *)
+                c=$(head -n 1 "${STATE_DIR:-/state}/fix/{{.inputs.repo}}/issue-$n/item_class" 2>/dev/null || true)
+                case "$c" in 1|2|3) item_class=$c ;; *) item_class=3 ;; esac ;;
+            esac ;;
+        esac
+      fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       if [ -n "{{.inputs.autonomy}}" ]; then
         grc=0
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/verdict.txt" GATE_REPO="{{.inputs.repo}}" \
+        ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/verdict.txt" GATE_REPO="{{.inputs.repo}}" \
         GATE_PR_AUTHOR="$(jq -r '.author.login // empty' "$d/meta.json")" GATE_MERGE_SCOPE="${GATE_MERGE_SCOPE:-}" \
           "${DOTS_HOME:-/work}/bin/publish-gate" merge || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: not merging (gate $grc)"; exit 0; }

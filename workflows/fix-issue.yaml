@@ -287,7 +287,19 @@ states:
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/held.patch" GATE_REPO="$repo" \
         GATE_BRANCH="$branch" GATE_BASE="$base" GATE_TITLE="$title" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
-        [ "$grc" = 0 ] || { echo "autonomy: change not pushed (gate $grc)"; exit 0; }
+        if [ "$grc" != 0 ]; then
+          echo "autonomy: change not pushed (gate $grc)"
+          # A held push (propose) holds the pull request text too, so the two
+          # records can be released in order: push first, then open-pr
+          # (docs/publish-held.md). The open-pr gate is called for its record only.
+          if [ "$grc" = 3 ]; then
+            ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
+            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/fix.md" GATE_REPO="$repo" \
+            GATE_BRANCH="$branch" GATE_BASE="$base" GATE_TITLE="$title" GATE_CLOSES="$iss" \
+              "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || echo "autonomy: pull request held too (gate $?)"
+          fi
+          exit 0
+        fi
       fi
 
       # Where the branch goes. A repository I can write to takes it directly.

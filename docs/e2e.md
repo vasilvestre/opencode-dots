@@ -34,8 +34,7 @@ The repository is `tester/demo` and the dot's login is `tester`: the owned path
 of `fix-issue` and the ownership test of `review-pr` (`head owner == me`) both
 hold, and a pull request by `stranger` is someone else's. No real name appears.
 
-`test/e2e/lib.sh` holds the helpers (`case_new`, `seed_pr`, `run_wf`, `check`,
-`known_defect`); the scenarios are in `bin/test-e2e`.
+`test/e2e/lib.sh` holds the helpers (`case_new`, `seed_pr`, `run_wf`, `check`); the scenarios are in `bin/test-e2e`.
 
 ## What is verified
 
@@ -58,7 +57,7 @@ refs, `STATE_DIR/notes` and `STATE_DIR/held`.
 | legacy baseline | four runs compared with the workflows of `0a28bc8~1`, the commit before the gate (see below) | legacy | n/a |
 
 Class 1, 2 and 3 apply to `fix-issue` only: it is the one workflow that sets
-`ITEM_CLASS`. `review-pr` has no class (see D1).
+`ITEM_CLASS`. `review-pr` takes the class of the issue behind a `fix/<N>-*` branch (see D1).
 
 ### Legacy equals the pre-gate behaviour
 
@@ -73,50 +72,40 @@ files, the agent steps that ran (so no classification call), and that no note or
 held record exists. If the commit is not in the clone (shallow checkout) the
 section is skipped with a message.
 
-## Known defects (expected failures)
+## Defects found by the harness, now fixed
 
-A defect is written as the check that should hold. While it fails it prints
-`XFAIL ... [Dn known defect]` and does not fail the run. When it starts to pass
-it prints `XPASS` and fails the run, so the mark is removed with the fix. The
-workflows were not edited to hide any of these.
+The first run of this harness found three defects, kept as expected failures
+(`XFAIL`) until they were fixed. They are now ordinary assertions, and the
+`known_defect` mark is gone from `test/e2e/lib.sh`.
 
-**D1. A pull request born from a class 2 item is merged by `review-pr` at `auto`.**
-`docs/autonomy.md`: "Class 2 is never merged by the dot", and the table refuses a
-class 2 merge at `auto`. The class is computed in `fix-issue` (`level` writes
-`fix/<repo>/issue-<n>/item_class`) and is passed only to the gates of `fix-issue`.
-`review-pr` `automerge` calls `publish-gate merge` with `GATE_PR_AUTHOR` and no
-`ITEM_CLASS`, so the gate sees "not classified" and only the ceiling counts. The
-pull request `fix-issue` opened is a `fix/N-*` branch with `Closes #N`, exactly
-what `automerge` takes. Reproduction: `fix-issue` with `autonomy=auto` on an issue
-classified 2 (pull request opened), then `review-pr` with `autonomy=auto` on that
-pull request with a `merge` verdict: `gh pr merge` is issued. Expected: refused.
-The e2e case is "chain class 2" in the `review` section. (A class 3 item opens no
-pull request, so it is not reachable this way.)
+**D1. A pull request born from a class 2 item was merged by `review-pr` at
+`auto`.** The class was computed in `fix-issue` and passed only to its own gates;
+`review-pr` called `publish-gate merge` with no `ITEM_CLASS`. Now `review-pr`
+(`post`, `push`, `automerge`) reads `fix/<repo>/issue-<N>/item_class` for a head
+branch `fix/<N>-*` and exports it to every gate call; a missing or invalid file is
+3 when a ceiling is set. Other branches and the legacy run are unchanged. Cases
+(section `review`): "chain class 2" (not merged, review commented), class 1
+(merged), class 3, a missing and an invalid file (notes, no merge, also at `act`),
+legacy with no file (merged, no gate call), `fix/<name>` and `fix/7x-*` (no class).
+`seed_pr` writes the class file a real `fix-issue` run leaves (`SEED_CLASS`,
+default 1, `none` for no file).
 
-**D2. After `propose` and a release, `fix-issue` has pushed a branch but opened no
-pull request, and nothing holds the pull request text.** In `fix-issue`
-`push`, the gate call for `push` returns 3 and the step `exit 0`s before it reaches
-the `open-pr` gate call, so only a `push` record exists. `publish-held` of that
-record pushes the branch and stops; no `open-pr` record exists to release, and
-`fix.md` (title and body with `Closes #N`) is not referenced by any record. The
-person must write the pull request by hand. Reproduction: `fix-issue` at `propose`
-on a fixable issue, look in `held/`: one `push` record (and the held answer
-comment), no `open-pr`. Expected: an `open-pr` record, or the push release also
-opens the pull request. E2E: "release push: the pull request text is held too".
+**D2. After `propose` and a release, `fix-issue` had pushed a branch and opened no
+pull request.** The push gate returned 3 and the step exited before the `open-pr`
+gate call. Now a held push also writes the `open-pr` record in the same step
+(artifact `fix.md`, `branch`, `base`, `title`, `closes`), and `publish-held`
+refuses an `open-pr` whose branch is not on the remote. Cases (section `held`):
+two records after `propose`; the pull request first is refused with the message and
+leaves the record; push then open-pr opens one pull request with `Closes #7`; no
+open-pr record when a claim holds the branch or at `act`.
 
-**D3. A held record's artifact lives in a directory the next run wipes.** The
-record names `fix/<repo>/issue-<n>/held.patch` (and `answer.md` for a comment).
-`fix-issue` `fetch` does `rm -rf "$d"` at the start of every run for that issue
-(`review-pr` `fetch` does the same for `reviews/pr<N>-<sha>`). A second run (the
-issue labelled again, a retry) deletes or overwrites the artifact; releasing the
-first record then fails with "the artifact is missing or empty", or, if the second
-run wrote a new `held.patch`, applies the second run's patch under the first
-record's branch name. Reproduction: `fix-issue` at `propose` (patch), then
-`fix-issue` again at `propose` where the agent only declines, then `publish-held`
-with the first push record: the run fails. Expected: the record keeps its own copy
-of the artifact (under `held/`), as the gate's doc says a held item can be
-released "once, when a person asks". E2E: "a held push survives the next
-fix-issue run".
+**D3. A held record's artifact lived in a directory the next run wipes.** Now the
+gate copies it under `held/artifacts/<record name>/` (or `notes/artifacts/`),
+`artifact:` names the copy and `source:` the original. Cases: a push held, then a
+second `fix-issue` run on the same issue, then the release: the held change
+reaches the branch; a held answer survives the removal of `STATE_DIR/fix`; the
+record lines. Gate unit cases are in `bin/test-publish-gate`, the open-pr refusal
+in `bin/test-publish-held`, the dashboard path in `cmd/dashboard/autonomy_test.go`.
 
 ## Not faked, not covered
 

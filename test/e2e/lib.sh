@@ -19,8 +19,6 @@ LOGIN=tester
 
 PASS=0
 FAIL=0
-XFAIL=0
-XPASS=0
 declare -a FAILED=()
 
 say() { printf '%s\n' "$*"; }
@@ -36,22 +34,6 @@ check() {
     FAIL=$((FAIL + 1))
     FAILED+=("$name")
     say "FAIL  $name"
-  fi
-}
-
-# known_defect ID NAME COMMAND...: the command states what SHOULD hold. While the
-# defect exists it fails, which is expected (XFAIL). When it starts passing the
-# defect is fixed and the mark must go (XPASS counts as a failure).
-known_defect() {
-  local id=$1 name=$2
-  shift 2
-  if "$@" >/dev/null 2>&1; then
-    XPASS=$((XPASS + 1))
-    FAILED+=("$name (known defect $id now passes: remove the mark)")
-    say "XPASS $name [$id] fixed? remove the expected-failure mark"
-  else
-    XFAIL=$((XFAIL + 1))
-    say "XFAIL $name [$id known defect, see docs/e2e.md]"
   fi
 }
 
@@ -129,6 +111,17 @@ Closes #7"}
       state:"OPEN", headRefOid:$sha, mergeable:"MERGEABLE", createdAt:"2026-01-01T00:00:00Z", comments:[]}' \
     > "$T/fake/gh/pr-$n.json"
   printf 'diff --git a/src.txt b/src.txt\n+line2\n' > "$T/fake/gh/diff.patch"
+  # A fix/N-* branch is one fix-issue opened: its run left the class of issue N
+  # (SEED_CLASS, default 1; "none" leaves no file). Other branches carry no class.
+  case "$branch" in
+    fix/[0-9]*-*)
+      local iss=${branch#fix/}
+      iss=${iss%%-*}
+      if [ "${SEED_CLASS:-1}" != none ]; then
+        mkdir -p "$T/state/fix/$REPO/issue-$iss"
+        printf '%s\n' "${SEED_CLASS:-1}" > "$T/state/fix/$REPO/issue-$iss/item_class"
+      fi ;;
+  esac
 }
 
 # --- running -----------------------------------------------------------------
@@ -185,8 +178,8 @@ case_done() {
 
 summary() {
   say ""
-  say "passed $PASS, failed $FAIL, expected failures (known defects) $XFAIL, unexpected passes $XPASS"
-  if [ $((FAIL + XPASS)) -gt 0 ]; then
+  say "passed $PASS, failed $FAIL"
+  if [ "$FAIL" -gt 0 ]; then
     printf 'FAILED: %s\n' "${FAILED[@]}"
     return 1
   fi

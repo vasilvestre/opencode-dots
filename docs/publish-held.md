@@ -19,8 +19,8 @@ the log line says who and when.
 
 ## The record
 
-`bin/publish-gate` writes `action`, `ref`, `autonomy`, `class`, `artifact`,
-`reason`, then the optional lines below for each of `GATE_BRANCH`, `GATE_BASE`,
+`bin/publish-gate` writes `action`, `ref`, `autonomy`, `class`, `artifact`, a
+`source` line when it copied the artifact (below), `reason`, then the optional lines below for each of `GATE_BRANCH`, `GATE_BASE`,
 `GATE_PUSH_REPO`, `GATE_TITLE`, `GATE_CLOSES` that the calling step set (a line is
 omitted when unset; values are cut to one line without control characters). The
 workflows `fix-issue`, `reply-pr`, `fix-ci`, `review-pr` and `tend-repo` set them
@@ -34,6 +34,19 @@ where the value is known. `publish-held` validates each; none is code:
 | `title` | push | commit message for a plain `git diff` patch |
 | `closes` | open-pr | issue number, appended to the body as `Closes #N` |
 
+### The artifact is a copy
+
+The workflow's own artifact (`held.patch`, `answer.md`, `review.md`, `fix.md`)
+sits in a per-run directory that the next run on the same issue or pull request
+wipes. So when the gate writes a held record it copies the artifact to
+`$STATE_DIR/held/artifacts/<record name>/<file>` (a note goes to
+`notes/artifacts/...`), `artifact:` names the copy and `source:` the original
+path. `publish-held` reads `artifact:`, so a release works after the original is
+gone. A missing or empty artifact, or one above `GATE_ARTIFACT_CAP` bytes (default
+5 MiB), is not copied: the record keeps the original path and has no `source`
+line. The copy stays under `held/artifacts/` after the release; the record moves
+to `held/released/` and still points at it.
+
 A push from `fix-issue` or `tend-repo` names no `push-repo`: the release pushes to
 the repository of the `ref`, which is wrong for a fork the dot has no write access
 to. Such a record needs `push-repo` added by hand.
@@ -44,7 +57,22 @@ to. Such a record needs `push-repo` added by hand.
 | --- | --- | --- |
 | `comment` | the comment text | `gh issue comment N --repo REPO --body-file ARTIFACT` (works on pull requests) |
 | `push` | a patch: `git diff` or `git format-patch` | fresh clone of the branch, apply, commit as the token account, push |
-| `open-pr` | first line the title, the rest the body | `gh pr create`; push the branch first |
+| `open-pr` | first line the title, the rest the body | `gh pr create`; the branch must already be on the remote |
+
+### A fix-issue at `propose`: two records, release in order
+
+When the gate holds the push of `fix-issue`, the same step also writes the
+`open-pr` record (artifact `fix.md`, plus `branch`, `base`, `title`, `closes`).
+Release them in this order:
+
+1. the `push` record: the branch reaches the remote;
+2. the `open-pr` record: the pull request opens with `Closes #N`.
+
+`publish-held` refuses an `open-pr` whose branch is not on the remote yet
+(`git ls-remote --heads`, on `push-repo` when the record names one, else on the
+repository of the `ref`), with the message "branch X is not on OWNER/REPO yet;
+release the push record for REF first, then this one". The record stays held,
+and the release can be retried after the push.
 
 For a push without `branch`, the `ref` must be an open pull request: its head
 branch and repository are used. A branch that does not exist is created from
@@ -59,7 +87,8 @@ On any failure the record stays where it is, so the release can be retried.
 - The id is a plain file name: no path, no leading dot, no `..`.
 - The record exists under `held/` and is not already in `held/released/`.
 - `action` is `comment`, `push` or `open-pr`; `ref` is `OWNER/REPO#N`.
-- The artifact exists, is not empty and lives under `STATE_DIR`.
+- The artifact exists, is not empty and lives under `STATE_DIR` (the gate's copy
+  under `held/artifacts/` does).
 - Branch, base, push-repo and closes match a strict pattern.
 - One release of a record at a time (a lock directory).
 - Before a push, `bin/held` (ADR 0026): a human claim on the branch refuses the
@@ -75,6 +104,7 @@ A refusal fails the run with a one-line reason and changes nothing.
   `STATE_DIR`.
 - A push to `main` or `master`, or a pull request from one.
 - A branch under a human claim.
+- An `open-pr` whose branch is not on the remote yet (release the `push` first).
 - A push on a pull request that is not open, or a branch that is gone with no
   `base` to recreate it from.
 
