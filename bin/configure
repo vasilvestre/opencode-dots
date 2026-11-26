@@ -39,6 +39,7 @@ done
 # Keep the previous answers when the file already exists.
 OLD_GH_TOKEN=
 OLD_DISCORD_WEBHOOK=
+OLD_MODEL_FALLBACKS=
 if [ -f "$ROOT/.env" ]; then
   while IFS='=' read -r k v; do
     case "$k" in
@@ -49,6 +50,7 @@ if [ -f "$ROOT/.env" ]; then
       DOT_CLAUDE) [ -n "$v" ] && MODE_CLAUDE=$v ;;
       GH_TOKEN) OLD_GH_TOKEN=$v ;;
       DISCORD_WEBHOOK) OLD_DISCORD_WEBHOOK=$v ;;
+      DOTS_MODEL_FALLBACKS) OLD_MODEL_FALLBACKS=$v ;;
     esac
   done < "$ROOT/.env"
 fi
@@ -161,6 +163,7 @@ mkdir -p "$ROOT/state"
   echo "COMPOSE_PROFILES=$PROFILES"
   echo "GH_TOKEN=$TOKEN"
   echo "DISCORD_WEBHOOK=$OLD_DISCORD_WEBHOOK"
+  echo "DOTS_MODEL_FALLBACKS=$OLD_MODEL_FALLBACKS"
 } > "$ROOT/.env"
 
 {
