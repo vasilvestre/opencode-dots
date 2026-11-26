@@ -16,6 +16,11 @@ inputs:
   - name: event
     type: string
     required: false
+  - name: dry_run
+    type: boolean
+    required: false
+    default: "false"
+    description: show the review, the fix and the merge it would make, without posting, pushing or merging
   - name: review_model
     type: string
     required: false
@@ -507,6 +512,7 @@ states:
     command: |
       set -eu
       d=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}
+      base=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}
       test -s "$d/review.md"
       head=$(gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} --json headRefOid --jq .headRefOid)
       if [ "$head" != "{{.inputs.sha}}" ]; then
@@ -554,6 +560,14 @@ states:
             printf '\n</details>\n'
           } > "$body"
         fi
+      fi
+      # A dry run keeps the comment it would post, with the proposed patch when
+      # there is one, so the worktree can go without losing the fix.
+      if [ "{{.inputs.dry_run}}" = "true" ]; then
+        cp "$body" "$base/would-comment.md"
+        [ -s "$d/fix.patch" ] && cp "$d/fix.patch" "$base/would-fix.patch"
+        echo "dry run: would comment on {{.inputs.repo}}#{{.inputs.pr}}, $base/would-comment.md"
+        exit 0
       fi
       gh pr comment {{.inputs.pr}} --repo {{.inputs.repo}} \
         --body-file "$body"
@@ -747,6 +761,23 @@ states:
       fi
       title=$(head -1 "$d/fixmsg.md")
       body=$(tail -n +2 "$d/fixmsg.md")
+      if [ "{{.inputs.dry_run}}" = "true" ]; then
+        # Describe the commit and keep the change, then leave the worktree as
+        # it was: nothing is committed or pushed.
+        git -C "$work" add -A -N
+        git -C "$work" diff HEAD > "$base/would-push.diff"
+        git -C "$work" reset --quiet
+        {
+          printf 'Would commit on `%s` and push:\n\n' "$branch"
+          printf '%s\n' "$title" | sed 's/^/> /'
+          if [ -n "$body" ]; then printf '\n%s\n' "$body" | sed 's/^/> /'; fi
+          printf '\nDiff: %s/would-push.diff\n' "$base"
+        } > "$base/would-push.md"
+        printf 'Would push on %s:%s, %s/would-push.md\n' "$head_repo" "$branch" "$base"
+        git -C "$work" checkout -- .
+        git -C "$work" clean -fdq
+        exit 0
+      fi
       login=$(gh api user --jq .login)
       uid=$(gh api user --jq .id)
       git -C "$work" config user.name "$login"
@@ -783,6 +814,10 @@ states:
       case "$state" in
         MERGED|CLOSED) echo "SUPERSEDED: pull request is $state, no merge"; exit 0 ;;
       esac
+      if [ "{{.inputs.dry_run}}" = "true" ]; then
+        echo "dry run: would merge {{.inputs.repo}}#{{.inputs.pr}} with --squash, not merging"
+        exit 0
+      fi
       verdict=$(tr -d '[:space:]' < "$d/verdict.txt" 2>/dev/null || true)
       if [ "$verdict" != "merge" ]; then
         echo "automerge: verdict '$verdict', not merging"

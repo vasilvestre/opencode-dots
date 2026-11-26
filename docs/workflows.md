@@ -298,6 +298,15 @@ The dashboard shows `would-issue.md` and `would-pr.md` in the Memory view. To
 start the same pass from the dashboard, open the Run dialog on `tend-repo` and
 set `dry_run` to `true`.
 
+`review-pr` has the same input. With `dry_run=true` it reviews, and fixes when
+it may, then stops short of the remote: `post` writes the comment it would post,
+with the proposed patch when the branch is not yours, to
+`$STATE_DIR/reviews/pr<N>/would-comment.md` and `would-fix.patch`; `push` writes
+the commit message and the change to `would-push.md` and `would-push.diff`, then
+puts the worktree back; `automerge` prints the merge it would make. Nothing is
+commented, pushed or merged. Run it by hand, with an old pull request's number
+and sha, before you enable the rule on a repository.
+
 ### What is worth opening
 
 The pass runs again tomorrow on almost the same code, so an item it opens sits
