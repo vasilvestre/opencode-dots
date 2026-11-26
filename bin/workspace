@@ -58,10 +58,20 @@ cmd_init() {
   [ -d "$dir/.git" ] && { echo "workspace: already at $dir"; return; }
   mkdir -p "$(dirname "$dir")"
   git clone --quiet "$DOTS_WORKSPACE_REMOTE" "$dir" 2>/dev/null || die "cannot clone $DOTS_WORKSPACE_REMOTE"
-  if ! g rev-parse --verify --quiet HEAD >/dev/null; then # an empty remote: make the first commit
-    g checkout --quiet -B main
-    printf '# Workspace memory\n\nWritten by bin/workspace (ADR 0025): lessons from the writer, inbox notes from the readers.\n' >"$dir/README.md"
-    g add README.md && g commit --quiet -m "Start the workspace" && g push --quiet -u origin main
+  if ! g rev-parse --verify --quiet HEAD >/dev/null; then
+    # No checkout: either the remote is empty, or its HEAD names a branch that does not exist
+    # (a bare repository whose HEAD is master while the writer pushed main).
+    local existing
+    existing=$(g ls-remote --heads origin | awk 'NR==1 {sub("refs/heads/", "", $2); print $2}')
+    if [ -n "$existing" ]; then
+      g fetch --quiet origin "$existing"
+      g checkout --quiet -B "$existing" FETCH_HEAD
+      g branch --quiet --set-upstream-to="origin/$existing" "$existing" 2>/dev/null || true
+    else
+      g checkout --quiet -B main
+      printf '# Workspace memory\n\nWritten by bin/workspace (ADR 0025): lessons from the writer, inbox notes from the readers.\n' >"$dir/README.md"
+      g add README.md && g commit --quiet -m "Start the workspace" && g push --quiet -u origin main
+    fi
   fi
   echo "workspace: cloned into $dir"
 }

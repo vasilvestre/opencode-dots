@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 ws=$PWD/bin/workspace
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-git init -q --bare "$tmp/remote.git"
+# HEAD on master while the writer pushes main: what a bare repository made with git's default gives.
+git init -q --bare -b master "$tmp/remote.git"
 export DOTS_WORKSPACE_REMOTE=$tmp/remote.git
 
 fail=0
