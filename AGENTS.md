@@ -66,9 +66,9 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 - `local` and `docker` must agree on the absolute paths for `STATE_DIR`,
   `WORK_ROOT` and `repos.map`, because a local opencode server resolves host
   paths.
-- Nothing binds a public interface. Ports stay on `127.0.0.1`. The tailnet
-  reaches the dashboard through `tailscale serve`, not through a wider bind
-  (ADR 0013).
+- Nothing binds a public interface. Ports stay on `127.0.0.1`. The NetBird
+  network reaches the dashboard through Caddy on the NetBird address
+  (`deploy/netbird/Caddyfile`), not through a wider bind (ADR 0034).
 - An accepted ADR is never rewritten. A new decision supersedes it, and both
   files name the other.
 

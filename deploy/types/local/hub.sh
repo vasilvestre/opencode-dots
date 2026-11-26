@@ -7,8 +7,8 @@
 # The hub is a release binary whose checksum is verified. Its two keys are generated here, on the
 # machine that runs it, into ~/.config/dots/hub.env (mode 600); they are not in the repository and
 # not printed. Clients get the key by a channel you choose (`ssh host 'cat ~/.config/dots/hub.env'`).
-# The hub listens on 127.0.0.1:3901: reach it by an SSH tunnel, or publish it on the tailnet with
-# `sudo tailscale serve --bg --https=8445 http://127.0.0.1:3901`.
+# The hub listens on 127.0.0.1:3901: reach it by an SSH tunnel, or publish it on the
+# NetBird network with a second site in deploy/netbird/Caddyfile.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../../lib.sh

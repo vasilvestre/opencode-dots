@@ -10,10 +10,12 @@
 #   DOTS_SUDO_NOPASSWD  1 gives the user passwordless sudo (the account has no password)
 #   DOTS_HARDEN_SSH     1 turns off root login and passwords for SSH. Needs a key for the
 #                       user. Test a second session before you close the first one.
-#   TS_AUTHKEY          Tailscale auth key: installs Tailscale and joins the tailnet
-#   TS_HOSTNAME         name of the machine on the tailnet
-#   TS_TAGS             tags to advertise, for example tag:dots
-#   DOTS_TS_SERVE_PORT  publish the dashboard (127.0.0.1:8099) on that HTTPS tailnet port
+#   NB_CONTROL_DOMAIN   domain of a self-hosted NetBird control plane: installs it
+#   NB_LETSENCRYPT_EMAIL email for that control plane's certificate
+#   NB_MANAGEMENT_URL   control plane the client joins (default https://$NB_CONTROL_DOMAIN)
+#   NB_SETUP_KEY        setup key: joins this machine to the NetBird network
+#   DOTS_DASHBOARD_HOST name the Caddy publishes the dashboard on (default dots.internal)
+#   DOTS_DASHBOARD_PORT port of that Caddy (default 8443)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../../lib.sh
@@ -76,20 +78,10 @@ if [ "${DOTS_HARDEN_SSH:-0}" = 1 ]; then
   fi
 fi
 
-if [ -n "${TS_AUTHKEY:-}" ]; then
-  log "tailscale"
-  if ! command -v tailscale >/dev/null 2>&1; then
-    curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
-  fi
-  args=(up --auth-key="$TS_AUTHKEY")
-  [ -n "${TS_HOSTNAME:-}" ] && args+=(--hostname="$TS_HOSTNAME")
-  [ -n "${TS_TAGS:-}" ] && args+=(--advertise-tags="$TS_TAGS")
-  tailscale "${args[@]}"
-  if [ -n "${DOTS_TS_SERVE_PORT:-}" ]; then
-    tailscale serve --bg --https="$DOTS_TS_SERVE_PORT" http://127.0.0.1:8099
-  fi
+if [ -n "${NB_CONTROL_DOMAIN:-}" ] || [ -n "${NB_SETUP_KEY:-}" ]; then
+  bash "$here/netbird.sh"
 else
-  log "tailscale: TS_AUTHKEY not set, skipped (join the tailnet yourself, then close SSH to the world)"
+  log "netbird: NB_CONTROL_DOMAIN and NB_SETUP_KEY not set, skipped (join the network yourself, then close SSH to the world)"
 fi
 
 log "system step done; next, as $DOTS_USER: deploy/types/local/user.sh"

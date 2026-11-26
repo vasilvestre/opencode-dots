@@ -23,9 +23,9 @@ func (d *dash) trustedRequest(r *http.Request) bool {
 	return true
 }
 
-// trustedHost admits loopback and the hosts named by -allow-host. The tailnet
-// proxy forwards the tailnet name, so a page served through it writes only when
-// that name is on the list.
+// trustedHost admits loopback and the hosts named by -allow-host. The NetBird
+// proxy forwards the dashboard host, so a page served through it writes only when
+// that host is on the list.
 func (d *dash) trustedHost(hostport string) bool {
 	if isLoopbackHost(hostport) {
 		return true

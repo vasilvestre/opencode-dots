@@ -10,7 +10,8 @@
 [0027](0027-eu-vps-native-local-mode.md) puts the dot on one always-on EU VPS.
 The first one was set up by hand: create a user, harden SSH, install packages,
 enable linger and zram, clone the repository, build `awf`, install `opencode`,
-join the tailnet, write the units. None of it is recorded in the repository, so
+join the NetBird network, write the units. None of it is recorded in the
+repository, so
 a second server, a rebuild after a failure, or a move to another provider
 starts from memory.
 
@@ -59,7 +60,7 @@ fresh Debian machine into a dot. They live under `deploy/types/<type>/` and are
 split by the privilege they need. For the `local` type:
 
 - `system` needs sudo and runs once. It installs packages, creates the user,
-  hardens SSH, enables linger and zram, and joins the tailnet.
+  hardens SSH, enables linger and zram, and joins the NetBird network.
 - `user` needs no root. It installs `awf`, `opencode` and tower, clones the
   repository to a generic directory, installs the user units and timers, and
   starts them. The directory is `~/dots` by default and is set once, as
@@ -96,10 +97,11 @@ server with its `agent_memory` extension by a command that runs on the workstati
 (`deploy/types/local/push.sh --tower`). The same command pushes `bin/repos` and
 `bin/dashboard`, which are Go builds the server does not make either.
 
-Secrets and private files never enter the repository. The tailnet auth key,
+Secrets and private files never enter the repository. The NetBird setup key,
 `GH_TOKEN` and provider credentials are read from the environment or asked for
 at run time. `repos.yaml` and `.env` are copied to the server by a command that
-uses the tailnet. The scripts write no secret to a file under version control
+uses the NetBird network. The scripts write no secret to a file under version
+control
 or to a log.
 
 The OpenTofu state stays local and is encrypted. Its encryption key is not in
@@ -118,8 +120,8 @@ touched.
 - A new deploy type or provider is a new directory. The two choices do not
   multiply files, because each is written once.
 - The user step runs without root, so a restricted host can still run the dot.
-- The tailnet is still the only gate, and the system script is the place where
-  that rule is enforced, so a mistake there is a mistake everywhere.
+- The NetBird network is still the only gate, and the system script is the place
+  where that rule is enforced, so a mistake there is a mistake everywhere.
 - Two layers cost more files than one script. We accept it for the provider and
   type split.
 - Each script is tied to Debian at first. Another distribution is a later
@@ -153,7 +155,7 @@ touched.
 
 ## Open questions
 
-- Where the tailnet auth key comes from at run time, and its lifetime.
+- Where the NetBird setup key comes from at run time, and its lifetime.
 - Whether to support a distribution other than Debian 13 in the first version.
 - When tower publishes Linux release archives that are not empty, so the pushed
   build can be replaced by a download with a checksum.

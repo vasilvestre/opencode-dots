@@ -1,5 +1,5 @@
 # The Mercure hub of the dots (ADR 0026), as Caddy configures it. It listens on loopback only:
-# reach it through an SSH tunnel or `tailscale serve`. The keys come from the environment
+# reach it through an SSH tunnel or the Caddy on the NetBird address (ADR 0034). The keys come from the environment
 # (~/.config/dots/hub.env, written by deploy/types/local/hub.sh), never from this file.
 {
 	admin off

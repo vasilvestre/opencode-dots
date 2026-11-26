@@ -9,7 +9,7 @@ resource "scaleway_instance_ip" "this" {
 }
 
 # Inbound is dropped except SSH. Remove the rule with ssh_allowed_cidrs = []
-# once the tailnet is the only way in.
+# once the NetBird network is the only way in.
 resource "scaleway_instance_security_group" "this" {
   name                    = "${var.name}-ssh-only"
   inbound_default_policy  = "drop"

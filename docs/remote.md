@@ -28,6 +28,7 @@ opencode exits. Nothing is exposed on a network.
 
 ## Not done
 
-- The web UI from a phone. The service serves it; publishing it on the tailnet is one
-  `tailscale serve` on the server, and the password is the only gate. Decide that before you do it.
+- The web UI from a phone. The service serves it; publishing it on the NetBird
+  network is one more site in `deploy/netbird/Caddyfile`, and the password is the
+  only gate. Decide that before you do it.
 - Claude on the server. `claude` is not logged in there; log it in on the server once.

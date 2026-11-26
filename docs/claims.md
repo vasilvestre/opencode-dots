@@ -71,8 +71,8 @@ binary after verifying its checksum, writes its keys to `~/.config/dots/hub.env`
 machine, never committed or printed), and listens on `127.0.0.1:3901`. About 50 MB of memory. No licence key is
 needed: release 1.1.6 ran with none (tested).
 
-From a machine that follows or publishes, reach it through an SSH tunnel (or `sudo tailscale serve --bg
---https=8445 http://127.0.0.1:3901`, whose only gate is then the key), and set:
+From a machine that follows or publishes, reach it through an SSH tunnel, or add it next to the dashboard
+in `deploy/netbird/Caddyfile` (ADR 0034); its only gate is then the key. Then set:
 
 ```bash
 export DOTS_MERCURE_URL=http://127.0.0.1:3901/.well-known/mercure   # the tunnel's end

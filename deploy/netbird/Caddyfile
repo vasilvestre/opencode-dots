@@ -1,0 +1,13 @@
+# The dashboard of the dots on the NetBird network (ADR 0034). Caddy listens on the
+# NetBird address only: the public address belongs to the control plane's own Traefik,
+# never to this page. The certificate comes from Caddy's local authority; import
+# /var/lib/caddy/pki/authorities/local/root.crt on each device once.
+{
+	admin off
+}
+
+https://{$DOTS_DASHBOARD_HOST:dots.internal}:{$DOTS_DASHBOARD_PORT:8443} {
+	bind {$DOTS_NETBIRD_IP}
+	tls internal
+	reverse_proxy 127.0.0.1:8099
+}

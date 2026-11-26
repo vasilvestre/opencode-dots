@@ -313,14 +313,14 @@ the pull request or issue number as provenance.
 ## Dashboard
 
 `make dashboard` builds `cmd/dashboard` and serves a page on
-http://127.0.0.1:8099. From another machine on the tailnet, the same page
-answers on the tailnet address that `tailscale serve` publishes. Copy
-`systemd/dots-dashboard.env.example` to `systemd/dots-dashboard.env` and set
+http://127.0.0.1:8099. From another machine on the NetBird network, the same page
+answers on the address Caddy publishes (`deploy/netbird/Caddyfile`, ADR 0034).
+Copy `systemd/dots-dashboard.env.example` to `systemd/dots-dashboard.env` and set
 `DOTS_ALLOW_HOST` to that name. The process still binds loopback and nothing
 listens on a public interface. The dashboard has no login: every device on the
-tailnet can then edit workflows, change model defaults and start runs, so only
-trusted devices may join the tailnet (see
-[ADR 0013](ADR/0013-dashboard-on-the-tailnet.md)).
+network can then edit workflows, change model defaults and start runs, so only
+trusted devices may join the network (see
+[ADR 0034](ADR/0034-access-is-a-self-hosted-netbird-network.md)).
 It shows:
 
 - awf executions running now, with their current step and a live log that

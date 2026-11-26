@@ -1,9 +1,9 @@
 # 0013. The dashboard answers on the tailnet through tailscale serve
 
-- Status: accepted
+- Status: superseded by 0034
 - Date: 2026-11-23
 - Supersedes: none
-- Superseded by: none
+- Superseded by: 0034
 
 ## Context
 

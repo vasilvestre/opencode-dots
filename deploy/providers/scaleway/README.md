@@ -57,7 +57,7 @@ lost. Never put it in a file here.
 
 ## Remove the SSH rule
 
-When the tailnet is the only way in, set `ssh_allowed_cidrs = []` and run
+When the NetBird network is the only way in, set `ssh_allowed_cidrs = []` and run
 `tofu apply`. The group then has no inbound rule at all. To open it again, put
 a CIDR back.
 

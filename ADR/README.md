@@ -20,7 +20,7 @@ your mind by writing a new one that supersedes it.
 | [0010](0010-review-fix-loop.md) | review-pr closes its own loop: fix, push, re-review | accepted | 2026-11-23 |
 | [0011](0011-sync-managed-clones.md) | Sync managed clones when main moves | accepted | 2026-11-23 |
 | [0012](0012-fix-rule-judges-decisions.md) | The fix rule judges decisions, not line counts | accepted | 2026-11-23 |
-| [0013](0013-dashboard-on-the-tailnet.md) | The dashboard answers on the tailnet through tailscale serve | accepted | 2026-11-23 |
+| [0013](0013-dashboard-on-the-tailnet.md) | The dashboard answers on the tailnet through tailscale serve | superseded by 0034 | 2026-11-23 |
 | [0014](0014-dashboard-editable-model-defaults.md) | The dashboard edits workflow model defaults | superseded by 0018 | 2026-11-24 |
 | [0015](0015-dots-take-delegation.md) | The operator delegates a pull request with /dots take | accepted | 2026-11-25 |
 | [0016](0016-awf-gh-runs-natively.md) | awf-gh can run natively | accepted | 2026-11-25 |
@@ -41,6 +41,7 @@ your mind by writing a new one that supersedes it.
 | [0031](0031-executor-per-repository.md) | A repository names the executor that runs its tasks | proposed | 2026-11-26 |
 | [0032](0032-trust-levels-per-repository.md) | A repository has a trust level that limits the rest of its configuration | proposed | 2026-11-26 |
 | [0033](0033-hybrid-executors.md) | An executor can be a list, and what every executor runs is checked | proposed | 2026-11-26 |
+| [0034](0034-access-is-a-self-hosted-netbird-network.md) | Access is a self-hosted NetBird network | accepted | 2026-11-26 |
 
 ## When to write one
 
