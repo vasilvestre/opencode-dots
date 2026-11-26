@@ -3,6 +3,7 @@ import { getJSON } from "../api.js";
 import { confirmDialog } from "../modal.js";
 import { toast } from "../toast.js";
 import { openRulesDialog, ruleSummary } from "../rules-dialog.js";
+import { ago, when } from "../format.js";
 
 const FEATURES = [
   ["review", "Review", "review-pr on pull requests"],
@@ -33,6 +34,7 @@ export function mountRepos(el) {
   });
   const count = h("span", { class: "muted" });
   const body = h("div", {});
+  const claims = h("div", {});
   const addInput = h("input", {
     type: "text",
     placeholder: "owner/name",
@@ -54,8 +56,37 @@ export function mountRepos(el) {
     ),
     h("div", { class: "section-head" }, count, h("span", { class: "spacer" }),
       addInput, h("button", { class: "btn sm", onclick: addRepo }, "Add repository")),
+    claims,
     body,
   ));
+  loadClaims();
+
+  // A claim is a veto: the dot does not push to a branch a person holds (ADR 0026).
+  // The list is short and changes slowly, so one read on mount is enough.
+  async function loadClaims() {
+    let list = [];
+    try { list = await getJSON("/api/claims"); } catch { return; }
+    if (!list.length) return;
+    mount(claims, h("div", { class: "card" },
+      h("div", { class: "card-head" },
+        h("h3", {}, "Claims"),
+        h("span", { class: "badge warn" }, `${list.length}`),
+      ),
+      h("p", { class: "muted" }, "The dot does not push to these branches while the claim lives."),
+      h("div", { class: "list" }, list.map((c) =>
+        h("div", { class: "item row between" },
+          h("div", {},
+            h("span", { class: "mono" }, c.repo),
+            " ",
+            h("span", { class: "mono" }, c.branch),
+            c.title ? h("span", { class: "muted" }, ` — ${c.title}`) : null,
+          ),
+          h("div", { class: "muted" },
+            c.machine, " · held ", ago(c.held_since),
+            c.expires_at ? ` · expires ${when(c.expires_at)}` : ""),
+        ))),
+    ));
+  }
 
   // --- writes ---------------------------------------------------------------
 

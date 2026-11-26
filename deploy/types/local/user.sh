@@ -83,7 +83,7 @@ render_units() {
     *) at=$DOTS_HOME ;;
   esac
   local src="$DOTS_HOME/systemd" dst="$HOME/.config/systemd/user" u
-  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer dots-workspace-sync.service dots-workspace-sync.timer; do
+  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer dots-workspace-sync.service dots-workspace-sync.timer dots-claim.service dots-claim.timer; do
     [ -f "$src/$u" ] || { warn "$src/$u is missing, skipped"; continue; }
     sed -e "s|%h/projects/perso/opencode-dots|$at|g" \
       -e "s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |" \
@@ -190,6 +190,9 @@ configure_dots() {
     else
       warn "workspace sync stays off: copy systemd/dots-workspace.env.example to $HOME/.config/dots/workspace.env first"
     fi
+    # Nothing to renew until 'bin/claim start' runs, and renewing an empty
+    # directory costs one process: enable it now so a claim never lapses.
+    systemctl --user enable --now dots-claim.timer
   fi
 }
 

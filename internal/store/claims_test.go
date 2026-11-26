@@ -167,3 +167,18 @@ func TestAClaimNamingABranchHoldsItWithoutAReference(t *testing.T) {
 		t.Error("a claim on a branch of one repository holds the same branch name in another")
 	}
 }
+
+func TestLiveClaimsCarryTheirRepositoryAndLeaveOutTheExpired(t *testing.T) {
+	f := newClaimFixture(t)
+	if _, err := f.s.TakeClaim(f.ctx, f.item.ID, f.human.ID, "laptop", "fix-login", 0); err != nil {
+		t.Fatal(err)
+	}
+	live, err := f.s.LiveClaims(f.ctx)
+	if err != nil || len(live) != 1 || live[0].Repo != "acme/app" || live[0].Title != "Fix" {
+		t.Fatalf("LiveClaims = %+v, %v", live, err)
+	}
+	f.now = f.now.Add(DefaultClaimTTL + time.Second)
+	if live, err := f.s.LiveClaims(f.ctx); err != nil || len(live) != 0 {
+		t.Fatalf("an expired claim is still listed: %+v, %v", live, err)
+	}
+}

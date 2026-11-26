@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew the claims this machine holds on branches (bin/claim, ADR 0026)
+
+# A claim expires after DOTS_CLAIM_TTL (five minutes by default), so it has to be
+# renewed while you work. Run `bin/claim start OWNER/REPO#N BRANCH` once.
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
+ExecStart=%h/projects/perso/opencode-dots/bin/claim renew
+TimeoutStartSec=30

@@ -39,6 +39,9 @@ type Claim struct {
 // Expires is the expiry as an RFC 3339 time, for a person or a log to read.
 func (c Claim) Expires() string { return c.ExpiresAt.UTC().Format(time.RFC3339) }
 
+// HeldSince is the creation as an RFC 3339 time: the age the dashboard shows.
+func (c Claim) HeldSince() string { return c.CreatedAt.UTC().Format(time.RFC3339) }
+
 // Renewed reports whether the claim has been renewed since it was made.
 func (c Claim) Renewed() bool { return !c.RenewedAt.Equal(c.CreatedAt) }
 
@@ -123,6 +126,42 @@ const claimColumns = `c.id, c.work_item_id, c.actor_id, a.kind, c.machine, c.bra
 func (s *Store) ActiveClaims(ctx context.Context, workItemID string) ([]Claim, error) {
 	return s.queryClaims(ctx, `SELECT `+claimColumns+` FROM claim c JOIN actor a ON a.id = c.actor_id
 		WHERE c.work_item_id = ? AND c.released_at = '' AND c.expires_at > ? ORDER BY c.created_at`, workItemID, stamp(s.clock()))
+}
+
+// LiveClaim is an active claim with the repository and title of its work item, for the
+// dashboard. It is read-only.
+type LiveClaim struct {
+	Claim
+	Repo  string
+	Title string
+}
+
+// LiveClaims lists every claim that still holds, with its repository, oldest first.
+func (s *Store) LiveClaims(ctx context.Context) ([]LiveClaim, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+claimColumns+`,
+		(SELECT p.repo FROM work_item w JOIN project p ON p.id = w.project_id WHERE w.id = c.work_item_id),
+		(SELECT w.title FROM work_item w WHERE w.id = c.work_item_id)
+		FROM claim c JOIN actor a ON a.id = c.actor_id
+		WHERE c.released_at = '' AND c.expires_at > ? ORDER BY c.created_at`, stamp(s.clock()))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LiveClaim
+	for rows.Next() {
+		var l LiveClaim
+		var created, renewed, expires, released string
+		if err := rows.Scan(&l.ID, &l.WorkItemID, &l.ActorID, &l.ActorKind, &l.Machine, &l.Branch,
+			&created, &renewed, &expires, &released, &l.Repo, &l.Title); err != nil {
+			return nil, err
+		}
+		l.CreatedAt, l.RenewedAt, l.ExpiresAt = parseTime(created), parseTime(renewed), parseTime(expires)
+		if released != "" {
+			l.ReleasedAt = parseTime(released)
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
 }
 
 // HumanClaimOnBranch reports whether a human holds an active claim that covers a branch of a

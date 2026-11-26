@@ -17,6 +17,7 @@ jobs:
       - run: test/shim.sh
       - run: test/workspace.sh
       - run: test/watchers.sh
+      - run: test/held.sh
       # Unpinned on purpose: take the new lints of each release as they ship.
       - run: go install github.com/vasilvestre/deslop-please-go/cmd/deslop-please@latest
       - run: deslop-please ./...

@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Hold a claim on a branch while I work on it (ADR 0026). The claim is a veto: the
+# dot refuses to push to that branch while it lives. It expires on its own, so a
+# forgotten claim cannot block forever, and dots-claim.timer renews it every minute.
+#
+#   bin/claim start OWNER/REPO#N BRANCH [TITLE]   claim, or renew a claim this machine holds
+#   bin/claim stop [CLAIM|all]                    release it and forget it
+#   bin/claim renew                               heartbeat every claim this machine holds
+#   bin/claim status                              what this machine holds
+#
+# Settings: DOTS_ACTOR (default: the gh login), DOTS_MACHINE (default: hostname -s),
+# STATE_DIR (the control-plane database lives in dots.db there), DOTS_CLAIM_DIR
+# (default: ~/.local/state/dots/claims), DOTS_CLAIM_TTL (default: 5m).
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+repos=${DOTS_REPOS:-$root/bin/repos}
+state=${STATE_DIR:-$root/state}
+dir=${DOTS_CLAIM_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dots/claims}
+machine=${DOTS_MACHINE:-$(hostname -s)}
+ttl=${DOTS_CLAIM_TTL:-5m}
+
+die() { echo "claim: $*" >&2; exit 1; }
+[ -x "$repos" ] || die "no $repos: run 'make repos' first"
+need_actor() {
+  [ -n "${DOTS_ACTOR:-}" ] && return
+  DOTS_ACTOR=$(gh api user --jq .login 2>/dev/null || true)
+  [ -n "$DOTS_ACTOR" ] || die "cannot tell who I am: set DOTS_ACTOR to your GitHub login"
+}
+
+cmd_start() {
+  local ref=${1:-} branch=${2:-} title=${3:-} repo num out id
+  [[ $ref =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+$ ]] || die "REF is owner/repo#number, not '$ref'"
+  [ -n "$branch" ] || die "BRANCH is required: a claim covers one branch"
+  repo=${ref%#*}
+  num=${ref##*#}
+  need_actor
+  # The work item the branch belongs to. Observing the reference creates it when
+  # no event has yet, and attaches branch:owner/repo:branch, which is what the
+  # dot reads before a push.
+  local obs=(-repo "$repo" -kind command -number "$num" -actor "$DOTS_ACTOR"
+             -branch "$branch" -db "$state/dots.db")
+  if [ -n "$title" ]; then obs+=(-title "$title"); fi
+  out=$("$repos" db observe "${obs[@]}")
+  id=$(printf '%s\n' "$out" | sed -n 's/^work_item=\([^ ]*\).*/\1/p')
+  [ -n "$id" ] || die "no work item in the answer: $out"
+  out=$("$repos" db claim -repo "$repo" -actor "$DOTS_ACTOR" -machine "$machine" \
+    -branch "$branch" -work-item "$id" -ttl "$ttl" -db "$state/dots.db")
+  local claim expires
+  claim=$(printf '%s\n' "$out" | sed -n 's/^claim=\([^ ]*\).*/\1/p')
+  expires=$(printf '%s\n' "$out" | sed -n 's/.*expires=//p')
+  [ -n "$claim" ] || die "no claim in the answer: $out"
+  mkdir -p "$dir"
+  printf 'claim=%s\nwork_item=%s\nrepo=%s\nbranch=%s\nmachine=%s\nactor=%s\nexpires=%s\n' \
+    "$claim" "$id" "$repo" "$branch" "$machine" "$DOTS_ACTOR" "$expires" > "$dir/$claim"
+  echo "claim: $repo $branch held by $DOTS_ACTOR on $machine until $expires"
+}
+
+holds() { [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; }
+
+cmd_renew() {
+  holds || { echo "claim: nothing to renew"; return; }
+  local f claim ok=0 failed=0
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    claim=${f##*/}
+    if "$repos" db heartbeat -claim "$claim" -ttl "$ttl" -db "$state/dots.db" >/dev/null 2>&1; then
+      ok=$((ok + 1))
+    else
+      # The claim expired or was released: say so once and stop renewing it, so
+      # the next start knows it has to claim again.
+      echo "claim: $claim is no longer active: claim again before you rely on it" >&2
+      rm -f "$f"
+      failed=$((failed + 1))
+    fi
+  done
+  echo "claim: renewed $ok, dropped $failed"
+}
+
+cmd_stop() {
+  local what=${1:-} f claim n=0
+  holds || { echo "claim: nothing to release"; return; }
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    claim=${f##*/}
+    [ -z "$what" ] || [ "$what" = all ] || [ "$what" = "$claim" ] || continue
+    "$repos" db release -claim "$claim" -db "$state/dots.db" >/dev/null 2>&1 || true
+    rm -f "$f"
+    n=$((n + 1))
+  done
+  echo "claim: released $n"
+}
+
+cmd_status() {
+  holds || { echo "claim: this machine holds nothing"; return; }
+  local f
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    sed -e 's/^/  /' "$f"
+    echo
+  done
+}
+
+case "${1:-}" in
+  start) shift; cmd_start "$@" ;;
+  stop) shift; cmd_stop "$@" ;;
+  renew) cmd_renew ;;
+  status) cmd_status ;;
+  *) echo "usage: bin/claim start OWNER/REPO#N BRANCH [TITLE] | stop [CLAIM|all] | renew | status" >&2; exit 2 ;;
+esac
