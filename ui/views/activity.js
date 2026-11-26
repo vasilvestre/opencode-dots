@@ -15,6 +15,7 @@ export function mountActivity(el) {
   const state = {
     executions: [],
     history: [],
+    remote: { executors: [], executions: [], entries: [] },
     stats: { total: 0, failed: 0, avg: 0 },
     runs: [],
     targets: new Map(),
@@ -36,6 +37,7 @@ export function mountActivity(el) {
   // --- skeleton -----------------------------------------------------------
   const kpis = h("div", { class: "statusbar", "aria-label": "Summary" });
   const runs = h("div", {});
+  const remoteBox = h("div", { class: "stack" });
   const runsCount = h("span", { class: "muted" }, "");
   const historyBody = h("tbody", {});
   const historyCount = h("span", { class: "muted" }, "");
@@ -102,6 +104,7 @@ export function mountActivity(el) {
       h("section", {},
         h("div", { class: "section-head" }, h("h2", {}, "Running now"), runsCount),
         runs,
+        remoteBox,
       ),
       historySection,
       h("section", {},
@@ -120,21 +123,27 @@ export function mountActivity(el) {
   // --- data ---------------------------------------------------------------
   async function refresh() {
     try {
-      const [execRes, histRes, statsRes, logsRes] = await Promise.all([
+      const [execRes, histRes, statsRes, logsRes, remote] = await Promise.all([
         awf("/api/executions"),
         awf("/api/history?limit=50"),
         awf("/api/history/stats"),
         getJSON("/api/logs").catch(() => []),
+        getJSON("/api/remote-runs").catch(() => null),
       ]);
+      state.remote = remote || { executors: [], executions: [], entries: [] };
       state.executions = execRes.body?.executions || [];
       state.runs = state.executions.filter((e) => e.status === "running");
       state.targets = new Map((logsRes || []).map((l) => [l.execution_id, targetOf(l)]));
       state.routing = new Map((logsRes || []).filter((l) => l.provider).map((l) => [l.execution_id, { provider: l.provider, route: l.route }]));
-      state.history = attachLogIds(histRes.body?.entries || [], logsRes || []);
+      // Runs of an executor (another machine's awf) sit beside the local ones.
+      state.history = attachLogIds(histRes.body?.entries || [], logsRes || [])
+        .concat(state.remote.entries.map((e) => ({ ...e, rounds: [], cost: 0, target: "", models: null, routing: null })))
+        .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
       const s = statsRes.body || {};
       state.stats = { total: s.TotalExecutions || 0, failed: s.FailedCount || 0, avg: s.AvgDurationMs || 0 };
       renderKpis();
       renderRuns();
+      renderRemote();
       renderHistory();
     } catch {
       // app.js shows the awf banner; keep the last good data on screen.
@@ -271,6 +280,23 @@ export function mountActivity(el) {
       const text = logText.get(run.execution_id);
       if (text && pre.textContent !== text) pre.textContent = text;
     }
+  }
+
+  // The executors run tasks this machine only watches. Their live runs have no
+  // log here, so they are listed as lines, not as cards with a stream.
+  function renderRemote() {
+    const live = state.remote.executions.filter((e) => e.status === "running");
+    const down = state.remote.executors.filter((x) => !x.up);
+    if (live.length) runsCount.textContent = `${state.runs.length + live.length} running`;
+    mount(remoteBox, [
+      ...live.map((e) => h("div", { class: "row" },
+        h("b", {}, e.workflow_name),
+        h("span", { class: "badge running" }, `on ${e.executor}`),
+        h("span", { class: "muted" }, e.current_step ? stepLabel(e.workflow_name, e.current_step) : "starting"),
+        h("span", { class: "muted num" }, elapsed(e.started_at)))),
+      ...down.map((x) => h("div", { class: "muted" },
+        `Executor ${x.name} is unreachable: its runs below are the last ones seen${x.checked ? ` (${ago(x.checked)})` : ""}.`)),
+    ]);
   }
 
   function createRunCard(run) {
@@ -451,6 +477,7 @@ export function mountActivity(el) {
     mount(historyBody, shown.map((e) => h("tr", {},
       h("td", {},
         h("b", {}, e.workflow_name),
+        e.executor ? h("span", { class: "badge", title: "ran on another machine's awf; its log stays there" }, ` ${e.executor}`) : null,
         e.target ? h("span", { class: "muted", title: "target guessed from the run log" }, ` ${e.target}`) : null,
         e.routing?.provider ? h("span", { class: "chips", style: { display: "inline-flex", marginLeft: "6px" } }, routingChips(e.routing)) : null),
       h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
@@ -461,10 +488,10 @@ export function mountActivity(el) {
         h("button", {
           class: "btn sm",
           disabled: !e.logId,
-          title: e.logId ? "Steps, timing and log of this run" : "No log recorded for this run",
+          title: e.logId ? "Steps, timing and log of this run" : e.executor ? `The log of this run is on ${e.executor}` : "No log recorded for this run",
           onclick: () => showLog(e),
         }, "Details"),
-        h("button", { class: "btn ghost sm", title: `Run ${e.workflow_name} again`, onclick: () => replay(e) }, "Replay"),
+        h("button", { class: "btn ghost sm", disabled: !!e.executor, title: e.executor ? `Replay from ${e.executor}` : `Run ${e.workflow_name} again`, onclick: () => replay(e) }, "Replay"),
       ),
     )));
   }

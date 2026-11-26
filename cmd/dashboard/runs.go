@@ -18,6 +18,12 @@ import (
 // registry, so a recording has to start while the run is still running.
 func (d *dash) watchRuns() {
 	d.seedNotified()
+	go func() {
+		for {
+			d.pollExecutors()
+			time.Sleep(time.Second)
+		}
+	}()
 	lastPrune := time.Time{}
 	for {
 		d.recordRuns()

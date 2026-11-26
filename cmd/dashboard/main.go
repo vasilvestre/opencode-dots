@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type review struct {
@@ -147,6 +148,7 @@ func main() {
 	mux.HandleFunc("/api/run", d.runTimeline)
 	mux.HandleFunc("/api/sessions", d.sessions)
 	mux.HandleFunc("/api/logs", d.logs)
+	mux.HandleFunc("/api/remote-runs", d.remoteRuns)
 	mux.HandleFunc("/api/repos", d.repos)
 	mux.HandleFunc("/api/repos/names", d.repoNames)
 	mux.HandleFunc("/api/repos/config", d.reposConfig)
@@ -196,4 +198,9 @@ type dash struct {
 	// run is parsed off the request path and kept by log version.
 	targetMu sync.Mutex
 	targets  map[string]targetMemo
+
+	// Snapshots of the executors' awf (remote.go).
+	remoteMu sync.Mutex
+	remote   map[string]remoteSnapshot
+	remoteAt time.Time
 }
