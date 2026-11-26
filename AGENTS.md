@@ -99,6 +99,8 @@ make awf-gh      # one polling pass, for testing by hand
 make repos       # regenerate awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
 bin/tend         # one tend-repo run per repository with tend enabled (tend.list)
+bin/claim start OWNER/REPO#N BRANCH   # hold the branch: the dot stops pushing to it (ADR 0026)
+bin/held REPO BRANCH                  # what a workflow step asks before a push: 0 free, 3 held
 ```
 
 Systemd install:

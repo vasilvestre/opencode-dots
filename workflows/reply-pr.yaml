@@ -271,6 +271,18 @@ states:
         echo "refusing to push to $branch"
         exit 0
       fi
+      # A human claim is a veto on this branch (ADR 0026). stuck.md then keeps
+      # post and notify from acting on a branch I do not write.
+      if [ -x "${DOTS_HOME:-/work}/bin/held" ]; then
+        "${DOTS_HOME:-/work}/bin/held" {{.inputs.repo}} "$branch" || rc=$?
+        case ${rc:-0} in
+          0) ;;
+          3) printf 'A human holds a claim on %s: the run does not write to it.\n' "$branch" > "$d/stuck.md"
+             echo "held: a human works on $branch, no push"
+             exit 0 ;;
+          *) echo "held: the claim check failed, pushing anyway" ;;
+        esac
+      fi
       cd "$work"
       if [ -z "$(git status --porcelain)" ]; then
         echo "no code change"

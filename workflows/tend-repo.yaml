@@ -316,6 +316,19 @@ states:
       fi
       title=$(head -1 "$d/pr.md")
       branch="tend/$(date -u +%Y%m%d-%H%M)"
+      # A human claim is a veto (ADR 0026). The tend branch is new, so the claim
+      # to read is the one on the branch this pull request would target.
+      if [ -x "${DOTS_HOME:-/work}/bin/held" ]; then
+        "${DOTS_HOME:-/work}/bin/held" "$repo" "$(cat "$d/default_branch")" || rc=$?
+        case ${rc:-0} in
+          0) ;;
+          3) echo "held: a human holds a claim on $(cat "$d/default_branch"), no pull request"
+             git -C "$work" checkout -- .
+             git -C "$work" clean -fdq
+             exit 0 ;;
+          *) echo "held: the claim check failed, pushing anyway" ;;
+        esac
+      fi
       login=$(gh api user --jq .login)
       uid=$(gh api user --jq .id)
       git -C "$work" config user.name "$login"

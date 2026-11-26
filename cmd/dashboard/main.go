@@ -157,6 +157,7 @@ func main() {
 	mux.HandleFunc("/api/memory", d.tendMemory)
 	mux.HandleFunc("/api/files", d.files)
 	mux.HandleFunc("/api/models", d.models)
+	mux.HandleFunc("/api/claims", d.claims)
 	mux.HandleFunc("/api/notifications", d.notifications)
 	mux.HandleFunc("/api/source", d.source)
 	mux.HandleFunc("/api/save", d.saveFile)

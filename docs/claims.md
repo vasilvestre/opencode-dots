@@ -12,10 +12,11 @@ bin/repos db claims -work-item wi_...     # who holds it now
 bin/repos db claimed -repo owner/repo -branch topic   # for a shell step: exit 0 free, 10 held by a human
 ```
 
-A shell step that is about to push asks `claimed` first:
+A shell step that is about to push asks `claimed` first. `bin/held` wraps it with three exit codes,
+so a step does not read a database error as a claim:
 
 ```bash
-bin/repos db claimed -repo "$repo" -branch "$branch" || { [ $? -eq 10 ] && echo "branch is claimed: waiting"; exit 0; }
+bin/held "$repo" "$branch"   # 0 free, 3 a human holds it, 1 the check cannot run
 ```
 
 - The time to live defaults to 90 s and is capped at one hour. A late heartbeat is refused, so the
@@ -40,8 +41,27 @@ bin/repos events publish TOPIC DATA
 subscription that resumes with `Last-Event-ID`). It is tested against a fake hub and against the real one (see
 the hub section below).
 
-Not done: the local agent that renews a claim by itself, the dashboard list of active claims, and the
-workflow steps that call `claimed`. They change what runs, so they wait for the owner.
+## Holding a claim while you work
+
+`bin/claim` is the local agent. It creates the claim, remembers it under
+`~/.local/state/dots/claims/`, and `dots-claim.timer` renews what this machine holds every minute.
+
+```bash
+bin/claim start vasilvestre/opencode-dots#52 feat/adopt-workspace-memory "Adopt workspace memory"
+bin/claim status
+bin/claim stop            # or: bin/claim stop all
+```
+
+`bin/claim start` observes the reference, so the work item exists even when no GitHub event created it,
+and it attaches `branch:owner/repo:branch`. The claim lives `DOTS_CLAIM_TTL` (five minutes by default),
+so a closed laptop stops vetoing the bot after five minutes, and a running one keeps it.
+
+`review-pr`, `reply-pr`, `tend-repo`, `fix-issue` and `fix-ci` call `bin/held` before they commit or
+push. On a held branch they push nothing: `review-pr` and `reply-pr` write `stuck.md`, `fix-issue` and
+`fix-ci` write `held.md`, `tend-repo` leaves the worktree clean and opens no pull request. A check that
+cannot run, such as a missing database, logs a line and does not block.
+
+The dashboard lists the live claims at the top of the Repositories view, from `GET /api/claims`.
 
 ## The hub
 

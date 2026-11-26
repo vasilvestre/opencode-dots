@@ -714,6 +714,18 @@ states:
       work="$d/work"
       branch=$(jq -r '.headRefName' "$d/meta.json")
       head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
+      # A human claim is a veto on this branch (ADR 0026). A check that cannot
+      # run does not block, so a missing database never stops every repository.
+      if [ -x "${DOTS_HOME:-/work}/bin/held" ]; then
+        "${DOTS_HOME:-/work}/bin/held" {{.inputs.repo}} "$branch" || rc=$?
+        case ${rc:-0} in
+          0) ;;
+          3) printf 'A human holds a claim on %s. Clear it before the next round.\n' "$branch" > "$base/stuck.md"
+             echo "held: a human works on $branch, no push"
+             exit 0 ;;
+          *) echo "held: the claim check failed, pushing anyway" ;;
+        esac
+      fi
       if [ -z "$(git -C "$work" status --porcelain)" ]; then
         printf 'A fix round produced no change; a human must look.\n' > "$base/stuck.md"
         echo "STUCK: no code change for {{.inputs.repo}}#{{.inputs.pr}}"

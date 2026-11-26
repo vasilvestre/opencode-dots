@@ -17,6 +17,11 @@ Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
 that is an absolute host path, because the local opencode server resolves paths
 on the host.
 
+Every workflow that writes asks `bin/held REPO BRANCH` before it commits or
+pushes. Exit 3 means a human holds a claim on that branch, so the run writes
+`stuck.md` (or `held.md`) and pushes nothing. Exit 1 means the check could not
+run, which logs a line and does not block. See `docs/claims.md`.
+
 ## Model inputs and presets
 
 Every agent step reads its model from a validated workflow input. A model

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Ask the control plane whether a human holds a claim on a branch, so a shell step
+# can refuse to push (ADR 0026). Exit 0: free. 3: a human holds it. 1: the check
+# cannot run, which the caller reports and treats as free, so a missing database
+# never stops the dot on every repository.
+#
+#   bin/held REPO BRANCH
+set -uo pipefail
+[ $# -eq 2 ] || { echo "usage: bin/held REPO BRANCH" >&2; exit 2; }
+root=$(cd "$(dirname "$0")/.." && pwd)
+repos=${DOTS_REPOS:-$root/bin/repos}
+[ -x "$repos" ] || repos=$(command -v repos 2>/dev/null || true)
+if [ -z "${repos:-}" ] || [ ! -x "$repos" ]; then
+  echo "held: no repos binary here, the claim is not checked" >&2
+  exit 1
+fi
+out=$("$repos" db claimed -repo "$1" -branch "$2" 2>&1)
+case $? in
+  0) exit 0 ;;
+  10) printf 'held: %s\n' "${out:-a human holds a claim on $1 $2}" >&2; exit 3 ;;
+  *) printf 'held: %s\n' "${out:-the claim check failed}" >&2; exit 1 ;;
+esac

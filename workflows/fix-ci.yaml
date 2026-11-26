@@ -286,6 +286,17 @@ states:
       # the commit with no avatar and no attribution.
       login=$(gh api user --jq .login)
       uid=$(gh api user --jq .id)
+      # A human claim is a veto on this branch (ADR 0026).
+      if [ -x "${DOTS_HOME:-/work}/bin/held" ]; then
+        "${DOTS_HOME:-/work}/bin/held" "$repo" "$branch" || rc=$?
+        case ${rc:-0} in
+          0) ;;
+          3) echo "held: a human works on $branch, no push"
+             printf 'A human holds a claim on %s: the change is not pushed.\n' "$branch" > "$d/held.md"
+             exit 0 ;;
+          *) echo "held: the claim check failed, pushing anyway" ;;
+        esac
+      fi
       git -C "$work" config user.name "$login"
       git -C "$work" config user.email "$uid+$login@users.noreply.github.com"
       git -C "$work" add -A

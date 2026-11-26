@@ -27,6 +27,8 @@ tend.list
 !bin/shim
 !bin/workspace
 !bin/watchers
+!bin/claim
+!bin/held
 # Machine-specific dashboard settings: copy the .example and fill it in.
 # Local, gitignored: the tailnet name of this machine is not public.
 systemd/dots-dashboard.env
