@@ -547,3 +547,87 @@ func TestExampleFileGenerates(t *testing.T) {
 		t.Errorf("the example generates %d rules, it should show every shape", got)
 	}
 }
+
+const executorDoc = "version: 1\nsettings:\n  executors:\n    pc: http://127.0.0.1:2512\nrepos:\n" +
+	"  acme/own: {review: true}\n" +
+	"  acme/remote: {review: true, reply: true, executor: pc}\n"
+
+func TestExecutorSplitsTheWatcherFiles(t *testing.T) {
+	files, err := Build([]byte(executorDoc), t.TempDir(), Settings{StatePath: "/s/seen.jsonl"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, pc := string(files[FileAwfGh]), string(files[ExecutorFile("pc")])
+	if !strings.Contains(def, "acme/own") || strings.Contains(def, "acme/remote") {
+		t.Errorf("default file holds the wrong rules:\n%s", def)
+	}
+	for _, want := range []string{"acme/remote", "awf_url: http://127.0.0.1:2512", "state_path: /s/seen-pc.jsonl"} {
+		if !strings.Contains(pc, want) {
+			t.Errorf("executor file lost %q:\n%s", want, pc)
+		}
+	}
+	if strings.Contains(pc, "acme/own") || strings.Count(pc, "repo: acme/remote") != 2 {
+		t.Errorf("executor file should carry both rules of acme/remote and nothing else:\n%s", pc)
+	}
+}
+
+func TestEveryRepositoryOnAnExecutorLeavesTheDefaultFileOut(t *testing.T) {
+	src := "version: 1\nsettings:\n  executors: {pc: 'http://127.0.0.1:2512'}\nrepos:\n  acme/remote: {review: true, executor: pc}\n"
+	files, err := Build([]byte(src), t.TempDir(), Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := files[FileAwfGh]; ok {
+		t.Errorf("the default watcher file was generated with no rule of its own")
+	}
+	if _, ok := files[ExecutorFile("pc")]; !ok {
+		t.Errorf("the executor file is missing")
+	}
+}
+
+func TestUnknownExecutorIsRefusedWithTheKnownOnes(t *testing.T) {
+	src := "version: 1\nsettings:\n  executors: {pc: 'http://127.0.0.1:2512'}\nrepos:\n  acme/x: {review: true, executor: laptop}\n"
+	_, err := Build([]byte(src), t.TempDir(), Settings{})
+	if err == nil || !strings.Contains(err.Error(), `"laptop"`) || !strings.Contains(err.Error(), "pc") {
+		t.Fatalf("error = %v, want the unknown name and the known ones", err)
+	}
+}
+
+func TestExecutorSettingsAreChecked(t *testing.T) {
+	for name, executors := range map[string]string{
+		"a path as a name":   "'../x': http://127.0.0.1:1",
+		"a dot in the name":  "'a.b': http://127.0.0.1:1",
+		"an upper-case name": "PC: http://127.0.0.1:1",
+		"no scheme":          "pc: 127.0.0.1:1",
+		"a file address":     "pc: file:///tmp/x",
+	} {
+		src := "version: 1\nsettings:\n  executors: {" + executors + "}\nrepos:\n  acme/x: {review: true}\n"
+		if _, err := Build([]byte(src), t.TempDir(), Settings{}); err == nil || !strings.Contains(err.Error(), "settings.executors") {
+			t.Errorf("%s: error = %v, want it refused", name, err)
+		}
+	}
+}
+
+func TestExecutorOnATendOnlyRepositoryChangesNothing(t *testing.T) {
+	src := "version: 1\nsettings:\n  executors: {pc: 'http://127.0.0.1:2512'}\nrepos:\n  acme/x: {tend: true, executor: pc}\n"
+	files, err := Build([]byte(src), t.TempDir(), Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name := range files {
+		if IsWatcherFile(name) {
+			t.Errorf("%s generated without a watch rule", name)
+		}
+	}
+}
+
+func TestWatcherFileNames(t *testing.T) {
+	for name, want := range map[string]bool{
+		"awf-gh.yaml": true, "awf-gh.pc.yaml": true, "awf-gh.my-pc.yaml": true,
+		"awf-gh.local.example.yaml": false, "awf-gh.yaml.bak": false, "tend.list": false, "awf-gh..yaml": false,
+	} {
+		if got := IsWatcherFile(name); got != want {
+			t.Errorf("IsWatcherFile(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

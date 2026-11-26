@@ -17,6 +17,10 @@ type Rule struct {
 	Labels        []string
 	Inputs        map[string]string
 
+	// Executor names the awf serve that runs the task, from the executor
+	// feature; empty means the watcher's own awf_url.
+	Executor string
+
 	// ProviderAware says the workflow declares a `provider` input, so the
 	// provider feature may set it. A modifier never touches other rules.
 	ProviderAware bool

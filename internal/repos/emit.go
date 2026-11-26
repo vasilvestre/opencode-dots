@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -44,6 +45,7 @@ func EffectiveSettings(doc, previous, override Settings) Settings {
 		AwfURL:    pick(override.AwfURL, doc.AwfURL, previous.AwfURL, defaultAwfURL),
 		StatePath: pick(override.StatePath, doc.StatePath, previous.StatePath, defaultStatePath),
 		MaxPerRun: defaultMaxPerRun,
+		Executors: doc.Executors,
 	}
 	for _, n := range []int{override.MaxPerRun, doc.MaxPerRun, previous.MaxPerRun} {
 		if n > 0 {
@@ -52,6 +54,29 @@ func EffectiveSettings(doc, previous, override Settings) Settings {
 		}
 	}
 	return out
+}
+
+// ExecutorFile is the watcher file of one named executor.
+func ExecutorFile(name string) string { return "awf-gh." + name + ".yaml" }
+
+// IsWatcherFile reports whether a file name is one the generator writes for the
+// watcher: awf-gh.yaml, or awf-gh.<executor>.yaml with a plain executor name.
+func IsWatcherFile(name string) bool {
+	if name == FileAwfGh {
+		return true
+	}
+	mid, ok := strings.CutSuffix(strings.TrimPrefix(name, "awf-gh."), ".yaml")
+	return strings.HasPrefix(name, "awf-gh.") && ok && executorName.MatchString(mid)
+}
+
+// forExecutor gives the settings of the watcher file of one executor: its own
+// awf_url, and a state file next to the default one so the seen markers of two
+// watchers never mix.
+func (s Settings) forExecutor(name string) Settings {
+	ext := path.Ext(s.StatePath)
+	s.AwfURL = s.Executors[name]
+	s.StatePath = strings.TrimSuffix(s.StatePath, ext) + "-" + name + ext
+	return s
 }
 
 // ReadSettings reads the three watcher settings back from a generated (or older
@@ -73,17 +98,31 @@ func ReadSettings(path string) (Settings, error) {
 	return s, nil
 }
 
-// Render produces the content of every generated file. The watcher file exists
+// Render produces the content of every generated file. A watcher file exists
 // only when a repository enables a watch rule: the watcher is opt-in, and a
-// server that only tends does not use it.
+// server that only tends does not use it. awf-gh takes one awf_url per file, so
+// the rules of each executor go to a file of their own (ADR 0031).
 func Render(out *Output, s Settings) (map[string][]byte, error) {
 	files := map[string][]byte{}
-	if len(out.Rules) > 0 {
-		awfgh, err := renderAwfGh(out.Rules, s)
+	groups := map[string][]Rule{}
+	for _, rule := range out.Rules {
+		groups[rule.Executor] = append(groups[rule.Executor], rule)
+	}
+	executors := make([]string, 0, len(groups))
+	for name := range groups {
+		executors = append(executors, name)
+	}
+	sort.Strings(executors)
+	for _, name := range executors {
+		file, settings := FileAwfGh, s
+		if name != "" {
+			file, settings = ExecutorFile(name), s.forExecutor(name)
+		}
+		body, err := renderAwfGh(groups[name], settings)
 		if err != nil {
 			return nil, err
 		}
-		files[FileAwfGh] = awfgh
+		files[file] = body
 	}
 	files[FileTend] = renderLines(out.Tend, func(t TendEntry) string { return t.Repo + " " + strconv.FormatBool(t.AutoMerge) })
 	files[FileCheckout] = renderLines(out.Checkout, func(c CheckoutEntry) string { return c.Repo + "=" + c.Path })
@@ -237,6 +276,9 @@ func atomicWrite(path string, data []byte) error {
 func Build(data []byte, dir string, override Settings) (map[string][]byte, error) {
 	doc, err := Parse(data)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkExecutors(doc.Settings); err != nil {
 		return nil, err
 	}
 	out, err := Generate(doc)

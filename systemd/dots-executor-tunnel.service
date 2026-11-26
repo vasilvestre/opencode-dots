@@ -1,0 +1,20 @@
+[Unit]
+Description=Reverse tunnel so the watching server reaches this machine's awf (ADR 0031)
+After=network-online.target
+Wants=network-online.target
+
+# Runs on the machine that is the executor. It opens a port on the SERVER's loopback
+# that leads to this machine's awf serve, so nothing is exposed on this machine and no
+# inbound port is needed. sshd keeps the remote end on loopback (GatewayPorts off).
+# While this machine is off or asleep the port is closed, and awf-gh retries later.
+#
+# Copy systemd/dots-executor.env.example to ~/.config/dots/executor.env and set it.
+
+[Service]
+EnvironmentFile=%h/.config/dots/executor.env
+ExecStart=/usr/bin/ssh -N -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 127.0.0.1:${DOTS_TUNNEL_PORT}:127.0.0.1:${DOTS_LOCAL_AWF_PORT} ${DOTS_SERVER}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

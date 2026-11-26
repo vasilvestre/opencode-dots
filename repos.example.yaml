@@ -9,6 +9,11 @@ version: 1
 # `make configure` writes the ones that fit local or docker mode.
 settings:
   max_per_run: 6
+  # Optional. A name for an awf serve that runs the tasks of the repositories
+  # which name it with `executor:`. The watcher stays on this machine and writes
+  # one awf-gh.<name>.yaml per executor (ADR 0031).
+  # executors:
+  #   workstation: http://127.0.0.1:2512
 
 # Values every enabled feature inherits. A default never switches a feature on:
 # `review:` below only gives the repositories that enable review their
@@ -59,3 +64,9 @@ repos:
       - {on: [command], only_authors: ["your-login"], ignore_authors: []}
     # Only the issues that carry a label:
     fix_issue: {label: dot}
+
+  # Watched here, run elsewhere: the tasks go to the awf serve named in
+  # settings.executors. tend still runs on the watching machine.
+  # your-org/run-on-my-workstation:
+  #   review: true
+  #   executor: workstation

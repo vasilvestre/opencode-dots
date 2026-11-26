@@ -11,6 +11,8 @@ compose.override.yaml
 # names are not.
 repos.yaml
 awf-gh.yaml
+awf-gh.*.yaml
+!awf-gh.*.example.yaml
 repos.map
 sync.map
 tend.list

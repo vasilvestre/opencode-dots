@@ -68,12 +68,7 @@ func generate(dir string, override repos.Settings, checkOnly bool) error {
 	if err != nil {
 		return err
 	}
-	if _, watched := files[repos.FileAwfGh]; !watched {
-		// A file left from an earlier run would keep the watcher polling.
-		if _, err := os.Stat(filepath.Join(dir, repos.FileAwfGh)); err == nil {
-			fmt.Fprintf(os.Stderr, "repos: no watch rule, so %s is not generated; the existing one is left as it is and still drives awf-gh: remove it to stop the watcher\n", repos.FileAwfGh)
-		}
-	}
+	warnStaleWatchers(dir, files)
 	if checkOnly {
 		if stale := repos.Diff(dir, files); len(stale) > 0 {
 			return fmt.Errorf("out of date, run `make repos`: %s", strings.Join(stale, ", "))
@@ -116,4 +111,20 @@ func importFiles(dir string, force bool) error {
 	}
 	fmt.Println("repos: wrote", repos.SourceFile, "- read it, then run `repos generate`; the generated files replace the three you had")
 	return nil
+}
+
+// warnStaleWatchers names a watcher file that this run does not generate any
+// more: it stays on disk and keeps driving awf-gh until it is removed.
+func warnStaleWatchers(dir string, files map[string][]byte) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if _, generated := files[name]; generated || !repos.IsWatcherFile(name) {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "repos: %s is no longer generated; it is left as it is and still drives awf-gh: remove it to stop that watcher\n", name)
+	}
 }

@@ -32,6 +32,9 @@ type Settings struct {
 	AwfURL    string `yaml:"awf_url"`
 	StatePath string `yaml:"state_path"`
 	MaxPerRun int    `yaml:"max_per_run"`
+	// Executors maps a name to the awf serve that runs the tasks of the
+	// repositories naming it (ADR 0031). The watcher stays where it is.
+	Executors map[string]string `yaml:"executors"`
 }
 
 // Entry is one repository, in file order, with what its block says before any

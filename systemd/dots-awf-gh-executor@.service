@@ -1,0 +1,17 @@
+[Unit]
+Description=awf-gh watcher whose tasks run on the executor %i (ADR 0031)
+
+# One instance per executor named in repos.yaml: `dots-awf-gh-executor@pc.service`
+# reads awf-gh.pc.yaml, which `bin/repos generate` writes with that executor's awf_url
+# and its own seen file. Its timer is `dots-awf-gh-executor@pc.timer`, same instance.
+# An event whose executor does not answer is not recorded: the next pass retries it.
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Only GH_TOKEN is taken from .env: the watcher needs nothing else. The token can be
+# read-only here, since the executor does the writing.
+ExecStart=/bin/sh -c 'GH_TOKEN=$$(sed -n "s/^GH_TOKEN=//p" %h/projects/perso/opencode-dots/.env) && export GH_TOKEN && exec %h/projects/perso/opencode-dots/bin/awf-gh --config %h/projects/perso/opencode-dots/awf-gh.%i.yaml'
+TimeoutStartSec=180
