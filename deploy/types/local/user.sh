@@ -12,6 +12,7 @@
 #   DOTS_HOME         where the repository goes (default: ~/dots)
 #   DOTS_REPO         what to clone (default: the repository named in versions.env)
 #   DOTS_ENABLE_TEND  1 enables the daily tend timer once tend.list exists
+#   DOTS_HUB          1 also installs the Mercure hub for claims and events (hub.sh)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../../lib.sh
@@ -158,6 +159,7 @@ install_awf
 install_opencode
 clone_repo
 render_units
+if [ "${DOTS_HUB:-0}" = 1 ]; then DOTS_HOME=$DOTS_HOME "$here/hub.sh"; fi
 memory_limits
 start_services
 configure_dots

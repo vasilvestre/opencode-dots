@@ -1,0 +1,15 @@
+[Unit]
+Description=Mercure hub of the dots stack (ADR 0026)
+After=network-online.target
+
+# The hub is open source (AGPL-3.0, github.com/dunglas/mercure). It listens on loopback;
+# deploy/types/local/hub.sh installs it and writes its keys to ~/.config/dots/hub.env.
+
+[Service]
+EnvironmentFile=%h/.config/dots/hub.env
+ExecStart=%h/.local/bin/mercure run --config %h/projects/perso/opencode-dots/deploy/hub/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

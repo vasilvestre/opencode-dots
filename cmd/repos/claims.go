@@ -116,7 +116,12 @@ func announce(ctx context.Context, kind string, c store.Claim) {
 
 func hubFromEnv() (events.Hub, bool) {
 	url, secret := os.Getenv("DOTS_MERCURE_URL"), os.Getenv("DOTS_MERCURE_SECRET")
-	return events.Hub{URL: url, Secret: []byte(secret)}, url != "" && secret != ""
+	issuer := os.Getenv("DOTS_MERCURE_ISSUER")
+	if issuer == "" {
+		issuer = "dots"
+	}
+	return events.Hub{URL: url, Secret: []byte(secret), Issuer: issuer,
+		Match: os.Getenv("DOTS_MERCURE_MATCH"), MatchType: os.Getenv("DOTS_MERCURE_MATCH_TYPE")}, url != "" && secret != ""
 }
 
 func workItemID(ctx context.Context, st *store.Store, c dbClaim) (string, error) {

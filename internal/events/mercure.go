@@ -24,8 +24,20 @@ import (
 type Hub struct {
 	URL    string // the hub endpoint, such as https://hub.example/.well-known/mercure
 	Secret []byte // the HS256 key shared with the hub
-	Client *http.Client
+	// Issuer is the `iss` the hub trusts (its MERCURE_TRUSTED_ISSUERS). Hub 1.1 refuses a token
+	// without a trusted issuer and an audience (RFC 9068).
+	Issuer string
+	// Match and MatchType select the topics the tokens we sign may use. The default is every topic
+	// ("*"); a hub shared with others should be given a narrower selector.
+	Match, MatchType string
+	Client           *http.Client
 }
+
+// detailType is the RFC 9396 authorization detail type hub 1.x reads in an access token.
+const detailType = "https://mercure.rocks/authorization-detail"
+
+// tokenLifetime is how long a token we sign stays valid: one request, with room for clock skew.
+const tokenLifetime = 5 * time.Minute
 
 // Event is one message received from the hub.
 type Event struct {
@@ -39,12 +51,37 @@ type Event struct {
 // topics. Narrower topic sets belong to the hub's own configuration.
 func (h Hub) token(role string) string {
 	enc := base64.RawURLEncoding
-	header := enc.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	payload, _ := json.Marshal(map[string]any{"mercure": map[string]any{role: []string{"*"}}})
+	header := enc.EncodeToString([]byte(`{"alg":"HS256","typ":"at+jwt"}`)) // RFC 9068, which hub 1.1 requires
+	now := time.Now()
+	claims := map[string]any{
+		// RFC 9396, the form hub 1.x reads: the pre-1.0 "mercure" claim is not accepted.
+		"authorization_details": []map[string]any{{"type": detailType, "actions": []string{role}, "topics": []map[string]string{h.selector()}}},
+		"sub":                   "dots",
+		"jti":                   fmt.Sprintf("%d", now.UnixNano()),
+		"client_id":             "dots",
+		"aud":                   h.URL, // the hub's resource identifier: its own endpoint, without a query
+		"iat":                   now.Unix(),
+		"exp":                   now.Add(tokenLifetime).Unix(),
+	}
+	if h.Issuer != "" {
+		claims["iss"] = h.Issuer
+	}
+	payload, _ := json.Marshal(claims)
 	body := header + "." + enc.EncodeToString(payload)
 	mac := hmac.New(sha256.New, h.Secret)
 	mac.Write([]byte(body))
 	return body + "." + enc.EncodeToString(mac.Sum(nil))
+}
+
+func (h Hub) selector() map[string]string {
+	match, typ := h.Match, h.MatchType
+	if match == "" {
+		match = "*" // every topic
+	}
+	if typ == "" {
+		typ = "exact"
+	}
+	return map[string]string{"match": match, "match_type": typ}
 }
 
 func (h Hub) client() *http.Client {
@@ -108,7 +145,7 @@ func (h Hub) follow(ctx context.Context, topics []string, lastID string, out cha
 	}
 	q := u.Query()
 	for _, t := range topics {
-		q.Add("topic", t)
+		q.Add("match", t) // hub 1.x: `match` for an exact topic, `match_urlpattern` for a pattern
 	}
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

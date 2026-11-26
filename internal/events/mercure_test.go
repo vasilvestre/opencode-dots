@@ -30,12 +30,26 @@ func verify(t *testing.T, header string, secret []byte, role string) {
 	if want := base64.RawURLEncoding.EncodeToString(mac.Sum(nil)); parts[2] != want {
 		t.Errorf("the token is not signed with the secret")
 	}
+	if head, _ := base64.RawURLEncoding.DecodeString(parts[0]); !strings.Contains(string(head), `"typ":"at+jwt"`) {
+		t.Errorf("header = %s, want typ at+jwt", head)
+	}
 	raw, _ := base64.RawURLEncoding.DecodeString(parts[1])
 	var claims struct {
-		Mercure map[string][]string `json:"mercure"`
+		Details []struct {
+			Type    string              `json:"type"`
+			Actions []string            `json:"actions"`
+			Topics  []map[string]string `json:"topics"`
+		} `json:"authorization_details"`
+		Iss string `json:"iss"`
+		Aud string `json:"aud"`
+		Exp int64  `json:"exp"`
 	}
-	if err := json.Unmarshal(raw, &claims); err != nil || len(claims.Mercure[role]) == 0 {
-		t.Errorf("claims = %s, want the mercure %s role", raw, role)
+	if err := json.Unmarshal(raw, &claims); err != nil || len(claims.Details) != 1 ||
+		claims.Details[0].Type != "https://mercure.rocks/authorization-detail" || len(claims.Details[0].Actions) != 1 || claims.Details[0].Actions[0] != role {
+		t.Errorf("claims = %s, want one Mercure authorization detail (type https://mercure.rocks/authorization-detail) for %s", raw, role)
+	}
+	if claims.Iss != "dots-test" || claims.Aud == "" || claims.Exp <= time.Now().Unix() {
+		t.Errorf("claims = %s, want the issuer, an audience and an expiry in the future (hub 1.1 refuses the token otherwise)", raw)
 	}
 }
 
@@ -49,7 +63,7 @@ func TestPublishSendsASignedForm(t *testing.T) {
 		w.Write([]byte("urn:uuid:1"))
 	}))
 	defer hub.Close()
-	h := Hub{URL: hub.URL, Secret: []byte("s3cret")}
+	h := Hub{URL: hub.URL, Secret: []byte("s3cret"), Issuer: "dots-test"}
 	if err := h.Publish(context.Background(), "dots/claim/wi_1", []byte(`{"kind":"created"}`), true); err != nil {
 		t.Fatal(err)
 	}
@@ -76,8 +90,8 @@ func TestSubscribeParsesTheStreamAndResumes(t *testing.T) {
 	var seen []string // Last-Event-ID of each connection
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		verify(t, r.Header.Get("Authorization"), []byte("k"), "subscribe")
-		if r.URL.Query()["topic"][0] != "a" || r.URL.Query()["topic"][1] != "b" {
-			t.Errorf("topics = %v", r.URL.Query()["topic"])
+		if m := r.URL.Query()["match"]; len(m) != 2 || m[0] != "a" || m[1] != "b" {
+			t.Errorf("match parameters = %v", m)
 		}
 		mu.Lock()
 		seen = append(seen, r.Header.Get("Last-Event-ID"))
@@ -97,7 +111,7 @@ func TestSubscribeParsesTheStreamAndResumes(t *testing.T) {
 	defer hub.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	ch := Hub{URL: hub.URL, Secret: []byte("k")}.Subscribe(ctx, "a", "b")
+	ch := Hub{URL: hub.URL, Secret: []byte("k"), Issuer: "dots-test"}.Subscribe(ctx, "a", "b")
 	var got []Event
 	for ev := range ch {
 		got = append(got, ev)

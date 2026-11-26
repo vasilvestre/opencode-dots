@@ -37,9 +37,33 @@ bin/repos events publish TOPIC DATA
 ```
 
 `internal/events` speaks the Mercure protocol directly (a signed publish form, a server-sent-event
-subscription that resumes with `Last-Event-ID`). It was tested against a fake hub. No hub is deployed:
-that is the owner's decision (the hub is AGPL-3.0, and sources disagree on a licence key for
-self-hosting; check before deploying).
+subscription that resumes with `Last-Event-ID`). It is tested against a fake hub and against the real one (see
+the hub section below).
 
 Not done: the local agent that renews a claim by itself, the dashboard list of active claims, and the
 workflow steps that call `claimed`. They change what runs, so they wait for the owner.
+
+## The hub
+
+The hub is the open source Mercure hub (AGPL-3.0, github.com/dunglas/mercure), run as a user service on the
+server: `DOTS_HUB=1 deploy/types/local/user.sh`, or `deploy/types/local/hub.sh` alone. It installs the release
+binary after verifying its checksum, writes its keys to `~/.config/dots/hub.env` (mode 600, generated on that
+machine, never committed or printed), and listens on `127.0.0.1:3901`. About 50 MB of memory. No licence key is
+needed: release 1.1.6 ran with none (tested).
+
+From a machine that follows or publishes, reach it through an SSH tunnel (or `sudo tailscale serve --bg
+--https=8445 http://127.0.0.1:3901`, whose only gate is then the key), and set:
+
+```bash
+export DOTS_MERCURE_URL=http://127.0.0.1:3901/.well-known/mercure   # the tunnel's end
+export DOTS_MERCURE_SECRET=...                                      # MERCURE_PUBLISHER_JWT_KEY of hub.env
+```
+
+What hub 1.x requires, found by running it, and what `internal/events` therefore signs: a token with the header
+`typ: at+jwt`, an `iss` the hub trusts (`DOTS_MERCURE_ISSUER`, default `dots`, the hub's `MERCURE_TRUSTED_ISSUERS`),
+an `aud` equal to the hub's own endpoint, an expiry, and an `authorization_details` entry of type
+`https://mercure.rocks/authorization-detail`. The pre-1.0 `mercure` claim is refused. A subscription names its topic
+with the query parameter `match` (or `match_urlpattern`), not `topic`.
+
+Tested against the real hub: `claim`, `heartbeat` and `release` arrive at a subscriber as `created`, `renewed` and
+`released`, and only on the topic subscribed to.

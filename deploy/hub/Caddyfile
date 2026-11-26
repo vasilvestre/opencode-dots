@@ -1,0 +1,24 @@
+# The Mercure hub of the dots (ADR 0026), as Caddy configures it. It listens on loopback only:
+# reach it through an SSH tunnel or `tailscale serve`. The keys come from the environment
+# (~/.config/dots/hub.env, written by deploy/types/local/hub.sh), never from this file.
+{
+	admin off
+	auto_https off
+}
+
+{$SERVER_NAME:http://127.0.0.1:3901} {
+	mercure {
+		# Hub 1.x only accepts RFC 9068 access tokens whose `iss` it trusts and whose `aud` is
+		# its own endpoint. internal/events signs tokens that way.
+		issuer {$MERCURE_TRUSTED_ISSUERS:dots} {
+			publisher {
+				jwt {env.MERCURE_PUBLISHER_JWT_KEY} {env.MERCURE_PUBLISHER_JWT_ALG}
+			}
+			subscriber {
+				jwt {env.MERCURE_SUBSCRIBER_JWT_KEY} {env.MERCURE_SUBSCRIBER_JWT_ALG}
+			}
+		}
+	}
+	respond / "dots hub" 200
+	respond "Not Found" 404
+}
