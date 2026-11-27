@@ -97,3 +97,19 @@ and target a minute, so a page that polls does not flood the table). See `docs/a
 - Sessions live in memory: a restart signs visitors out.
 - The Activity page does not work for a visitor yet; runs show on the Cost page and through
   `/api/logs`.
+
+## What was checked
+
+On 2026-11-27, against a fake GitHub (nothing real was contacted), with the merged code and a scratch state:
+
+- **In a browser, as a visitor** (`box.localhost`, so not loopback): the sign-in page, the device code and the
+  "Open GitHub" link, the automatic move to the Cost page once approved, and an Autonomy page that listed the note of
+  the readable repository and not the one the visitor has no permission on.
+- **With curl:** the owner (direct loopback, no tailnet header) sees both notes; a visitor with no session gets 401;
+  a signed-in visitor gets 403 on an owner-only endpoint; the visitor's token appears in no file, log or cookie.
+- **After a restart of the dashboard:** the session is gone (sessions live in memory), the old cookie is useless,
+  `/api/session` answers `anonymous`, protected endpoints answer 401 and the page shows the sign-in again.
+
+Not checked: the real GitHub, where the response shapes follow the documentation, and the Activity page, which a
+visitor does not get.
+
