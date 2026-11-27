@@ -86,10 +86,13 @@ within the 15 minutes of the token it holds.
 The worker trades it for a hub token, again before each one ends:
 
 ```
-GET /api/hub-token    Authorization: Bearer dwt_…
+GET /worker-token    Authorization: Bearer dwt_…
 ```
 
 That exchange is served on the worker listener (`-worker-addr` or `DOTS_WORKER_ADDR`, a loopback
 IP and a port, for example `127.0.0.1:8096`), which serves this one path and 404s everything else,
-so the token opens nothing of the dashboard. Reach it like the hub: a second path on the proxy.
+so the token opens nothing of the dashboard. The hub's own Caddy relays it: `GET /worker-token` on the
+hub's public name reaches that listener (`DOTS_WORKER_UPSTREAM` changes where), so one tunnel and one
+route on the proxy carry both the hub (`/.well-known/mercure`) and the exchange (`/worker-token`).
+Anything else on that name answers 404.
 A wrong token costs half a second, and nothing of a token is logged.
