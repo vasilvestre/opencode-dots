@@ -10,18 +10,26 @@
 	# The site address matches any Host, so a proxy under another name works; without this line
 	# Caddy would listen on every interface.
 	bind 127.0.0.1
-	mercure {
-		# Hub 1.x only accepts RFC 9068 access tokens whose `iss` it trusts and whose `aud` is
-		# its own endpoint. internal/events signs tokens that way.
-		issuer {$MERCURE_TRUSTED_ISSUERS:dots} {
-			publisher {
-				jwt {env.MERCURE_PUBLISHER_JWT_KEY} {env.MERCURE_PUBLISHER_JWT_ALG}
-			}
-			subscriber {
-				jwt {env.MERCURE_SUBSCRIBER_JWT_KEY} {env.MERCURE_SUBSCRIBER_JWT_ALG}
+	# The one public entry (docs/remote.md): the hub, and the exchange of a worker token for a hub
+	# token, which the dashboard serves on its own loopback listener. Nothing else is reachable.
+	handle /worker-token {
+		rewrite * /api/hub-token
+		reverse_proxy {$DOTS_WORKER_UPSTREAM:127.0.0.1:8096}
+	}
+	handle {
+		mercure {
+			# Hub 1.x only accepts RFC 9068 access tokens whose `iss` it trusts and whose `aud` is
+			# its own endpoint. internal/events signs tokens that way.
+			issuer {$MERCURE_TRUSTED_ISSUERS:dots} {
+				publisher {
+					jwt {env.MERCURE_PUBLISHER_JWT_KEY} {env.MERCURE_PUBLISHER_JWT_ALG}
+				}
+				subscriber {
+					jwt {env.MERCURE_SUBSCRIBER_JWT_KEY} {env.MERCURE_SUBSCRIBER_JWT_ALG}
+				}
 			}
 		}
+		respond / "dots hub" 200
+		respond "Not Found" 404
 	}
-	respond / "dots hub" 200
-	respond "Not Found" 404
 }
