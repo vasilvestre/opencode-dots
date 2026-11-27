@@ -49,6 +49,16 @@ offered can be drawn later without a rewrite: the **sources** (adapters,
 [0039](0039-work-sources-are-adapters.md)), the **runner** that executes untrusted steps, and
 the **workflows**. We do not decide that boundary here.
 
+### First step built
+
+`repos.example.yaml` now ships two named profiles, `personal` and `company`, and one example repository for each.
+They run the same workflows and differ only by policy: `personal` sets `autonomy: auto`, the circuit breaker and
+`tend.auto_merge`; `company` sets `trust: client`, `autonomy: act`, `identity: marker` and a daily `budget`. A test
+(`internal/repos/features_profiles_test.go`) generates the example and checks that each profile reaches its rules
+and `tend.list` with its own policy, and that a company profile asking for `auto` is refused by the trust rule.
+The profile keys already carried by the engine are autonomy, trust, identity, budget, `dot`, `upstream`,
+`circuit_breaker` and `advisories`. No selector of instances on a device exists yet.
+
 ## Consequences
 
 Easier: the personal and company cases are one code base with two configurations. The cases C1

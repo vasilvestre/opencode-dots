@@ -49,7 +49,33 @@ profiles:
     review: true
     fix_issue: true
 
+  # ADR 0035: a dot is one engine under one policy profile. These two profiles
+  # run the same workflows and differ only by policy. `personal` owns the code of
+  # a repository the owner maintains: it may merge its own pull requests, and the
+  # circuit breaker drops it back to `act` after a revert or a red default branch.
+  # `company` runs on code that belongs to someone else: it never merges, it marks
+  # its work, it stays inside a daily spend cap, and a repository using it must
+  # still name an allowed executor (trust: client).
+  personal:
+    autonomy: auto
+    circuit_breaker: true
+    tend: {auto_merge: true}
+    review: true
+    fix_issue: true
+  company:
+    trust: client
+    autonomy: act
+    identity: marker
+    budget: {daily_usd: 20}
+    review: true
+
 repos:
+  # The same engine under two profiles (ADR 0035).
+  your-org/personal-tool:
+    use: [personal]
+  company-org/service:
+    use: [company]
+    executor: server
   # A repository the dot maintains end to end: review each pull request, turn
   # every new issue into a pull request, tend it daily and keep a clone in sync.
   your-org/your-repo:
