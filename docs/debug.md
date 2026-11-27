@@ -21,3 +21,7 @@ bin/dots logs last --kind step.failed --json   # one JSON event per line
   `steps[]`) for scripts and agents.
 
 Source: `cmd/dots`, `internal/runlog`. The dashboard keeps its own readers.
+
+The image carries `dots` in `/opt/agent/bin`, and `agent/skills/debug-dots-run` tells the
+agent when and how to use it. `agent/` is mounted as the opencode config, so the skill is
+present by default. Only the awf service mounts `state/`; elsewhere pass `--state`.

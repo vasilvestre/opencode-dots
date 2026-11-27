@@ -17,7 +17,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY internal/ internal/
 COPY cmd/repos/ cmd/repos/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/repos ./cmd/repos
+COPY cmd/dots/ cmd/dots/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/repos ./cmd/repos \
+ && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dots ./cmd/dots
 
 FROM debian:stable-slim
 
@@ -66,6 +68,7 @@ RUN chmod +x /opt/agent/bin/*
 
 # repos: after the COPY above, so a host-built bin/repos never replaces the image's own.
 COPY --from=repos-build /out/repos /opt/agent/bin/repos
+COPY --from=repos-build /out/dots /opt/agent/bin/dots
 ENV REPOS_BIN=/opt/agent/bin/repos
 
 # Pre-create every bind-mount target: Docker creates missing parents as root,
