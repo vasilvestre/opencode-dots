@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -39,6 +43,9 @@ func newFakeServer(t *testing.T) *fakeServer {
 	}
 	mux.HandleFunc("GET /api/jobs", auth(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"jobs": f.q.Pending(f.repos)})
+	}))
+	mux.HandleFunc("GET /api/hints", auth(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"hints": map[string]string{"org": "~/org", "acme": "~/work/acme"}})
 	}))
 	mux.HandleFunc("POST /api/jobs/{id}/claim", auth(func(w http.ResponseWriter, r *http.Request) {
 		j, err := f.q.Claim(r.PathValue("id"), r.Header.Get("X-Worker-Instance"), f.repos)
@@ -268,5 +275,59 @@ func TestWorkerReportsWhatTheRunCost(t *testing.T) {
 	w2.drain(context.Background())
 	if got := find(t, srv.q, k.ID); got.State != jobs.Done || got.Cost != 0 {
 		t.Fatalf("job = %+v", got)
+	}
+}
+
+func TestWorkerKeepsTheTeamsFolderSuggestions(t *testing.T) {
+	srv := newFakeServer(t)
+	w := fast(newWorker(srv.URL, tok, "http://127.0.0.1:1"))
+	w.hintsFile = filepath.Join(t.TempDir(), "dots", "hints")
+	ctx, cancel := context.WithCancel(context.Background())
+	go w.keepHints(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	var raw []byte
+	for time.Now().Before(deadline) {
+		if raw, _ = os.ReadFile(w.hintsFile); len(raw) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	got := string(raw)
+	if !strings.Contains(got, "acme/*=~/work/acme\n") || !strings.Contains(got, "org/*=~/org\n") {
+		t.Fatalf("hints file = %q", got)
+	}
+	if strings.Index(got, "acme/*") > strings.Index(got, "org/*") {
+		t.Fatalf("the lines must be sorted: %q", got)
+	}
+	if err := writeHints(w.hintsFile, nil); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(w.hintsFile); strings.Contains(string(raw), "=") {
+		t.Fatalf("an empty answer must clear the old suggestions: %q", raw)
+	}
+}
+
+func TestWorkerSaysWhereAMissingProjectCouldLive(t *testing.T) {
+	dir := t.TempDir()
+	where := filepath.Join(dir, "where")
+	os.WriteFile(where, []byte("#!/bin/sh\n[ \"$1\" = --suggest ] && { echo /home/dev/org/webapp; exit 0; }\nexit 1\n"), 0o755)
+	var buf bytes.Buffer
+	w := newWorker("http://x", tok, "http://x")
+	w.log = log.New(&buf, "", 0)
+	w.whereBin = where
+	w.adviseIfMissing(context.Background(), "org/webapp")
+	out := buf.String()
+	if !strings.Contains(out, "org/webapp is not cloned on this machine") || !strings.Contains(out, "/home/dev/org/webapp") || !strings.Contains(out, "private clone meanwhile") {
+		t.Fatalf("advice = %q", out)
+	}
+	// Found: no advice. No whereBin: no advice either.
+	buf.Reset()
+	os.WriteFile(where, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	w.adviseIfMissing(context.Background(), "org/webapp")
+	w.whereBin = ""
+	w.adviseIfMissing(context.Background(), "org/webapp")
+	if buf.Len() != 0 {
+		t.Fatalf("no advice expected, got %q", buf.String())
 	}
 }

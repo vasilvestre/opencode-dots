@@ -813,3 +813,29 @@ func TestTrustSettingsAreChecked(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckoutHintsAreChecked(t *testing.T) {
+	ok := func(hints string) error {
+		doc, err := Parse([]byte("version: 1\nsettings:\n  checkout_hints: " + hints + "\nrepos:\n  a/b:\n    tend: true\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = BuildDocument(doc, t.TempDir(), Settings{})
+		return err
+	}
+	if err := ok(`{acme: "~/acme", other: "/srv/projects"}`); err != nil {
+		t.Fatalf("valid hints refused: %v", err)
+	}
+	for name, hints := range map[string]string{
+		"a relative folder":   `{acme: "acme"}`,
+		"a parent walk":       `{acme: "~/../etc"}`,
+		"a separator":         `{acme: "~/a=b"}`,
+		"a comment character": `{acme: "~/a#b"}`,
+		"a bad owner":         `{"a/b": "~/x"}`,
+		"a dot owner":         `{"..": "~/x"}`,
+	} {
+		if err := ok(hints); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

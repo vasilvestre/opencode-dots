@@ -22,8 +22,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -47,6 +49,8 @@ type worker struct {
 	heartbeat time.Duration
 	awfPoll   time.Duration
 	instance  string // tells this process apart from another one running the same token
+	hintsFile string // where the team's folder suggestions are kept for bin/where; empty: not kept
+	whereBin  string // bin/where, to say where a missing project should go; empty: no advice
 	wake      chan struct{}
 	log       *log.Logger
 }
@@ -58,6 +62,7 @@ func main() {
 	awf := flag.String("awf", envOr("DOTS_AWF_URL", "http://127.0.0.1:2511"), "the local awf serve")
 	dash := flag.String("dashboard", envOr("DOTS_LOCAL_DASHBOARD", "http://127.0.0.1:8099"), "the local dashboard, asked what each run cost (empty: report no price)")
 	poll := flag.Duration("poll", time.Minute, "how often the queue is read when the hub says nothing")
+	hints := flag.String("hints-file", envOr("DOTS_HINTS", filepath.Join(home, ".config", "dots", "hints")), "where the team's folder suggestions are written, for bin/where (empty: not kept)")
 	once := flag.Bool("once", false, "claim and run what is pending, then stop")
 	flag.Parse()
 	if *base == "" {
@@ -73,6 +78,10 @@ func main() {
 	}
 	w := newWorker(*base, token, *awf)
 	w.poll = *poll
+	w.hintsFile = *hints
+	if exe, err := os.Executable(); err == nil {
+		w.whereBin = filepath.Join(filepath.Dir(exe), "where")
+	}
 	w.dashboard = strings.TrimRight(*dash, "/")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -132,6 +141,7 @@ func (w *worker) call(ctx context.Context, method, path string, body any, out an
 // run is the daemon: follow the hub in the background, and drain the queue on every nudge and every poll.
 func (w *worker) run(ctx context.Context) {
 	go w.follow(ctx)
+	go w.keepHints(ctx)
 	w.log.Printf("started, queue at %s, awf at %s", w.base, w.awf)
 	t := time.NewTicker(w.poll)
 	defer t.Stop()
@@ -179,6 +189,7 @@ func (w *worker) drain(ctx context.Context) {
 // execute hands a claimed job to the local awf, keeps the claim alive, and reports the end.
 func (w *worker) execute(ctx context.Context, j job) {
 	w.log.Printf("took %s: %s/%s for %s", j.ID, j.Scope, j.Workflow, j.Repo)
+	w.adviseIfMissing(ctx, j.Repo)
 	status, note, execID := "failed", "", ""
 	defer func() {
 		// Report even when the worker is stopping: the server must hear that it is not coming back.
@@ -384,4 +395,64 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-time.After(d):
 	}
+}
+
+// keepHints asks the server where the team keeps the projects of the owners this worker serves, now and
+// every hour, and writes it in the format bin/where reads (`owner/*=folder`). The machine's own
+// ~/.config/dots/paths always comes first: a hint is a suggestion, never an order.
+func (w *worker) keepHints(ctx context.Context) {
+	if w.hintsFile == "" {
+		return
+	}
+	for ctx.Err() == nil {
+		var out struct{ Hints map[string]string }
+		if code, err := w.call(ctx, http.MethodGet, "/api/hints", nil, &out); err == nil && code == http.StatusOK {
+			if err := writeHints(w.hintsFile, out.Hints); err != nil {
+				w.log.Printf("cannot keep the team's folder suggestions: %v", err)
+			}
+		}
+		sleep(ctx, time.Hour)
+	}
+}
+
+// writeHints replaces the file atomically with one `owner/*=folder` line per suggestion, sorted.
+func writeHints(path string, hints map[string]string) error {
+	names := make([]string, 0, len(hints))
+	for owner := range hints {
+		names = append(names, owner)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	b.WriteString("# Where the team keeps its projects (suggested by the server; ~/.config/dots/paths comes first).\n")
+	for _, owner := range names {
+		fmt.Fprintf(&b, "%s/*=%s\n", owner, hints[owner])
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// adviseIfMissing says in the log where a project could live when it is not on this machine. The run goes on
+// with a private clone, as before: nothing waits for the developer.
+func (w *worker) adviseIfMissing(ctx context.Context, repo string) {
+	if w.whereBin == "" {
+		return
+	}
+	if _, err := os.Stat(w.whereBin); err != nil {
+		return
+	}
+	if exec.CommandContext(ctx, w.whereBin, repo).Run() == nil {
+		return // found
+	}
+	out, err := exec.CommandContext(ctx, w.whereBin, "--suggest", repo).Output()
+	if dir := strings.TrimSpace(string(out)); err == nil && dir != "" {
+		w.log.Printf("%s is not cloned on this machine. Suggested place: %s (git clone https://github.com/%s.git %s). It runs on a private clone meanwhile.", repo, dir, repo, dir)
+		return
+	}
+	w.log.Printf("%s is not cloned on this machine. Say where your projects live in ~/.config/dots/paths (docs/paths.md); it runs on a private clone meanwhile.", repo)
 }

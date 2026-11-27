@@ -282,6 +282,7 @@ func (d *dash) workerRepos(t workerToken) []string {
 func (d *dash) workerHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/hub-token", d.hubTokenForWorker)
+	mux.HandleFunc("GET /api/hints", d.jobHints)
 	mux.HandleFunc("GET /api/jobs", d.jobsPending)
 	mux.HandleFunc("POST /api/jobs/{id}/claim", d.jobClaim)
 	mux.HandleFunc("POST /api/jobs/{id}/heartbeat", d.jobHeartbeat)

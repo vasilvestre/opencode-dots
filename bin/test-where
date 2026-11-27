@@ -4,7 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 w=$(mktemp -d); trap 'rm -rf "$w"' EXIT
-export HOME=$w/home REPOS_MAP=$w/repos.map DOTS_PATHS=$w/paths
+export HOME=$w/home REPOS_MAP=$w/repos.map DOTS_PATHS=$w/paths DOTS_HINTS=$w/hints
 mkdir -p "$HOME"
 fail=0
 ok() { echo "ok   $1"; }
@@ -50,6 +50,13 @@ printf '# the org keeps its projects here\nexample-org/*=~/example-org   # my ch
 [ "$(where --suggest example-org/new-project)" = "$HOME/example-org/new-project" ] && ok "the suggestion is the owner's root plus the name, comments ignored" || ko "suggest"
 printf 'acme/tool=~/x\n' >"$DOTS_PATHS"
 bin/where --suggest example-org/new-project >/dev/null 2>&1; [ $? = 1 ] && ok "no root for the owner: no suggestion" || ko "no suggestion"
+# The team's hints: a last resort, never ahead of the machine's own map.
+: >"$DOTS_PATHS"; printf '# suggested\nexample-org/*=~/example-org\n' >"$DOTS_HINTS"
+[ "$(where --suggest example-org/new-project)" = "$HOME/example-org/new-project" ] && ok "with no root of its own, the suggestion comes from the team's hints" || ko "hint suggestion"
+[ "$(where example-org/webapp)" = "$HOME/example-org/webapp" ] && ok "a project cloned where the team suggests is found" || ko "hint lookup"
+printf 'example-org/*=~/mine\n' >"$DOTS_PATHS"
+[ "$(where --suggest example-org/new-project)" = "$HOME/mine/new-project" ] && ok "the machine's own root beats the team's hint" || ko "precedence over hints"
+: >"$DOTS_PATHS"; : >"$DOTS_HINTS"
 bin/where 'not a repo' >/dev/null 2>&1; [ $? = 2 ] && ok "a bad name is a usage error" || ko "usage"
 bin/where '../etc' >/dev/null 2>&1; [ $? = 2 ] && ok "a path is not a repository name" || ko "path"
 exit $fail

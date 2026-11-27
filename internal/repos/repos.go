@@ -41,6 +41,10 @@ type Settings struct {
 	// DotID is this server's dot id (ADR 0038). A repository whose `dot` names another
 	// id is not acted on here. Empty means every repository is this server's.
 	DotID string `yaml:"dot_id"`
+	// CheckoutHints suggests where a developer keeps the projects of an owner: `{acme: "~/acme"}`. A worker
+	// gets it from the server and shows it to someone who has not cloned a project; it is never imposed
+	// (docs/paths.md).
+	CheckoutHints map[string]string `yaml:"checkout_hints"`
 }
 
 // TrustSettings is settings.trust (ADR 0032). Host is the highest level this

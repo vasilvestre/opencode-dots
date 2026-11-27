@@ -38,10 +38,28 @@ It is the developer's own working tree. A workflow only fetches into references 
 
 ## Not built yet
 
-- A recommendation from the team ("our projects go in `~/example-org`") shown on the machine of someone who has not
-  got the project.
 - A card in the local dashboard listing the repositories a worker serves, found here or not, with a clone button.
 - A `strict` repository may keep no local checkout (ADR 0032, 0050); the resolver does not know about trust yet, so
   for such a repository the checkout simply must not be mapped.
 
 Tests: `bin/test-where`, and the e2e cases that reuse a checkout (`bin/test-e2e`).
+
+## The team's suggestion
+
+A team server can say where its projects usually live, without imposing it. On the server, in `repos.yaml`:
+
+```yaml
+settings:
+  checkout_hints: {example-org: "~/example-org"}   # a folder under ~/ or an absolute path, no ..
+```
+
+`dots-worker` asks `GET /worker/api/hints` (the same token as the rest, and only the owners of the repositories
+that token covers) at start and every hour, and writes `~/.config/dots/hints`, one `owner/*=folder` line each. Then:
+
+- `bin/where` looks in that file **after** your own `paths`, so a project cloned where the team suggests is found,
+  and your own map always wins;
+- `bin/where --suggest` falls back on it when you have no root of your own for that owner;
+- when a job arrives for a project that is not on the machine, the worker's log says so and gives the place and the
+  `git clone` command. The run goes on with a private clone: nothing waits.
+
+The worker never clones by itself and never creates a folder.

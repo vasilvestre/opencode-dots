@@ -291,6 +291,9 @@ func BuildDocument(doc *Document, dir string, override Settings) (map[string][]b
 	if err := checkTrust(doc.Settings); err != nil {
 		return nil, err
 	}
+	if err := checkHints(doc.Settings); err != nil {
+		return nil, err
+	}
 	if err := checkDot(doc.Settings); err != nil {
 		return nil, err
 	}

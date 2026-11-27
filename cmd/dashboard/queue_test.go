@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -293,5 +295,24 @@ func TestReplayOfAWorkersRunReadsTheQueueNotALog(t *testing.T) {
 	}
 	if got := r.owner("/api/replay?id=job-unknown&workflow=review-pr"); got.Code != 200 {
 		t.Fatalf("an id the queue does not know falls back to the log path, got %d", got.Code)
+	}
+}
+
+func TestWorkerHintsAreLimitedToTheOwnersItServes(t *testing.T) {
+	r := workerRig(t)
+	os.WriteFile(filepath.Join(r.d.root, "repos.yaml"), []byte("version: 1\nsettings:\n  checkout_hints: {acme: \"~/acme\", other: \"~/other\"}\nrepos: {}\n"), 0o644)
+	secret, _ := issueToken(t, r, `{"label":"ada","repos":["`+openRepo+`"]}`)
+	var got struct{ Hints map[string]string }
+	rec := workerDo(r, "GET", "/api/hints", secret, "")
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	owner := strings.SplitN(openRepo, "/", 2)[0]
+	if rec.Code != 200 {
+		t.Fatalf("hints = %d %s", rec.Code, rec.Body)
+	}
+	if len(got.Hints) != 1 || got.Hints[owner] != "~/"+owner {
+		t.Fatalf("hints = %v, want only %s: the owner of a served repository", got.Hints, owner)
+	}
+	if rec := workerDo(r, "GET", "/api/hints", "", ""); rec.Code != 401 {
+		t.Fatalf("hints without a token = %d, want 401", rec.Code)
 	}
 }

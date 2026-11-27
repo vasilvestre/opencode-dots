@@ -6,11 +6,13 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"opencode-dots/internal/events"
 	"opencode-dots/internal/jobs"
+	"opencode-dots/internal/repos"
 )
 
 // The queue (internal/jobs) is an awf look-alike for a watcher: awf-gh posts a run to
@@ -265,4 +267,24 @@ func (d *dash) queuedJob(id string) (jobs.Job, bool) {
 		}
 	}
 	return jobs.Job{}, false
+}
+
+// jobHints tells a worker where its team keeps the projects of the owners it serves
+// (settings.checkout_hints). Only the owners of repositories the token covers: a worker learns nothing
+// about the others. A suggestion, never an order.
+func (d *dash) jobHints(w http.ResponseWriter, r *http.Request) {
+	_, served, ok := d.workerAuth(w, r)
+	if !ok {
+		return
+	}
+	hints := map[string]string{}
+	if doc, err := repos.Load(filepath.Join(d.root, "repos.yaml")); err == nil {
+		for repo := range served {
+			owner := repo[:strings.IndexByte(repo, '/')]
+			if dir, ok := doc.Settings.CheckoutHint(owner); ok {
+				hints[owner] = dir
+			}
+		}
+	}
+	writeJSON(w, map[string]any{"hints": hints})
 }

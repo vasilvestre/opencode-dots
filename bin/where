@@ -3,7 +3,7 @@
 # instead of cloning (docs/paths.md); with none, they fall back to a private clone under WORK_ROOT.
 #
 #   bin/where OWNER/REPO             print the checkout's path, exit 1 and print nothing if there is none
-#   bin/where --suggest OWNER/REPO   print where it should live (a root of this machine, then the name), exit 1 if no root
+#   bin/where --suggest OWNER/REPO   print where it should live (a root of this machine or of the team's hints, then the name), exit 1 if no root
 #
 # Looked up, in order:
 #   1. REPOS_MAP        `owner/repo=/abs/path` lines generated from `checkout:` in repos.yaml (explicit)
@@ -12,6 +12,8 @@
 #        owner/*      a root: the checkout is PATH/<repo>, for every repository of that owner
 #        */*          a root for any owner: PATH/<owner>/<repo>
 #      `~` expands to the home directory; the first match that is a real clone wins.
+#   3. the team's suggestions ~/.config/dots/hints (DOTS_HINTS), same format, kept by dots-worker from the
+#      server's settings.checkout_hints. They come last: a hint is a suggestion, never an order.
 # A candidate counts only if it is a Git clone whose `origin` is that repository, so a folder that
 # happens to have the same name is never taken for it. The explicit lines of REPOS_MAP are trusted
 # as written (they are the owner's own configuration).
@@ -24,6 +26,7 @@ owner=${repo%%/*}; name=${repo##*/}
 # `.` and `..` match the pattern but would walk out of a root.
 case $owner/$name in ./*|../*|*/.|*/..) echo "usage: bin/where [--suggest] OWNER/REPO" >&2; exit 2 ;; esac
 paths=${DOTS_PATHS:-$HOME/.config/dots/paths}
+hints=${DOTS_HINTS:-$HOME/.config/dots/hints}
 
 expand() { local p=$1; case $p in "~") p=$HOME ;; "~/"*) p=$HOME/${p#"~/"} ;; esac; printf '%s' "${p%/}"; }
 
@@ -34,10 +37,11 @@ is_clone_of() { # DIR: a git clone whose origin names OWNER/REPO
   [[ $url =~ [:/]$owner/$name(\.git)?/?$ ]]
 }
 
-# Every candidate of the machine map, in file order.
+# Every candidate of the machine map, then of the team's hints, in file order.
 candidates() {
-  [ -r "$paths" ] || return 0
-  local line pat dir
+  local file line pat dir
+  for file in "$paths" "$hints"; do
+  [ -r "$file" ] || continue
   while IFS= read -r line; do
     line=${line%%#*}; [ -n "${line//[[:space:]]/}" ] || continue
     pat=${line%%=*}; dir=${line#*=}
@@ -48,7 +52,8 @@ candidates() {
       "$owner/*") echo "root $dir/$name" ;;
       "*/*") echo "root $dir/$owner/$name" ;;
     esac
-  done <"$paths"
+  done <"$file"
+  done
 }
 
 if [ "$suggest" = 1 ]; then
