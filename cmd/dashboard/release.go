@@ -59,16 +59,7 @@ func (d *dash) releasedItems() []gateItem {
 
 // autonomyRelease starts publish-held for one held record.
 func (d *dash) autonomyRelease(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
-		return
-	}
-	if !d.trustedRequest(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]string{"error": "loopback only"})
-		return
-	}
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		writeJSONStatus(w, http.StatusUnsupportedMediaType, map[string]string{"error": "JSON only"})
+	if !d.jsonWrite(w, r) {
 		return
 	}
 	var in struct {

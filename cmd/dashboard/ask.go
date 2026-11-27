@@ -192,16 +192,7 @@ func (d *dash) startRun(workflow string, inputs map[string]string) (string, erro
 }
 
 func (d *dash) ask(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONStatus(w, 405, map[string]string{"error": "POST only"})
-		return
-	}
-	if !d.trustedRequest(r) {
-		writeJSONStatus(w, 403, map[string]string{"error": "loopback only"})
-		return
-	}
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		writeJSONStatus(w, 415, map[string]string{"error": "JSON only"})
+	if !d.jsonWrite(w, r) {
 		return
 	}
 	var in struct {

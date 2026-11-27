@@ -72,16 +72,7 @@ func authError(w http.ResponseWriter, status int, msg string) {
 
 // authPost runs the checks every sign-in endpoint shares and decodes the JSON body into in.
 func (d *dash) authPost(w http.ResponseWriter, r *http.Request, kind string, perMinute int, in any) bool {
-	if r.Method != http.MethodPost {
-		authError(w, http.StatusMethodNotAllowed, "POST only")
-		return false
-	}
-	if !d.trustedRequest(r) {
-		authError(w, http.StatusForbidden, "loopback or an allowed host only")
-		return false
-	}
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		authError(w, http.StatusUnsupportedMediaType, "JSON only")
+	if !d.jsonWrite(w, r) {
 		return false
 	}
 	if !d.auth.Allow(clientKey(r), kind, perMinute) {

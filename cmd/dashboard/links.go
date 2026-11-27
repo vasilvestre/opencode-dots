@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"opencode-dots/internal/store"
@@ -118,16 +117,7 @@ func (d *dash) linksSplit(w http.ResponseWriter, r *http.Request) { d.linksDecid
 // the caller the audit log records. A refusal of the store (a boundary, a decided
 // proposal) is a 409 with its message; the proposal stays as it was.
 func (d *dash) linksDecide(w http.ResponseWriter, r *http.Request, action string) {
-	if r.Method != http.MethodPost {
-		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
-		return
-	}
-	if !d.trustedRequest(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]string{"error": "loopback only"})
-		return
-	}
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		writeJSONStatus(w, http.StatusUnsupportedMediaType, map[string]string{"error": "JSON only"})
+	if !d.jsonWrite(w, r) {
 		return
 	}
 	var in struct {

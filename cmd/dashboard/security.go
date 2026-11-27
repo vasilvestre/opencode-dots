@@ -23,6 +23,23 @@ func (d *dash) trustedRequest(r *http.Request) bool {
 	return true
 }
 
+// jsonWrite runs the checks every JSON write shares: POST, a trusted Host and Origin, and a JSON
+// content type (a cross-site form cannot send it without a preflight). It has answered when it
+// returns false.
+func (d *dash) jsonWrite(w http.ResponseWriter, r *http.Request) bool {
+	switch {
+	case r.Method != http.MethodPost:
+		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
+	case !d.trustedRequest(r):
+		writeJSONStatus(w, http.StatusForbidden, map[string]string{"error": "loopback or an allowed host only"})
+	case !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json"):
+		writeJSONStatus(w, http.StatusUnsupportedMediaType, map[string]string{"error": "JSON only"})
+	default:
+		return true
+	}
+	return false
+}
+
 // trustedHost admits loopback and the hosts named by -allow-host. The tailnet
 // proxy forwards the tailnet name, so a page served through it writes only when
 // that name is on the list.
