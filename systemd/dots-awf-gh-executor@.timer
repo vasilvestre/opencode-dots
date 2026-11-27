@@ -1,9 +1,0 @@
-[Unit]
-Description=Poll pull requests every two minutes for the executor %i
-
-[Timer]
-OnBootSec=3min
-OnUnitActiveSec=2min
-
-[Install]
-WantedBy=timers.target

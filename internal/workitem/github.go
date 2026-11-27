@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"opencode-dots/internal/store"
@@ -70,7 +70,7 @@ func Observe(ctx context.Context, st *store.Store, workspace string, ev GitHubEv
 		refs = append(refs, fmt.Sprintf("branch:%s:%s", ev.Repo, ev.Branch))
 	}
 	linked := append([]int(nil), ev.LinkedIssues...)
-	sort.Ints(linked)
+	slices.Sort(linked)
 	for _, n := range linked {
 		if n > 0 && n != ev.Number {
 			refs = append(refs, fmt.Sprintf("github:%s#%d", ev.Repo, n))
@@ -113,7 +113,7 @@ func Observe(ctx context.Context, st *store.Store, workspace string, ev GitHubEv
 		for id := range owners {
 			ids = append(ids, id)
 		}
-		sort.Strings(ids)
+		slices.Sort(ids)
 		return res, fmt.Errorf("%w: %s", ErrConflict, strings.Join(ids, ", "))
 	}
 	return res, nil

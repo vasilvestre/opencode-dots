@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -121,7 +121,7 @@ func checkExecutors(c Config, d Deps) []Result {
 	for n := range c.Executors {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	var rs []Result
 	for _, n := range names {
 		u := c.Executors[n]

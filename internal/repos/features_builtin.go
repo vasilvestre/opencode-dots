@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"unicode"
 )
@@ -184,7 +183,7 @@ func (w watch) rule(repo string, block map[string]any) (Rule, error) {
 		}
 	}
 	if len(unknown) > 0 {
-		sort.Strings(unknown)
+		slices.Sort(unknown)
 		return rule, fmt.Errorf("unknown option %s (want %s)", strings.Join(unknown, ", "), strings.Join(known, ", "))
 	}
 	var err error

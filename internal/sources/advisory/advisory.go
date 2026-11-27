@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -96,7 +97,7 @@ func (a Adapter) Parse(raw []byte) ([]sources.Envelope, error) {
 	for p := range byPackage {
 		pkgs = append(pkgs, p)
 	}
-	sort.Strings(pkgs)
+	slices.Sort(pkgs)
 	for _, p := range pkgs {
 		for _, e := range byPackage[p] {
 			id := advisoryID(e)
@@ -109,7 +110,7 @@ func (a Adapter) Parse(raw []byte) ([]sources.Envelope, error) {
 				g = &Payload{ID: id, Title: e.Title, Link: e.Link, Severity: "unknown"}
 				groups[id] = g
 			}
-			if e.CVE != nil && *e.CVE != "" && !contains(g.CVEs, *e.CVE) {
+			if e.CVE != nil && *e.CVE != "" && !slices.Contains(g.CVEs, *e.CVE) {
 				g.CVEs = append(g.CVEs, *e.CVE)
 			}
 			if e.Severity != nil && rank(*e.Severity) > rank(g.Severity) {
@@ -129,11 +130,11 @@ func (a Adapter) Parse(raw []byte) ([]sources.Envelope, error) {
 	for id := range groups {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+	slices.Sort(ids)
 	out := make([]sources.Envelope, 0, len(ids))
 	for _, id := range ids {
 		g := groups[id]
-		sort.Strings(g.CVEs)
+		slices.Sort(g.CVEs)
 		sort.Slice(g.Packages, func(i, j int) bool { return g.Packages[i].Name < g.Packages[j].Name })
 		body, err := json.Marshal(g)
 		if err != nil {
@@ -188,18 +189,9 @@ var upperBound = regexp.MustCompile(`(?:^|,)<([0-9][^,|\s]*)`)
 func fixedIn(affected string) []string {
 	var out []string
 	for _, rng := range strings.Split(affected, "|") {
-		if m := upperBound.FindStringSubmatch(strings.TrimSpace(rng)); m != nil && !contains(out, m[1]) {
+		if m := upperBound.FindStringSubmatch(strings.TrimSpace(rng)); m != nil && !slices.Contains(out, m[1]) {
 			out = append(out, m[1])
 		}
 	}
 	return out
-}
-
-func contains(l []string, s string) bool {
-	for _, v := range l {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

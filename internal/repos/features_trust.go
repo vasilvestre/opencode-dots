@@ -3,7 +3,7 @@ package repos
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -125,7 +125,7 @@ func (trust) Modify(r *Resolved, out *Output, from int) error {
 	if len(problems) == 0 {
 		return nil
 	}
-	sort.Strings(problems)
+	slices.Sort(problems)
 	return errors.New(strings.Join(problems, "\n"))
 }
 
@@ -201,7 +201,7 @@ func checkTrust(s Settings) error {
 		}
 	}
 	if len(problems) > 0 {
-		sort.Strings(problems)
+		slices.Sort(problems)
 		return errors.New(strings.Join(problems, "\n"))
 	}
 	return nil

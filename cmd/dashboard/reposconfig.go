@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -137,7 +137,7 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 	for name := range doc.Profiles {
 		cfg.Profiles = append(cfg.Profiles, name)
 	}
-	sort.Strings(cfg.Profiles)
+	slices.Sort(cfg.Profiles)
 	for i, entry := range doc.Repos {
 		res := resolved[i]
 		row := repoRow{Name: entry.Name, Features: map[string]featureState{}, Provider: "opencode"}
@@ -612,7 +612,7 @@ func ruleNode(m map[string]any) (*yaml.Node, error) {
 			rest = append(rest, key)
 		}
 	}
-	sort.Strings(rest)
+	slices.Sort(rest)
 	for _, key := range rest {
 		if err := add(key); err != nil {
 			return nil, err

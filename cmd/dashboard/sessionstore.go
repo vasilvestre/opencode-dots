@@ -8,7 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -160,7 +160,7 @@ func (a *authState) flush() {
 				vis = append(vis, r)
 			}
 		}
-		sort.Strings(vis)
+		slices.Sort(vis)
 		out.Sessions[k] = storedSession{Login: s.login, Visible: vis, Expires: s.expires, Created: s.created}
 	}
 	a.mu.Unlock()

@@ -2,7 +2,7 @@ package repos
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -158,7 +158,7 @@ func Generate(doc *Document) (*Output, error) {
 		}
 	}
 	if len(problems) > 0 {
-		sort.Strings(problems)
+		slices.Sort(problems)
 		return nil, fmt.Errorf("%s", strings.Join(problems, "\n"))
 	}
 	return out, nil

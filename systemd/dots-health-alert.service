@@ -1,8 +1,0 @@
-[Unit]
-Description=Tell Discord the dot is down (same DISCORD_WEBHOOK as the workflow notify steps)
-
-[Service]
-Type=oneshot
-# DISCORD_WEBHOOK comes from .env. Without it the unit exits quietly.
-EnvironmentFile=-%h/projects/perso/opencode-dots/.env
-ExecStart=/bin/sh -c '[ -n "$DISCORD_WEBHOOK" ] || exit 0; curl -fsS -m 10 -o /dev/null -H "Content-Type: application/json" -d "{\\"content\\":\\"dot health: down, see state/health.json\\"}" "$DISCORD_WEBHOOK"'

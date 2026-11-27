@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -150,7 +150,7 @@ func (d *dash) remoteRuns(w http.ResponseWriter, r *http.Request) {
 	for n := range d.remote {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	out := struct {
 		Executors  []remoteSnapshot `json:"executors"`
 		Executions []map[string]any `json:"executions"`

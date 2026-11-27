@@ -3,7 +3,7 @@ package repos
 import (
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -25,7 +25,7 @@ func checkHints(s Settings) error {
 	if len(problems) == 0 {
 		return nil
 	}
-	sort.Strings(problems)
+	slices.Sort(problems)
 	return fmt.Errorf("%s", strings.Join(problems, "\n"))
 }
 

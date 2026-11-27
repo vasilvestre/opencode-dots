@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -73,7 +74,7 @@ func LinkTokens(payload json.RawMessage) []string {
 	for t := range set {
 		out = append(out, t)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -209,7 +210,7 @@ func (s *Store) LinkCandidates(ctx context.Context, workspace string, max int) (
 		if known[pairKey(a.ID, b.ID)] {
 			continue
 		}
-		sort.Strings(toks)
+		slices.Sort(toks)
 		out = append(out, LinkCandidate{A: a, B: b, Shared: toks})
 	}
 	sort.Slice(out, func(i, j int) bool {

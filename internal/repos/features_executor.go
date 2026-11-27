@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -57,7 +57,7 @@ func knownExecutors(s Settings) string {
 	for name := range s.Executors {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return strings.Join(names, ", ")
 }
 
@@ -78,7 +78,7 @@ func checkExecutors(s Settings) error {
 		}
 	}
 	if len(problems) > 0 {
-		sort.Strings(problems)
+		slices.Sort(problems)
 		return errors.New(strings.Join(problems, "\n"))
 	}
 	return nil

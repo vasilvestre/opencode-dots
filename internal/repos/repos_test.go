@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -143,8 +144,8 @@ repos:
 		"fix-ci|global|[checks-failed]|[]|[]|map[flag:true n:3]",
 		"fix-issue||[issue-labeled]|[dot]|[]|map[]",
 	}
-	sort.Strings(got)
-	sort.Strings(want)
+	slices.Sort(got)
+	slices.Sort(want)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rules =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -402,7 +403,7 @@ func ruleKeys(t *testing.T, data []byte) []ruleKey {
 		for k, v := range r.Inputs {
 			in = append(in, k+"="+v)
 		}
-		sort.Strings(in)
+		slices.Sort(in)
 		out = append(out, ruleKey{r.Repo, r.Workflow, scope, fmt.Sprint(r.On), fmt.Sprint(r.IgnoreAuthors), fmt.Sprint(r.OnlyAuthors), fmt.Sprint(r.Labels), strings.Join(in, ",")})
 	}
 	sort.Slice(out, func(i, j int) bool { return fmt.Sprint(out[i]) < fmt.Sprint(out[j]) })
@@ -416,7 +417,7 @@ func lines(data []byte) []string {
 			out = append(out, l)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

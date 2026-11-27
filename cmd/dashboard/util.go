@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -57,7 +57,7 @@ func listFiles(root, ext string) []string {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 
@@ -104,7 +104,7 @@ func listDirs(root string) []string {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 

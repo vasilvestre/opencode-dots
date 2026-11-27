@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 
@@ -202,7 +202,7 @@ func featureNode(features map[string]any) *yaml.Node {
 	for k := range features {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	for _, k := range keys {
 		var v yaml.Node
 		if block, ok := features[k].(map[string]any); ok && len(block) == 0 {
@@ -240,6 +240,6 @@ func DiffStoreAndFile(ctx context.Context, st *store.Store, workspace string, da
 			differ = append(differ, n)
 		}
 	}
-	sort.Strings(differ)
+	slices.Sort(differ)
 	return differ, nil
 }

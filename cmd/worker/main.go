@@ -25,7 +25,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -425,7 +425,7 @@ func writeHints(path string, hints map[string]string) error {
 	for owner := range hints {
 		names = append(names, owner)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	var b strings.Builder
 	b.WriteString("# Where the team keeps its projects (suggested by the server; ~/.config/dots/paths comes first).\n")
 	for _, owner := range names {
@@ -473,7 +473,7 @@ func (w *worker) keepServed(topics []string) {
 			repos = append(repos, repo)
 		}
 	}
-	sort.Strings(repos)
+	slices.Sort(repos)
 	body := "# Repositories this worker serves, written by dots-worker.\n" + strings.Join(repos, "\n")
 	if len(repos) > 0 {
 		body += "\n"

@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -340,7 +340,7 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 			for k := range p.Features {
 				keys = append(keys, k)
 			}
-			sort.Strings(keys)
+			slices.Sort(keys)
 			fmt.Printf("%s\t%s\n", p.Repo, strings.Join(keys, ","))
 		}
 		return nil

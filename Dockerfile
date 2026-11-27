@@ -4,7 +4,6 @@
 # without --format json and expects an "N credentials" footer that v2 dropped.
 # v0.12.0 parses the JSON form and records the cost of every agent step.
 FROM golang:1.24-bookworm AS awf-build
-# The module requires go 1.26; the official image pins GOTOOLCHAIN=local.
 ENV GOTOOLCHAIN=auto
 ARG AWF_REF=v0.12.0
 RUN CGO_ENABLED=0 go install github.com/awf-project/cli/cmd/awf@${AWF_REF}

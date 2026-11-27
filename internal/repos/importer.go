@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -367,7 +366,7 @@ func flowShort(n *yaml.Node) {
 			flowShort(n.Content[i+1])
 			keys = append(keys, n.Content[i].Value)
 		}
-		sort.Strings(keys)
+		slices.Sort(keys)
 		if len(keys) == 1 && n.Content[1].Kind == yaml.ScalarNode {
 			n.Style = yaml.FlowStyle
 		}

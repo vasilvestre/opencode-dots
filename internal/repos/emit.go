@@ -7,7 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -113,7 +113,7 @@ func Render(out *Output, s Settings) (map[string][]byte, error) {
 	for name := range groups {
 		executors = append(executors, name)
 	}
-	sort.Strings(executors)
+	slices.Sort(executors)
 	for _, name := range executors {
 		file, settings := FileAwfGh, s
 		if name != "" {
@@ -196,7 +196,7 @@ func renderAwfGh(rules []Rule, s Settings) ([]byte, error) {
 			for k := range r.Inputs {
 				keys = append(keys, k)
 			}
-			sort.Strings(keys)
+			slices.Sort(keys)
 			for _, k := range keys {
 				add(in, k, str(r.Inputs[k]))
 			}
@@ -227,7 +227,7 @@ func Diff(dir string, files map[string][]byte) []string {
 			changed = append(changed, name)
 		}
 	}
-	sort.Strings(changed)
+	slices.Sort(changed)
 	return changed
 }
 

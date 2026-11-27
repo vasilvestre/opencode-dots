@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -663,7 +662,7 @@ func TestPresetOverridesSerializeInRoleOrder(t *testing.T) {
 	for key := range configuration.Overrides {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	if !reflect.DeepEqual(keys, []string{"ask-pr/model", "tend-repo/model"}) {
 		t.Fatalf("unexpected fixture keys: %q", keys)
 	}

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -166,7 +167,7 @@ func parseCatalog(data []byte) []string {
 		seen[model] = true
 		models = append(models, model)
 	}
-	sort.Strings(models)
+	slices.Sort(models)
 	return models
 }
 
@@ -413,7 +414,7 @@ func agentModels(states *yaml.Node) (map[string]string, []string) {
 			names = append(names, name)
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	var problems []string
 	for _, name := range names {
 		state, err := nodeFields(fields[name])
@@ -517,8 +518,8 @@ func (s *Snapshot) Prepare(values map[string]string) (*Plan, error) {
 			missing = append(missing, variable.Key)
 		}
 	}
-	sort.Strings(unknown)
-	sort.Strings(missing)
+	slices.Sort(unknown)
+	slices.Sort(missing)
 	if len(unknown) > 0 || len(missing) > 0 {
 		return nil, fmt.Errorf("variables must match the discovered keys (unknown: %s; missing: %s)", strings.Join(unknown, ", "), strings.Join(missing, ", "))
 	}
@@ -527,7 +528,7 @@ func (s *Snapshot) Prepare(values map[string]string) (*Plan, error) {
 	for key := range values {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	for _, key := range keys {
 		if err := validateRoleModel(key, values[key]); err != nil {
 			return nil, fmt.Errorf("%s: %w", key, err)

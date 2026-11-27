@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -269,7 +269,7 @@ func backupFile(abs string) (string, error) {
 
 func pruneBackups(abs string, keep int) {
 	matches, _ := filepath.Glob(abs + ".*.bak")
-	sort.Strings(matches)
+	slices.Sort(matches)
 	for len(matches) > keep {
 		os.Remove(matches[0])
 		matches = matches[1:]

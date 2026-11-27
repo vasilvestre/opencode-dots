@@ -14,7 +14,7 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -217,7 +217,7 @@ func sortedKeys[V any](m map[string]V) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	return keys
 }
 
@@ -305,7 +305,7 @@ func Resolve(doc *Document) ([]*Resolved, error) {
 		}
 	}
 	if len(problems) > 0 {
-		sort.Strings(problems)
+		slices.Sort(problems)
 		return nil, errors.New(strings.Join(problems, "\n"))
 	}
 	return out, nil

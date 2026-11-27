@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -75,7 +75,7 @@ func (d *dash) servedRepos() []string {
 	for r := range seen {
 		out = append(out, r)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

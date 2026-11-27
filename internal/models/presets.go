@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -145,7 +145,7 @@ func (s *Snapshot) PrepareUpdate(update Update) (*Plan, error) {
 	for key := range update.Overrides {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	for _, key := range keys {
 		if !isRole(key) {
 			return nil, fmt.Errorf("unknown model role %q", key)
@@ -238,7 +238,7 @@ func (c *Configuration) validate() error {
 	for key := range c.Overrides {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	for _, key := range keys {
 		if !isRole(key) {
 			return fmt.Errorf("unknown model role %q", key)
@@ -268,8 +268,8 @@ func validatePresetKeys(presets map[string]string) error {
 			missing = append(missing, name)
 		}
 	}
-	sort.Strings(unknown)
-	sort.Strings(missing)
+	slices.Sort(unknown)
+	slices.Sort(missing)
 	if len(unknown) > 0 || len(missing) > 0 {
 		return fmt.Errorf("presets must contain light and default, and may add claude_light and claude_default (unknown: %s; missing: %s)", strings.Join(unknown, ", "), strings.Join(missing, ", "))
 	}

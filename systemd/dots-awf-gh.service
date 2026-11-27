@@ -1,9 +1,0 @@
-[Unit]
-Description=awf-gh: fire awf workflows for open PRs
-
-[Service]
-Type=oneshot
-WorkingDirectory=%h/projects/perso/opencode-dots
-# The watcher writes its dedup state; keep it alive between runs.
-ExecStart=/usr/bin/docker compose --profile jobs run --rm awf-gh
-TimeoutStartSec=180
