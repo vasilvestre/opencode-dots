@@ -126,6 +126,9 @@ func randomID(n int) string {
 // ownerRequest is the host's own user: the request reached the dashboard directly on
 // loopback, with no tailnet login header. Anything `tailscale serve` forwards is a visitor.
 func ownerRequest(r *http.Request) bool {
+	if teamRequest(r) {
+		return false // the team listener serves visitors only (team.go)
+	}
 	if r.Header.Get(tailscaleLoginHeader) != "" || !isLoopbackHost(r.Host) {
 		return false
 	}

@@ -108,7 +108,12 @@ func main() {
 	ghAPI := flag.String("github-api", envOr("DOTS_GITHUB_API_URL", "https://api.github.com"), "GitHub REST API base URL")
 	minPerm := flag.String("min-permission", envOr("DOTS_MIN_PERMISSION", "push"),
 		"permission a visitor needs on a repository to see it: push (write or better) or pull (read or better)")
+	teamAddr := flag.String("team-addr", envOr("DOTS_TEAM_ADDR", ""),
+		"loopback address of a second listener where every request is a visitor, for SSH forwards (docs/team-ui.md)")
 	flag.Parse()
+	if err := checkTeamAddr(*teamAddr, *addr, *ghClient != ""); err != nil {
+		log.Fatal(err)
+	}
 	if _, err := parseMinPermission(*minPerm); err != nil {
 		log.Fatal(err)
 	}
@@ -142,6 +147,13 @@ func main() {
 	go d.watchRuns()
 	if d.auth != nil {
 		go d.auth.sweepSessions(10 * time.Minute)
+	}
+
+	if *teamAddr != "" {
+		go func() {
+			log.Printf("dots dashboard, team listener (visitors only) on http://%s", *teamAddr)
+			log.Fatal(http.ListenAndServe(*teamAddr, teamHandler(mux)))
+		}()
 	}
 
 	log.Printf("dots dashboard on http://%s (awf at %s)", *addr, *awf)
