@@ -51,6 +51,7 @@ notifications.json.*.bak
 /cmd/dashboard/dashboard
 /cmd/repos/repos
 /cmd/health/health
+/cmd/worker/worker
 /build/
 /dist/
 

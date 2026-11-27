@@ -96,3 +96,38 @@ hub's public name reaches that listener (`DOTS_WORKER_UPSTREAM` changes where), 
 route on the proxy carry both the hub (`/.well-known/mercure`) and the exchange (`/worker-token`).
 Anything else on that name answers 404.
 A wrong token costs half a second, and nothing of a token is logged.
+
+## The queue and dots-worker
+
+`dots-worker` (`cmd/worker`, `make go-build` writes `bin/worker`) runs on a machine that has the
+local `awf serve` and nothing else to set up: one outbound HTTPS connection to the server, no
+tunnel, no open port.
+
+**Server.** The watcher posts its runs to the dashboard instead of an awf: set its executor to
+`http://127.0.0.1:8099/queue` (`settings.executors` in `repos.yaml`, then `bin/repos generate`).
+`POST /queue/api/workflows/{scope}/{workflow}/run` keeps the run in `STATE_DIR/jobs.json` (mode 0600)
+and answers 202 with a job id, the way awf does; `DELETE /queue/api/executions/{id}` cancels. Both are
+owner only, so only the loopback watcher reaches them. `GET /api/queue` (owner) lists every job.
+
+**Worker.** It reads `DOTS_WORKER_URL` (the server's worker entry, `https://hub.example/worker`)
+and the token in `~/.config/dots/worker-token` (or `DOTS_WORKER_TOKEN`), and does:
+
+1. follow the hub for the token's topics (a message only wakes it) and read the queue every minute,
+   so a missed message delays a job and never loses it;
+2. claim a job (`POST /api/jobs/{id}/claim`): the first worker wins, the others get 409;
+3. run it on the local awf, renew the claim every 30 s (`heartbeat`), which also tells it when the
+   watcher cancelled the run;
+4. report `done` or `failed` (`finish`) with a note.
+
+A claim is a lease of two minutes: a worker that vanishes gives the job back to the others. A job nobody
+takes within 24 hours expires, so a worker that comes back after days runs no stale work. A worker only
+sees the jobs of the repositories its token names. Each event is also published on the repository's
+private topic (`job`, `taken`, `finished`, `cancelled`) for whoever follows the hub.
+
+```bash
+DOTS_WORKER_URL=https://hub.example/worker bin/worker          # the daemon
+DOTS_WORKER_URL=https://hub.example/worker bin/worker -once    # run what is pending, then stop
+```
+
+The hub's Caddy relays `/worker/*` to the worker listener (prefix removed), next to the older
+`/worker-token`.

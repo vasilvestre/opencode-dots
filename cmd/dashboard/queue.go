@@ -1,0 +1,178 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"opencode-dots/internal/events"
+	"opencode-dots/internal/jobs"
+)
+
+// The queue (internal/jobs) is an awf look-alike for a watcher: awf-gh posts a run to
+// {awf_url}/api/workflows/{scope}/{workflow}/run and may cancel it with DELETE
+// {awf_url}/api/executions/{id}. With awf_url set to the dashboard's /queue the run is kept until a
+// worker claims it (worker listener, jobs routes below). Mercure only wakes a worker up: the
+// queue is the truth, and a worker polls it too, so a missed message delays a job and loses none.
+
+// publish tells the hub that something happened to a job, on the repository's private topic.
+// Best effort and in the background: the queue does not depend on it.
+func (d *dash) publish(j jobs.Job, kind, by, status string) {
+	if d.hub == nil || d.hub.publisher == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"kind": kind, "job": j.ID, "repo": j.Repo, "workflow": j.Workflow, "by": by, "status": status})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := d.hub.publisher.Publish(ctx, events.RepoTopic(j.Repo), payload, true); err != nil {
+			log.Printf("hub: could not publish a %s event: %v", kind, err)
+		}
+	}()
+}
+
+// queueRun accepts a run the way awf does: 202 and an execution id, here the job id.
+func (d *dash) queueRun(w http.ResponseWriter, r *http.Request) {
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/queue/api/workflows/"), "/")
+	parts := strings.Split(rest, "/")
+	if r.Method != http.MethodPost || len(parts) != 3 || parts[2] != "run" {
+		http.NotFound(w, r)
+		return
+	}
+	var in struct {
+		Inputs map[string]any `json:"inputs"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil || in.Inputs == nil {
+		writeJSONStatus(w, http.StatusUnprocessableEntity, map[string]string{"error": "inputs are required"})
+		return
+	}
+	j, err := d.queue.Enqueue(parts[0], parts[1], in.Inputs)
+	if err != nil {
+		writeJSONStatus(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	d.publish(j, "job", "", "pending")
+	writeJSONStatus(w, http.StatusAccepted, map[string]any{"body": map[string]string{"execution_id": j.ID}})
+}
+
+// queueCancel is DELETE /queue/api/executions/{id}: 204 whether or not the job is known, as awf does.
+func (d *dash) queueCancel(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/queue/api/executions/")
+	if r.Method != http.MethodDelete || id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if j, ok := d.queue.Cancel(id); ok {
+		d.publish(j, "cancelled", j.By, "cancelled")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// queueList is the owner's view of every job.
+func (d *dash) queueList(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"jobs": d.queue.All()})
+}
+
+// workerAuth resolves the bearer token of a worker and the repositories it may serve.
+func (d *dash) workerAuth(w http.ResponseWriter, r *http.Request) (workerToken, map[string]bool, bool) {
+	t, ok := d.wtokens.lookup(bearer(r))
+	if !ok {
+		time.Sleep(d.wtokens.failDelay)
+		writeJSONStatus(w, http.StatusUnauthorized, map[string]string{"error": "invalid or revoked worker token"})
+		return workerToken{}, nil, false
+	}
+	set := map[string]bool{}
+	for _, repo := range d.workerRepos(t) {
+		set[strings.ToLower(repo)] = true
+	}
+	return t, set, true
+}
+
+// workerName is who holds a claim: the token's label and this process's instance id, so two
+// machines sharing one token are two holders and never renew each other's claim.
+func workerName(t workerToken, r *http.Request) string {
+	inst := strings.Map(func(c rune) rune {
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' {
+			return c
+		}
+		return -1
+	}, strings.ToLower(r.Header.Get("X-Worker-Instance")))
+	if len(inst) > 32 {
+		inst = inst[:32]
+	}
+	return t.Label + "#" + inst
+}
+
+func (d *dash) jobsPending(w http.ResponseWriter, r *http.Request) {
+	_, repos, ok := d.workerAuth(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, map[string]any{"jobs": d.queue.Pending(repos)})
+}
+
+func (d *dash) jobClaim(w http.ResponseWriter, r *http.Request) {
+	t, repos, ok := d.workerAuth(w, r)
+	if !ok {
+		return
+	}
+	j, err := d.queue.Claim(r.PathValue("id"), workerName(t, r), repos)
+	if err != nil {
+		jobError(w, err)
+		return
+	}
+	d.publish(j, "taken", workerName(t, r), "taken")
+	writeJSON(w, j)
+}
+
+func (d *dash) jobHeartbeat(w http.ResponseWriter, r *http.Request) {
+	t, repos, ok := d.workerAuth(w, r)
+	if !ok {
+		return
+	}
+	j, err := d.queue.Claim(r.PathValue("id"), workerName(t, r), repos)
+	if err != nil {
+		jobError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"cancelled": j.State == jobs.Cancelled})
+}
+
+func (d *dash) jobFinish(w http.ResponseWriter, r *http.Request) {
+	t, _, ok := d.workerAuth(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Status string `json:"status"`
+		Note   string `json:"note"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&in) != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
+	}
+	j, err := d.queue.Finish(r.PathValue("id"), workerName(t, r), jobs.State(in.Status), in.Note)
+	if err != nil {
+		jobError(w, err)
+		return
+	}
+	d.publish(j, "finished", workerName(t, r), in.Status)
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func jobError(w http.ResponseWriter, err error) {
+	code := http.StatusBadRequest
+	switch {
+	case errors.Is(err, jobs.ErrNotFound):
+		code = http.StatusNotFound
+	case errors.Is(err, jobs.ErrTaken), errors.Is(err, jobs.ErrNotYours):
+		code = http.StatusConflict
+	case errors.Is(err, jobs.ErrForbidden):
+		code = http.StatusForbidden
+	}
+	writeJSONStatus(w, code, map[string]string{"error": err.Error()})
+}

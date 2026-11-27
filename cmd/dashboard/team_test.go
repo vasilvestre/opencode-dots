@@ -189,7 +189,7 @@ func TestNoRouteIsReachableAsOwnerThroughTheTeamListener(t *testing.T) {
 		"/api/models": true, "/api/links/accept": true, "/api/links/decline": true,
 		"/api/links/split": true, "/api/workers": true, "/api/autonomy/release": true,
 		"/api/health": true, "/api/notifications": true, "/api/source": true, "/api/save": true,
-		"/awf/": true, "/api/worker-tokens": true, "/api/worker-tokens/revoke": true,
+		"/awf/": true, "/api/queue": true, "/queue/api/workflows/": true, "/queue/api/executions/": true, "/api/worker-tokens": true, "/api/worker-tokens/revoke": true,
 	}
 	src, err := os.ReadFile("routes.go")
 	if err != nil {

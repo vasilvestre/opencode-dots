@@ -114,17 +114,17 @@ func TestHubIssuerReadsTheHubSettings(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "hub.env")
 	os.WriteFile(f, []byte("# keys\nMERCURE_SUBSCRIBER_JWT_KEY=abc\nMERCURE_TRUSTED_ISSUERS=dots other\n"), 0o600)
-	h, err := newHubIssuer("https://h/.well-known/mercure", "", f)
+	h, err := newHubIssuer("https://h/.well-known/mercure", "", "", f)
 	if err != nil || h == nil {
 		t.Fatalf("issuer = %v, %v", h, err)
 	}
 	if h.audience != "https://h/.well-known/mercure" || h.hub.Issuer != "dots" || string(h.hub.Secret) != "abc" {
 		t.Fatalf("issuer = %+v", h)
 	}
-	if off, err := newHubIssuer("", "", f); off != nil || err != nil {
+	if off, err := newHubIssuer("", "", "", f); off != nil || err != nil {
 		t.Fatalf("no URL must mean off: %v, %v", off, err)
 	}
-	if _, err := newHubIssuer("https://h", "", filepath.Join(dir, "missing")); err == nil {
+	if _, err := newHubIssuer("https://h", "", "", filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("a missing settings file must be an error, not a silent off")
 	}
 }

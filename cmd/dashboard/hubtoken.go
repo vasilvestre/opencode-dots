@@ -21,11 +21,14 @@ type hubIssuer struct {
 	url      string // the hub endpoint a client follows, such as https://hub.example/.well-known/mercure
 	audience string // the endpoint as the hub sees a request: a proxy that ends TLS makes it http
 	hub      events.Hub
+	// publisher sends job events from this process to the hub on loopback; nil when the hub's
+	// settings have no publisher key.
+	publisher *events.Hub
 }
 
 // newHubIssuer reads the hub's own settings file (MERCURE_SUBSCRIBER_JWT_KEY and
 // MERCURE_TRUSTED_ISSUERS, written by deploy/types/local/hub.sh). With no URL it is off.
-func newHubIssuer(url, audience, envFile string) (*hubIssuer, error) {
+func newHubIssuer(url, audience, internal, envFile string) (*hubIssuer, error) {
 	if url == "" {
 		return nil, nil
 	}
@@ -44,7 +47,11 @@ func newHubIssuer(url, audience, envFile string) (*hubIssuer, error) {
 	if i := strings.IndexByte(issuer, ' '); i >= 0 {
 		issuer = issuer[:i] // the first trusted issuer is the one tokens carry
 	}
-	return &hubIssuer{url: url, audience: audience, hub: events.Hub{URL: url, Secret: []byte(key), Issuer: issuer}}, nil
+	h := &hubIssuer{url: url, audience: audience, hub: events.Hub{URL: url, Secret: []byte(key), Issuer: issuer}}
+	if pk := env["MERCURE_PUBLISHER_JWT_KEY"]; pk != "" && internal != "" {
+		h.publisher = &events.Hub{URL: internal, Secret: []byte(pk), Issuer: issuer}
+	}
+	return h, nil
 }
 
 // readEnvFile parses KEY=VALUE lines: comments and blanks are skipped, values are not expanded.

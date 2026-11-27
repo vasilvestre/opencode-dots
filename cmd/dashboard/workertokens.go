@@ -251,20 +251,7 @@ func (d *dash) hubTokenForWorker(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusUnauthorized, map[string]string{"error": "invalid or revoked worker token"})
 		return
 	}
-	known := d.knownRepos()
-	repos := known
-	if len(t.Repos) > 0 {
-		repos = repos[:0:0]
-		allowed := map[string]bool{}
-		for _, repo := range t.Repos {
-			allowed[repo] = true
-		}
-		for _, repo := range known {
-			if allowed[strings.ToLower(repo)] {
-				repos = append(repos, repo)
-			}
-		}
-	}
+	repos := d.workerRepos(t)
 	sub := t.Login
 	if sub == "" {
 		sub = "worker:" + t.Label
@@ -272,9 +259,32 @@ func (d *dash) hubTokenForWorker(w http.ResponseWriter, r *http.Request) {
 	d.answerHubToken(w, sub, repos)
 }
 
+// workerRepos is the repositories a worker token may serve: the ones it lists, or every one the dot knows.
+func (d *dash) workerRepos(t workerToken) []string {
+	known := d.knownRepos()
+	if len(t.Repos) == 0 {
+		return known
+	}
+	allowed := map[string]bool{}
+	for _, repo := range t.Repos {
+		allowed[repo] = true
+	}
+	var repos []string
+	for _, repo := range known {
+		if allowed[strings.ToLower(repo)] {
+			repos = append(repos, repo)
+		}
+	}
+	return repos
+}
+
 // workerHandler is the mux of the worker listener: the exchange and nothing else.
 func (d *dash) workerHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/hub-token", d.hubTokenForWorker)
+	mux.HandleFunc("GET /api/jobs", d.jobsPending)
+	mux.HandleFunc("POST /api/jobs/{id}/claim", d.jobClaim)
+	mux.HandleFunc("POST /api/jobs/{id}/heartbeat", d.jobHeartbeat)
+	mux.HandleFunc("POST /api/jobs/{id}/finish", d.jobFinish)
 	return mux
 }

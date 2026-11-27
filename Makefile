@@ -111,6 +111,7 @@ go-build: ## build every Go command into bin/ (a bare `go build` inside cmd/NAME
 	go build -o bin/dashboard ./cmd/dashboard
 	go build -o bin/repos ./cmd/repos
 	go build -o bin/health ./cmd/health
+	go build -o bin/worker ./cmd/worker
 	go build -o bin/dots ./cmd/dots
 
 hooks: ## use the tracked git hooks of this clone: refuses a commit that adds a binary

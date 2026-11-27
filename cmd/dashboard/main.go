@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"opencode-dots/internal/jobs"
 )
 
 type review struct {
@@ -117,6 +119,8 @@ func main() {
 		"the hub endpoint as the hub itself sees a request (http behind a TLS proxy); empty means -hub-url")
 	workerAddr := flag.String("worker-addr", envOr("DOTS_WORKER_ADDR", ""),
 		"loopback address of a listener that serves only the worker token exchange (docs/remote.md)")
+	hubInternal := flag.String("hub-internal", envOr("DOTS_HUB_INTERNAL", "http://127.0.0.1:3901/.well-known/mercure"),
+		"the hub endpoint this process publishes to (loopback)")
 	hubEnv := flag.String("hub-env", envOr("DOTS_HUB_ENV", defaultHubEnv()), "the hub's settings file holding its subscriber key")
 	flag.Parse()
 	if err := checkTeamAddr(*teamAddr, *addr, *ghClient != ""); err != nil {
@@ -141,7 +145,8 @@ func main() {
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
 	d.wtokens = newWorkerStore(*state)
-	if d.hub, err = newHubIssuer(*hubURL, *hubAud, *hubEnv); err != nil {
+	d.queue = jobs.Open(*state)
+	if d.hub, err = newHubIssuer(*hubURL, *hubAud, *hubInternal, *hubEnv); err != nil {
 		log.Fatal(err)
 	}
 	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm, StateDir: *state})
@@ -193,6 +198,7 @@ type dash struct {
 	allow        map[string]bool // extra hosts allowed to write, see -allow-host
 	hub          *hubIssuer      // nil: no subscriber tokens
 	wtokens      *workerStore
+	queue        *jobs.Queue
 	editMu       sync.Mutex
 	modelCatalog func(context.Context) []string
 	discordPost  func(webhook, message string) error

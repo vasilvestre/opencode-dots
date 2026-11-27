@@ -16,6 +16,10 @@
 		rewrite * /api/hub-token
 		reverse_proxy {$DOTS_WORKER_UPSTREAM:127.0.0.1:8096}
 	}
+	handle /worker/* {
+		uri strip_prefix /worker
+		reverse_proxy {$DOTS_WORKER_UPSTREAM:127.0.0.1:8096}
+	}
 	handle {
 		mercure {
 			# Hub 1.x only accepts RFC 9068 access tokens whose `iss` it trusts and whose `aud` is
