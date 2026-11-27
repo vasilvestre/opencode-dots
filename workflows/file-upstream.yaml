@@ -311,10 +311,33 @@ states:
         echo "SKIP: $1"
         exit 0
       }
+      # GitHub search ANDs every word, so the same defect in other words finds
+      # nothing (seen live: a rerun with a reworded title filed a duplicate).
+      # The newest 100 issues are read with no search and compared below; only
+      # a tracker that size or bigger is searched too (title words, then the log
+      # excerpt's first line), and the lists are merged.
       words=$(printf '%s' "$title" | tr -c 'A-Za-z0-9' ' ' | tr -s ' ' | cut -d' ' -f1-8)
-      gh issue list --repo "$target" --state all --limit 50 --search "$words" \
-        --json number,title,body,state,url > "$w/upstream-issues.json" 2>"$w/search.err" \
-        || skip "the duplicate search on $target failed, so a duplicate cannot be ruled out"
+      kwords=
+      [ ! -s "$w/key" ] || kwords=$(tr -c 'A-Za-z0-9' ' ' < "$w/key" | tr -s ' ' | cut -d' ' -f1-8)
+      list() { # OUTFILE [QUERY]
+        if [ -n "${2:-}" ]; then
+          gh issue list --repo "$target" --state all --limit 50 --search "$2" \
+            --json number,title,body,state,url > "$1" 2>>"$w/search.err"
+        else
+          gh issue list --repo "$target" --state all --limit 100 \
+            --json number,title,body,state,url > "$1" 2>>"$w/search.err"
+        fi
+      }
+      list "$w/up-recent.json" || skip "the duplicate search on $target failed, so a duplicate cannot be ruled out"
+      echo '[]' > "$w/up-title.json"
+      echo '[]' > "$w/up-key.json"
+      # A tracker with fewer than 100 issues is read whole; a bigger one is searched too.
+      if [ "$(jq 'length' "$w/up-recent.json" 2>/dev/null || echo 0)" -ge 100 ]; then
+        { list "$w/up-title.json" "$words" && list "$w/up-key.json" "${kwords:-$words}"; } \
+          || skip "the duplicate search on $target failed, so a duplicate cannot be ruled out"
+      fi
+      jq -s 'add | unique_by(.number)' "$w/up-recent.json" "$w/up-title.json" "$w/up-key.json" \
+        > "$w/upstream-issues.json" 2>/dev/null || true
       jq -e 'type == "array"' "$w/upstream-issues.json" >/dev/null 2>&1 \
         || skip "the duplicate search on $target gave no readable list, so a duplicate cannot be ruled out"
       key=
