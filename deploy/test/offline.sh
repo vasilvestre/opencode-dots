@@ -183,4 +183,7 @@ check "a pinned older commit works" deploy/types/local/skills.sh "$user" --skill
 check "the older commit is live" grep -qx "$c1" "$s/.snapshot"
 check "no temporary snapshot is left" test ! -e "$srv/skills.new"
 
+# ---- team-access.sh (its own fakes and temporary home)
+check "team-access.sh passes its offline test" deploy/test/team-access.sh
+
 if [ "$fail" = 0 ]; then echo "deploy offline test: all checks passed"; else echo "deploy offline test: failures above" >&2; exit 1; fi
