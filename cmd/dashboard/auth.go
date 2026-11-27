@@ -29,7 +29,7 @@ import (
 const (
 	sessionCookie  = "dots_session"
 	sessionTTL     = time.Hour
-	maxSessions    = 500
+	maxSessions    = 1000
 	maxPending     = 200
 	defaultPollGap = 5 * time.Second
 	slowDownStep   = 5 * time.Second
@@ -48,6 +48,7 @@ type authConfig struct {
 	GitHubURL     string // device flow host, default https://github.com
 	APIURL        string // REST API, default https://api.github.com
 	MinPermission string // "push" (default) or "pull"
+	StateDir      string // where sessions.json lives; empty keeps sessions in memory only
 }
 
 type authState struct {
@@ -58,11 +59,15 @@ type authState struct {
 	client    *http.Client
 	now       func() time.Time
 
-	mu       sync.Mutex
-	pending  map[string]*devicePending
-	sessions map[string]session
-	limits   map[string]*window
-	readSeen map[string]time.Time
+	mu        sync.Mutex
+	pending   map[string]*devicePending
+	sessions  map[string]session // keyed by sessionKey(cookie id), never by the id
+	stateDir  string
+	fileMu    sync.Mutex // one writer of sessions.json at a time
+	saveTimer *time.Timer
+	lastWarn  time.Time
+	limits    map[string]*window
+	readSeen  map[string]time.Time
 }
 
 // devicePending is one device flow in progress. The device code never leaves the server.
@@ -78,6 +83,7 @@ type session struct {
 	login   string
 	visible map[string]bool
 	expires time.Time
+	created time.Time
 }
 
 type window struct {
@@ -92,7 +98,7 @@ func newAuth(c authConfig) *authState {
 		return nil
 	}
 	minRank, _ := parseMinPermission(c.MinPermission)
-	return &authState{
+	a := &authState{
 		clientID:  c.ClientID,
 		githubURL: strings.TrimRight(firstNonEmpty(c.GitHubURL, "https://github.com"), "/"),
 		apiURL:    strings.TrimRight(firstNonEmpty(c.APIURL, "https://api.github.com"), "/"),
@@ -103,7 +109,10 @@ func newAuth(c authConfig) *authState {
 		sessions:  map[string]session{},
 		limits:    map[string]*window{},
 		readSeen:  map[string]time.Time{},
+		stateDir:  c.StateDir,
 	}
+	a.loadSessions()
+	return a
 }
 
 func randomID(n int) string {
@@ -137,12 +146,13 @@ func (a *authState) sessionView(r *http.Request) (string, map[string]bool) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	s, ok := a.sessions[c.Value]
+	key, s, ok := a.findSession(c.Value)
 	if !ok {
 		return "", nil
 	}
 	if !a.now().Before(s.expires) {
-		delete(a.sessions, c.Value)
+		delete(a.sessions, key)
+		a.scheduleSave()
 		return "", nil
 	}
 	return s.login, s.visible
@@ -156,23 +166,12 @@ func (a *authState) sessionLogin(r *http.Request) string {
 func (a *authState) openSession(login string, visible map[string]bool) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.pruneSessions()
 	now := a.now()
-	for id, s := range a.sessions {
-		if !now.Before(s.expires) {
-			delete(a.sessions, id)
-		}
-	}
-	for len(a.sessions) >= maxSessions { // drop the soonest to expire
-		oldest, at := "", time.Time{}
-		for id, s := range a.sessions {
-			if oldest == "" || s.expires.Before(at) {
-				oldest, at = id, s.expires
-			}
-		}
-		delete(a.sessions, oldest)
-	}
 	id := randomID(32)
-	a.sessions[id] = session{login: login, visible: visible, expires: now.Add(sessionTTL)}
+	a.sessions[sessionKey(id)] = session{login: login, visible: visible, expires: now.Add(sessionTTL), created: now}
+	a.capSessions() // drops the oldest beyond the cap
+	a.scheduleSave()
 	return id
 }
 
@@ -468,7 +467,8 @@ func (d *dash) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		d.auth.mu.Lock()
-		delete(d.auth.sessions, c.Value)
+		delete(d.auth.sessions, sessionKey(c.Value))
+		d.auth.scheduleSave()
 		d.auth.mu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,

@@ -401,7 +401,7 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 			t.Errorf("the token is in the %s: %s", name, text)
 		}
 	}
-	if s := r.d.auth.sessions[cookie.Value]; s.login != "alice" || !s.expires.Equal(r.clk.now().Add(time.Hour)) ||
+	if s := r.d.auth.sessions[sessionKey(cookie.Value)]; s.login != "alice" || !s.expires.Equal(r.clk.now().Add(time.Hour)) ||
 		len(s.visible) != 1 || !s.visible[openRepo] {
 		t.Fatalf("session = %+v", s)
 	}
@@ -608,7 +608,7 @@ func TestEveryPermissionLevelIsMappedOnBothPaths(t *testing.T) {
 					r.gh.gqlStatus = 500
 				}
 				r.signIn()
-				if got := r.d.auth.sessions[r.cookie].visible[openRepo]; got != want[i] {
+				if got := r.d.auth.sessions[sessionKey(r.cookie)].visible[openRepo]; got != want[i] {
 					t.Errorf("rest=%v %s under %s: visible %v, want %v", rest, perm, min, got, want[i])
 				}
 			}

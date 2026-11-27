@@ -127,7 +127,7 @@ func main() {
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
-	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm})
+	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm, StateDir: *state})
 	d.execDash = parseExecutorDashboards(envOr("DOTS_EXECUTOR_DASHBOARDS", ""))
 	for _, h := range strings.Split(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {
@@ -140,6 +140,9 @@ func main() {
 	mux := routes(d, *ui, proxy)
 
 	go d.watchRuns()
+	if d.auth != nil {
+		go d.auth.sweepSessions(10 * time.Minute)
+	}
 
 	log.Printf("dots dashboard on http://%s (awf at %s)", *addr, *awf)
 	log.Fatal(http.ListenAndServe(*addr, mux))
