@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Makes it visible that a dot took a pull request: the label `dots:working` and an eyes
+# reaction while a run is alive, removed when it ends. It is a signal for people and for
+# the owner of a second dot who must not watch the same repository (ADR 0045: dots do not
+# talk, so nothing reads it automatically). Never fatal: a failed label must not fail a run.
+#
+#   bin/pickup start OWNER/REPO NUMBER   label and react (idempotent)
+#   bin/pickup stop  OWNER/REPO NUMBER   remove the label (the reaction stays: it says "seen")
+#
+# AUTONOMY=observe writes nothing. DOTS_PICKUP_LABEL changes the label name.
+set -uo pipefail
+cmd=${1:-}; repo=${2:-}; num=${3:-}
+label=${DOTS_PICKUP_LABEL:-dots:working}
+[[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && $num =~ ^[0-9]+$ ]] || { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ "${AUTONOMY:-}" = observe ] && { echo "pickup: observe, nothing written"; exit 0; }
+case $cmd in
+  start)
+    gh label create "$label" --repo "$repo" --color FBCA04 \
+      --description "A dot is working on this" >/dev/null 2>&1 || true
+    gh issue edit "$num" --repo "$repo" --add-label "$label" >/dev/null 2>&1 \
+      || echo "pickup: could not label $repo#$num" >&2
+    gh api -X POST "repos/$repo/issues/$num/reactions" -f content=eyes >/dev/null 2>&1 || true
+    echo "pickup: $repo#$num taken" ;;
+  stop)
+    gh issue edit "$num" --repo "$repo" --remove-label "$label" >/dev/null 2>&1 || true
+    echo "pickup: $repo#$num released" ;;
+  *) echo "pickup: start or stop" >&2; exit 2 ;;
+esac
+exit 0

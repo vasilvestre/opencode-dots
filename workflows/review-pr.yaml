@@ -108,8 +108,17 @@ states:
         goto: done
       - when: 'states.guard.Output contains "CLOSED:"'
         goto: done
-    on_success: budget_check
+    on_success: pickup
     on_failure: error
+
+  # Says on the pull request that a dot took it (docs/pickup.md). Never fatal.
+  pickup:
+    type: step
+    command: |
+      "${DOTS_HOME:-/work}/bin/pickup" start "{{.inputs.repo}}" "{{.inputs.pr}}" || true
+    timeout: 60
+    on_success: budget_check
+    on_failure: budget_check
 
   # Daily budget (ADR 0036, docs/budget.md). With no budget input this writes nothing. With one,
   # the answer of bin/budget is kept in a flag file next to the run directory that the gate
@@ -127,7 +136,7 @@ states:
       if [ "$rc" = 0 ]; then rm -f "$flag"; else echo 1 > "$flag"; fi
     timeout: 120
     on_success: pick_review_model
-    on_failure: error
+    on_failure: release_error
 
   # awf has no conditional in its interpolation, so a shell step picks the model
   # that matches the provider and the agent steps read its output.
@@ -141,7 +150,7 @@ states:
       fi
     timeout: 10
     on_success: pick_address_model
-    on_failure: error
+    on_failure: release_error
 
   pick_address_model:
     type: step
@@ -153,7 +162,7 @@ states:
       fi
     timeout: 10
     on_success: fetch
-    on_failure: error
+    on_failure: release_error
 
   fetch:
     type: step
@@ -359,7 +368,7 @@ states:
       fi
     timeout: 300
     on_success: wait
-    on_failure: error
+    on_failure: release_error
 
   # A commit whose checks still run is not ready to judge: the verdict would
   # describe a state that is not final, and checks-failed would bring a second
@@ -391,7 +400,7 @@ states:
       done
     timeout: 900
     on_success: rework
-    on_failure: error
+    on_failure: release_error
 
   # The review and the fix run inside one awf run, so a round costs one model
   # pass instead of a push, a poll, a clone and a public comment. Three rounds
@@ -409,7 +418,7 @@ states:
       - address
       - rediff
     on_complete: post
-    on_failure: error
+    on_failure: release_error
 
   # The reviewer starts with no memory of the fix, so it cannot accept its own
   # work. It reads the worktree the fix left, not only the pushed diff.
@@ -515,7 +524,7 @@ states:
       on a security finding.
     timeout: 600
     on_success: rework
-    on_failure: error
+    on_failure: release_error
 
   # Checks each `- cleared:` claim against the checkout. A claim whose quoted
   # line is not in the worktree becomes `- unverified:`, which counts as an open
@@ -546,7 +555,7 @@ states:
       mv "$tmp" "$d/review.md"
     timeout: 60
     on_success: rework
-    on_failure: error
+    on_failure: release_error
 
   # The loop's brake. A review with no open finding ends the loop here, before a
   # model pass is spent fixing nothing. The same open findings as the previous
@@ -600,7 +609,7 @@ states:
       - when: 'states.gate.Output contains "NOREVIEW"'
         goto: review
     on_success: rework
-    on_failure: error
+    on_failure: release_error
 
   post:
     type: step
@@ -692,9 +701,9 @@ states:
     timeout: 120
     transitions:
       - when: 'states.post.Output contains "SUPERSEDED:"'
-        goto: done
+        goto: release
     on_success: decide
-    on_failure: error
+    on_failure: release_error
 
   # A merge verdict goes straight to the merge step. A hold on my own fix-issue
   # or delegated pull request becomes another fix round, capped per pull request, so the loop
@@ -808,7 +817,7 @@ states:
         commit, never push.
     timeout: 1500
     on_success: rework
-    on_failure: error
+    on_failure: release_error
 
   # The next round must read the code as the fix left it, not the pull request
   # as it was pushed.
@@ -821,7 +830,7 @@ states:
       git -C "$d/work" diff HEAD > "$d/diff.patch"
     timeout: 60
     on_success: rework
-    on_failure: error
+    on_failure: release_error
 
   # Commit and push the fix, on an owned branch only, then let the next
   # pr-updated event start a fresh review. A run that changes nothing stops
@@ -926,7 +935,7 @@ states:
       git -C "$work" --no-pager diff --stat HEAD~1
     timeout: 300
     on_success: notify
-    on_failure: error
+    on_failure: release_error
 
   # The dot merges its own fix-issue pull request once the review says merge and
   # the checks are green. This is the merge itself, not the repository's
@@ -1002,7 +1011,7 @@ states:
     timeout: 1500
     transitions:
       - when: 'states.automerge.Output contains "SUPERSEDED:"'
-        goto: done
+        goto: release
     on_success: notify
     on_failure: notify
 
@@ -1050,8 +1059,25 @@ states:
           || echo "discord notification failed"
       fi
     timeout: 60
+    on_success: release
+    on_failure: release
+
+  # Takes the label off when the run ends, whichever way it ends.
+  release:
+    type: step
+    command: |
+      "${DOTS_HOME:-/work}/bin/pickup" stop "{{.inputs.repo}}" "{{.inputs.pr}}" || true
+    timeout: 60
     on_success: done
     on_failure: done
+
+  release_error:
+    type: step
+    command: |
+      "${DOTS_HOME:-/work}/bin/pickup" stop "{{.inputs.repo}}" "{{.inputs.pr}}" || true
+    timeout: 60
+    on_success: error
+    on_failure: error
 
   done:
     type: terminal

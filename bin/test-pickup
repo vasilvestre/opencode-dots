@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# bin/pickup offline: label and reaction on start, label removed on stop, nothing at observe,
+# never fatal when gh fails. A fake gh on PATH records the calls.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$(mktemp -d); trap 'rm -rf "$root"' EXIT
+mkdir -p "$root/bin"
+cat > "$root/bin/gh" <<'EOS'
+#!/bin/sh
+echo "gh $*" >> "$CALLS"
+[ -z "${GH_FAIL:-}" ] || exit 1
+EOS
+chmod +x "$root/bin/gh"
+export PATH=$root/bin:$PATH CALLS=$root/calls
+fail=0
+ok() { echo "ok   $1"; }
+ko() { echo "FAIL $1"; fail=1; }
+run() { : > "$CALLS"; "$@" >/dev/null 2>&1; echo $?; }
+
+[ "$(run bin/pickup start o/r 7)" = 0 ] && grep -q 'issue edit 7 --repo o/r --add-label dots:working' "$CALLS" \
+  && grep -q 'reactions -f content=eyes' "$CALLS" && ok "start labels and reacts" || ko "start"
+[ "$(run bin/pickup stop o/r 7)" = 0 ] && grep -q -- '--remove-label dots:working' "$CALLS" && ok "stop unlabels" || ko "stop"
+[ "$(AUTONOMY=observe run bin/pickup start o/r 7)" = 0 ] && [ ! -s "$CALLS" ] && ok "observe writes nothing" || ko "observe"
+[ "$(GH_FAIL=1 run bin/pickup start o/r 7)" = 0 ] && ok "a failing gh is not fatal" || ko "gh failure"
+[ "$(run bin/pickup start 'o/r;x' 7)" = 2 ] && ok "bad repo refused" || ko "bad repo"
+[ "$(DOTS_PICKUP_LABEL=busy run bin/pickup start o/r 7)" = 0 ] && grep -q 'add-label busy' "$CALLS" && ok "label name" || ko "label name"
+exit $fail

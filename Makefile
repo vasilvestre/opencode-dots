@@ -10,7 +10,8 @@ AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
 SERVER ?= $(DOTS_SERVER)
 TUNNEL_PORT ?= 8097
-.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test deploy-offline-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests go-build hooks ci tunnel
+EXECUTOR_PORT ?= 2512
+.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test deploy-offline-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests go-build hooks ci tunnel executor-tunnel
 
 configure: ## choose local or image for opencode, awf, gh, awf-gh and (optional) claude; writes .env
 	bin/configure
@@ -59,6 +60,7 @@ script-tests: ## run bin/test-publish-gate, bin/test-classify, bin/test-sandbox,
 	bin/test-sandbox
 	bin/test-dot-sign
 	bin/test-budget
+	bin/test-pickup
 
 deploy-offline-test: ## test mcp.sh, skills.sh and the opencode config offline (no docker, no network)
 	deploy/test/offline.sh
@@ -116,6 +118,11 @@ tunnel: ## owner view of a server's dashboard on http://127.0.0.1:$(TUNNEL_PORT)
 	@test -n "$(SERVER)" || { echo "usage: make tunnel SERVER=user@host (or export DOTS_SERVER)"; exit 2; }
 	@echo "owner view on http://127.0.0.1:$(TUNNEL_PORT) (Ctrl-C to close)"
 	ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:$(TUNNEL_PORT):127.0.0.1:8099 $(SERVER)
+
+executor-tunnel: ## let a server send tasks to this machine's awf serve (ADR 0031): make executor-tunnel SERVER=user@host
+	@test -n "$(SERVER)" || { echo "usage: make executor-tunnel SERVER=user@host (or export DOTS_SERVER)"; exit 2; }
+	@echo "server 127.0.0.1:$(EXECUTOR_PORT) -> this machine's awf serve on 127.0.0.1:2511 (Ctrl-C to close)"
+	ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -R 127.0.0.1:$(EXECUTOR_PORT):127.0.0.1:2511 $(SERVER)
 
 ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
 	go vet ./...
