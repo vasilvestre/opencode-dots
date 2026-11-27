@@ -199,6 +199,8 @@ type dash struct {
 	hub          *hubIssuer      // nil: no subscriber tokens
 	wtokens      *workerStore
 	queue        *jobs.Queue
+	clones       cloneState
+	gh           string // the gh binary that clones a project; empty means "gh" on the PATH
 	editMu       sync.Mutex
 	modelCatalog func(context.Context) []string
 	discordPost  func(webhook, message string) error

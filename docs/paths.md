@@ -38,11 +38,18 @@ It is the developer's own working tree. A workflow only fetches into references 
 
 ## Not built yet
 
-- A card in the local dashboard listing the repositories a worker serves, found here or not, with a clone button.
 - A `strict` repository may keep no local checkout (ADR 0032, 0050); the resolver does not know about trust yet, so
   for such a repository the checkout simply must not be mapped.
 
 Tests: `bin/test-where`, and the e2e cases that reuse a checkout (`bin/test-e2e`).
+
+## The card on the Home page
+
+The local dashboard (owner only) lists **Projects on this machine**: the repositories your worker serves (the worker
+writes them to `~/.config/dots/served`) and the ones your own configuration knows. Each row says whether it is cloned and
+where, or where it is suggested to live. **Clone** runs `gh repo clone OWNER/REPO <folder>` into that folder, and
+only when the folder is inside your home directory, does not exist, and was named by `bin/where --suggest`. A failed
+clone shows gh's message and a Retry button. Nothing is cloned unless you press the button.
 
 ## The team's suggestion
 

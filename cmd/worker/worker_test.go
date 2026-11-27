@@ -331,3 +331,17 @@ func TestWorkerSaysWhereAMissingProjectCouldLive(t *testing.T) {
 		t.Fatalf("no advice expected, got %q", buf.String())
 	}
 }
+
+func TestWorkerListsTheRepositoriesItServes(t *testing.T) {
+	w := newWorker("http://x", tok, "http://x")
+	w.servedFile = filepath.Join(t.TempDir(), "dots", "served")
+	w.keepServed([]string{"dots/repo/org/webapp", "dots/repo/acme/api", "dots/claim/xyz", "dots/repo/bad"})
+	raw, _ := os.ReadFile(w.servedFile)
+	if string(raw) != "# Repositories this worker serves, written by dots-worker.\nacme/api\norg/webapp\n" {
+		t.Fatalf("served = %q: only well formed repository topics, sorted", raw)
+	}
+	w.keepServed(nil)
+	if raw, _ := os.ReadFile(w.servedFile); strings.Contains(string(raw), "/") && strings.Contains(string(raw), "org/webapp") {
+		t.Fatalf("an empty token must clear the list: %q", raw)
+	}
+}

@@ -32,6 +32,8 @@ func routes(d *dash, ui string, proxy *httputil.ReverseProxy) *http.ServeMux {
 	mux.HandleFunc("/queue/api/workflows/", d.ownerOnly(d.queueRun))
 	mux.HandleFunc("/queue/api/executions/", d.ownerOnly(d.queueCancel))
 	mux.HandleFunc("/api/queue", d.ownerOnly(d.queueList))
+	mux.HandleFunc("/api/checkouts", d.ownerOnly(d.checkouts))
+	mux.HandleFunc("/api/checkouts/clone", d.audited("/api/checkouts/clone", "", d.ownerOnly(d.checkoutClone)))
 	mux.HandleFunc("/api/pause", d.audited("/api/pause", "", d.ownerOnly(d.pauseAPI)))
 	mux.HandleFunc("/queue/api/executions", d.ownerOnly(d.queueExecutions))
 	mux.HandleFunc("/queue/api/history", d.ownerOnly(d.queueHistory))

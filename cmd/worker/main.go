@@ -40,19 +40,20 @@ type job struct {
 }
 
 type worker struct {
-	base      string // the server's worker entry, such as https://hub.example/worker
-	token     string
-	awf       string // the local awf serve
-	dashboard string // the local dashboard, asked what a run cost; empty skips the price
-	client    *http.Client
-	poll      time.Duration
-	heartbeat time.Duration
-	awfPoll   time.Duration
-	instance  string // tells this process apart from another one running the same token
-	hintsFile string // where the team's folder suggestions are kept for bin/where; empty: not kept
-	whereBin  string // bin/where, to say where a missing project should go; empty: no advice
-	wake      chan struct{}
-	log       *log.Logger
+	base       string // the server's worker entry, such as https://hub.example/worker
+	token      string
+	awf        string // the local awf serve
+	dashboard  string // the local dashboard, asked what a run cost; empty skips the price
+	client     *http.Client
+	poll       time.Duration
+	heartbeat  time.Duration
+	awfPoll    time.Duration
+	instance   string // tells this process apart from another one running the same token
+	servedFile string // the repositories this worker serves, for the local dashboard; empty: not kept
+	hintsFile  string // where the team's folder suggestions are kept for bin/where; empty: not kept
+	whereBin   string // bin/where, to say where a missing project should go; empty: no advice
+	wake       chan struct{}
+	log        *log.Logger
 }
 
 func main() {
@@ -63,6 +64,7 @@ func main() {
 	dash := flag.String("dashboard", envOr("DOTS_LOCAL_DASHBOARD", "http://127.0.0.1:8099"), "the local dashboard, asked what each run cost (empty: report no price)")
 	poll := flag.Duration("poll", time.Minute, "how often the queue is read when the hub says nothing")
 	hints := flag.String("hints-file", envOr("DOTS_HINTS", filepath.Join(home, ".config", "dots", "hints")), "where the team's folder suggestions are written, for bin/where (empty: not kept)")
+	served := flag.String("served-file", envOr("DOTS_SERVED", filepath.Join(home, ".config", "dots", "served")), "where the repositories this worker serves are listed, for the local dashboard (empty: not kept)")
 	once := flag.Bool("once", false, "claim and run what is pending, then stop")
 	flag.Parse()
 	if *base == "" {
@@ -79,6 +81,7 @@ func main() {
 	w := newWorker(*base, token, *awf)
 	w.poll = *poll
 	w.hintsFile = *hints
+	w.servedFile = *served
 	if exe, err := os.Executable(); err == nil {
 		w.whereBin = filepath.Join(filepath.Dir(exe), "where")
 	}
@@ -336,6 +339,7 @@ func (w *worker) follow(ctx context.Context) {
 			continue
 		}
 		backoff = 2 * time.Second
+		w.keepServed(ht.Topics)
 		life := 10 * time.Minute
 		if exp, err := time.Parse(time.RFC3339, ht.ExpiresAt); err == nil {
 			life = time.Until(exp) * 2 / 3
@@ -455,4 +459,30 @@ func (w *worker) adviseIfMissing(ctx context.Context, repo string) {
 		return
 	}
 	w.log.Printf("%s is not cloned on this machine. Say where your projects live in ~/.config/dots/paths (docs/paths.md); it runs on a private clone meanwhile.", repo)
+}
+
+// keepServed lists the repositories of the token's topics (`dots/repo/<owner>/<repo>`), one per line, so the
+// local dashboard can show which projects this machine works on and whether each is cloned here.
+func (w *worker) keepServed(topics []string) {
+	if w.servedFile == "" {
+		return
+	}
+	var repos []string
+	for _, t := range topics {
+		if repo, ok := strings.CutPrefix(t, "dots/repo/"); ok && strings.Count(repo, "/") == 1 {
+			repos = append(repos, repo)
+		}
+	}
+	sort.Strings(repos)
+	body := "# Repositories this worker serves, written by dots-worker.\n" + strings.Join(repos, "\n")
+	if len(repos) > 0 {
+		body += "\n"
+	}
+	if err := os.MkdirAll(filepath.Dir(w.servedFile), 0o755); err != nil {
+		return
+	}
+	tmp := w.servedFile + ".tmp"
+	if os.WriteFile(tmp, []byte(body), 0o644) == nil {
+		_ = os.Rename(tmp, w.servedFile)
+	}
 }
