@@ -176,3 +176,62 @@ func jobError(w http.ResponseWriter, err error) {
 	}
 	writeJSONStatus(w, code, map[string]string{"error": err.Error()})
 }
+
+// awfStatus maps a job state to the status awf gives an execution, so the Activity view reads a
+// queued run like any other.
+func awfStatus(s jobs.State) string {
+	switch s {
+	case jobs.Pending:
+		return "pending"
+	case jobs.Taken:
+		return "running"
+	case jobs.Done:
+		return "completed"
+	case jobs.Failed, jobs.Expired:
+		return "failed"
+	}
+	return string(s)
+}
+
+// jobTarget is the repository and pull request or issue a run is about, as the history shows it.
+func jobTarget(j jobs.Job) string {
+	for _, k := range []string{"pr", "issue"} {
+		if n, _ := j.Inputs[k].(string); n != "" {
+			return j.Repo + "#" + n
+		}
+	}
+	return j.Repo
+}
+
+// queueExecutions answers like awf's /api/executions: the runs still waiting or running.
+func (d *dash) queueExecutions(w http.ResponseWriter, r *http.Request) {
+	list := []map[string]any{}
+	for _, j := range d.queue.All() {
+		if j.State == jobs.Pending || j.State == jobs.Taken {
+			list = append(list, map[string]any{"execution_id": j.ID, "workflow_name": j.Workflow, "status": awfStatus(j.State),
+				"started_at": j.Created.Format(time.RFC3339Nano), "updated_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By})
+		}
+	}
+	writeJSON(w, map[string]any{"body": map[string]any{"executions": list}})
+}
+
+// queueHistory answers like awf's /api/history: the runs that ended, newest first.
+func (d *dash) queueHistory(w http.ResponseWriter, r *http.Request) {
+	list := []map[string]any{}
+	for _, j := range d.queue.All() {
+		if j.State == jobs.Pending || j.State == jobs.Taken {
+			continue
+		}
+		e := map[string]any{"id": j.ID, "execution_id": j.ID, "workflow_name": j.Workflow, "status": awfStatus(j.State),
+			"started_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By, "note": j.Note}
+		if !j.Finished.IsZero() {
+			e["completed_at"] = j.Finished.Format(time.RFC3339Nano)
+			e["duration_ms"] = j.Finished.Sub(j.Created).Milliseconds()
+		}
+		list = append(list, e)
+		if len(list) == 50 {
+			break
+		}
+	}
+	writeJSON(w, map[string]any{"body": map[string]any{"entries": list}})
+}

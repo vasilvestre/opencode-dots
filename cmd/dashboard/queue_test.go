@@ -151,3 +151,31 @@ func TestQueueCancelStopsAPendingJobAndSignalsATaken(t *testing.T) {
 		t.Fatalf("cancelling an unknown id = %d, want 204 like awf", rec.Code)
 	}
 }
+
+func TestQueueShowsRunsLikeAnAwfExecutor(t *testing.T) {
+	r := workerRig(t)
+	ada, _ := issueToken(t, r, `{"label":"ada"}`)
+	running := enqueueRun(t, r, openRepo)
+	workerDo(r, "POST", "/api/jobs/"+running+"/claim", ada, "")
+	ended := enqueueRun(t, r, openRepo)
+	workerDo(r, "POST", "/api/jobs/"+ended+"/claim", ada, "")
+	workerDo(r, "POST", "/api/jobs/"+ended+"/finish", ada, `{"status":"done"}`)
+
+	var ex struct {
+		Body struct{ Executions []map[string]any }
+	}
+	json.Unmarshal(r.owner("/queue/api/executions").Body.Bytes(), &ex)
+	if len(ex.Body.Executions) != 1 || ex.Body.Executions[0]["execution_id"] != running || ex.Body.Executions[0]["status"] != "running" {
+		t.Fatalf("executions = %v", ex.Body.Executions)
+	}
+	var h struct {
+		Body struct{ Entries []map[string]any }
+	}
+	json.Unmarshal(r.owner("/queue/api/history").Body.Bytes(), &h)
+	if len(h.Body.Entries) != 1 || h.Body.Entries[0]["status"] != "completed" || h.Body.Entries[0]["target"] != openRepo+"#7" {
+		t.Fatalf("history = %v", h.Body.Entries)
+	}
+	if got := ask(r.h, "GET", "/queue/api/history", "visitor", "", "").Code; got != 401 && got != 403 {
+		t.Fatalf("a visitor reading the history = %d", got)
+	}
+}
