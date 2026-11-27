@@ -39,11 +39,11 @@ func IngestJira(ctx context.Context, st *store.Store, workspace, repo, project s
 	if len(projects) == 0 {
 		return nil, nil, fmt.Errorf("%w: %s", ErrUnknownProject, repo)
 	}
-	adapter := jira.Adapter{Projects: jira.Projects{project: repo}}
-	if err := adapter.Projects.Validate(); err != nil {
+	table := jira.Projects{project: repo}
+	if err := table.Validate(); err != nil {
 		return nil, nil, err
 	}
-	envs, leftOut := adapter.Parse(raw)
+	envs, leftOut := jira.Adapter{Projects: table}.Parse(raw)
 	if envs == nil {
 		return nil, nil, leftOut
 	}
