@@ -34,6 +34,8 @@
 #                  bin/budget check, docs/budget.md): push, open-pr, merge and file-issue become a
 #                  note ("daily budget reached", exit 4) whatever the ceiling, even with none;
 #                  comment is unaffected. Empty or 0: nothing changes.
+#   GATE_SANDBOX   base64 of the repository's `sandbox` block as JSON (docs/runner.md); a push is then checked by
+#                  patch-guard on GATE_ARTIFACT and, with a test configured, in a container on GATE_WORKDIR.
 #   GATE_IDENTITY  off (or empty) | marker | signed: the repository's marking mode (ADR 0034,
 #                  docs/identity.md). With marking on, a pull request by DOT_LOGIN is the dot's own
 #                  only if its body carries the dot marker, which the caller checks and reports
@@ -87,7 +89,7 @@ if [ "$budget_over" = 1 ]; then
   case "$action" in push|open-pr|merge|file-issue) budget_blocks=1 ;; esac
 fi
 
-if [ -z "$level" ] && [ "$budget_blocks" = 0 ]; then
+if [ -z "$level" ] && [ "$budget_blocks" = 0 ] && [ -z "${GATE_SANDBOX:-}" ]; then
   echo "publish-gate: no autonomy ceiling set, $action allowed" >&2
   exit 0
 fi
@@ -156,6 +158,34 @@ note() { # REASON
 
 if [ "$budget_blocks" = 1 ]; then
   note "daily budget reached"
+fi
+
+# Untrusted code (ADR 0032, docs/runner.md): a push is checked before it goes out. GATE_SANDBOX is the
+# repository's `sandbox` block as JSON. The patch (GATE_ARTIFACT) goes through bin/patch-guard, which
+# refuses secrets, CI config, links, binaries and an oversized change; with a `test` configured, the
+# checkout (GATE_WORKDIR) is tested in a throwaway container. Either failing refuses the push (exit 5),
+# with the reason as a note the dashboard shows. A check that cannot run refuses: it is never skipped.
+if [ -n "${GATE_SANDBOX:-}" ] && [ "$action" = push ]; then
+  refuse_sandbox() { echo "publish-gate: push on $ref refused by the sandbox check: $1" >&2; record notes "sandbox check: $1"; exit 5; }
+  command -v jq >/dev/null 2>&1 || refuse_sandbox "jq is missing, the check cannot run"
+  # The setting travels as base64 of its JSON, so a quote in it cannot break the shell line it came in.
+  sandbox_json=$(printf '%s' "$GATE_SANDBOX" | base64 -d 2>/dev/null) || refuse_sandbox "the sandbox setting is not base64"
+  jq -e . >/dev/null 2>&1 <<<"$sandbox_json" || refuse_sandbox "the sandbox setting is not valid JSON"
+  [ -n "$artifact" ] && [ -s "$artifact" ] || refuse_sandbox "there is no patch to check"
+  guard_args=(--max-lines "$(jq -r '.max_lines // 400' <<<"$sandbox_json")")
+  while IFS= read -r glob; do [ -n "$glob" ] && guard_args+=(--allow-path "$glob"); done < <(jq -r '.allow_paths[]? // empty' <<<"$sandbox_json")
+  [ "$(jq -r '.allow_locks // false' <<<"$sandbox_json")" = true ] && guard_args+=(--allow-locks)
+  guard_root=${GATE_TOOLS_DIR:-$(cd "$(dirname "$0")" && pwd)}
+  if ! guard_out=$("$guard_root/patch-guard" "${guard_args[@]}" <"$artifact" 2>&1); then
+    refuse_sandbox "patch guard: $(printf '%s' "$guard_out" | head -n 3 | tr '\n' ' ')"
+  fi
+  test_image=$(jq -r '.test.image // empty' <<<"$sandbox_json")
+  if [ -n "$test_image" ]; then
+    [ -n "${GATE_WORKDIR:-}" ] && [ -d "$GATE_WORKDIR" ] || refuse_sandbox "tests are configured but no checkout was given"
+    if ! test_out=$("$guard_root/sandbox-test" "$GATE_WORKDIR" "$test_image" "$(jq -r '.test.command' <<<"$sandbox_json")" 2>&1); then
+      refuse_sandbox "tests failed in the sandbox: $(printf '%s' "$test_out" | tail -n 5 | tr '\n' ' ' | cut -c1-600)"
+    fi
+  fi
 fi
 
 # A tripped circuit breaker (bin/breaker, docs/breaker.md) lowers auto to act for this call.

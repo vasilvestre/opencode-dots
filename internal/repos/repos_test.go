@@ -1,6 +1,7 @@
 package repos
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -648,7 +649,7 @@ func trustDoc(host, block string) string {
 }
 
 func TestTrustRefusesWhatTheLevelForbids(t *testing.T) {
-	allowed := "trust: client\n    executor: server\n    identity: marker\n    review: {inputs: {review_model: mistral/small-latest}}"
+	allowed := "trust: client\n    executor: server\n    identity: marker\n    sandbox: {}\n    review: {inputs: {review_model: mistral/small-latest}}"
 	cases := []struct{ name, host, block, want string }{
 		{"an allowed client block", "client", allowed, ""},
 		{"auto_merge", "client", allowed + "\n    tend: {auto_merge: true}", "auto_merge is refused on a client repository"},
@@ -696,5 +697,55 @@ func TestTrustRefusesAnUnknownLevelAndABadSetting(t *testing.T) {
 				t.Fatalf("error = %v, want it to contain %q", err, c.want)
 			}
 		})
+	}
+}
+
+func TestAClientRepositoryNeedsASandboxBlock(t *testing.T) {
+	src := func(block string) string {
+		return "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\n  trust:\n    host: client\n    allow: {providers: [opencode], models: [], executors: [server]}\n" +
+			"repos:\n  acme/svc:\n    trust: client\n    executor: server\n    identity: marker\n    review: true\n" + block
+	}
+	if _, err := budgetGen(t, src("")); err == nil || !strings.Contains(err.Error(), "needs a `sandbox` block") {
+		t.Fatalf("a client repository with no sandbox block must be refused, got %v", err)
+	}
+	if _, err := budgetGen(t, src("    sandbox: {}\n")); err != nil {
+		t.Fatalf("an empty sandbox block must satisfy it: %v", err)
+	}
+}
+
+func TestSandboxBlockBecomesTheSandboxInput(t *testing.T) {
+	src := "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\nrepos:\n  acme/app:\n    review: true\n    sandbox: {max_lines: 120, allow_paths: [\"src/*\"], test: {image: dots-test, command: make test}}\n"
+	out, err := budgetGen(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(out.Rules[0].Inputs["sandbox"])
+	if err != nil {
+		t.Fatalf("the sandbox input must be base64: %v", err)
+	}
+	got := string(raw)
+	want := `{"allow_paths":["src/*"],"max_lines":120,"test":{"command":"make test","image":"dots-test"}}`
+	if got != want {
+		t.Fatalf("sandbox input = %q, want %q", got, want)
+	}
+}
+
+func TestSandboxBlockIsChecked(t *testing.T) {
+	for name, block := range map[string]string{
+		"an unknown key":         "{flavour: x}",
+		"max_lines too large":    "{max_lines: 99999}",
+		"max_lines zero":         "{max_lines: 0}",
+		"an empty allow list":    "{allow_paths: []}",
+		"a glob with a space":    "{allow_paths: [\"a b\"]}",
+		"a test with no image":   "{test: {command: make}}",
+		"an image outside dots-": "{test: {image: ubuntu, command: make}}",
+		"a test with no command": "{test: {image: dots-t}}",
+		"a multi-line command":   "{test: {image: dots-t, command: \"a\\nb\"}}",
+		"not a block":            "yes",
+	} {
+		src := "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\nrepos:\n  acme/app:\n    review: true\n    sandbox: " + block + "\n"
+		if _, err := budgetGen(t, src); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

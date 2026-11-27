@@ -92,7 +92,7 @@ func TestIdentityMinimumUnderTrust(t *testing.T) {
 			{"marker", "\n    identity: marker", ""},
 			{"signed", "\n    identity: signed", ""},
 		} {
-			block := "trust: " + level + "\n    executor: server" + c.extra
+			block := "trust: " + level + "\n    executor: server\n    sandbox: {}" + c.extra
 			doc, err := Parse([]byte(trustDoc(level, block)))
 			if err != nil {
 				t.Fatal(err)

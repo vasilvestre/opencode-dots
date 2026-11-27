@@ -47,6 +47,12 @@ inputs:
     type: string
     required: false
 
+  - name: sandbox
+    type: string
+    required: false
+    default: ""
+    description: base64 of the repository's sandbox block (patch guard and container test before a push); empty means no check, ADR 0032
+
 states:
   initial: budget_check
 
@@ -345,12 +351,13 @@ states:
       fi
 
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ] || [ -n "{{.inputs.sandbox}}" ]; then
         grc=0
         git -C "$work" format-patch --stdout HEAD~1 > "$d/held.patch"
         ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/held.patch" GATE_REPO="$repo" \
         GATE_BRANCH="$branch" GATE_BASE="$base" GATE_TITLE="$title" GATE_BUDGET_OVER="$bover" \
+        GATE_SANDBOX="{{.inputs.sandbox}}" GATE_WORKDIR="$work" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         if [ "$grc" != 0 ]; then
           echo "autonomy: change not pushed (gate $grc)"
@@ -409,7 +416,7 @@ states:
       echo "pushing $branch to $push_url" | tee -a "$d/push.log"
       git -C "$work" push --quiet "$push_url" "HEAD:$branch"
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ] || [ -n "{{.inputs.sandbox}}" ]; then
         grc=0
         ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/fix.md" GATE_REPO="$repo" \

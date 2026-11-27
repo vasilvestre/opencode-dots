@@ -66,6 +66,9 @@ profiles:
     trust: client
     autonomy: act
     identity: marker
+    # A client repository's pushes go through the patch guard; an empty block takes the defaults.
+    # Add a throwaway-container test with: test: {image: dots-test, command: make test}.
+    sandbox: {}
     budget: {daily_usd: 20}
     review: true
 
@@ -107,6 +110,7 @@ repos:
     trust: client
     executor: server
     identity: marker
+    sandbox: {max_lines: 300, allow_paths: ["src/*", "tests/*"]}
     review: true
 
   # One feature several times: the review runs on pull requests, and `/dots take`

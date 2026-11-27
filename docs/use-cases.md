@@ -199,7 +199,7 @@ through a server and a worker.
 | Personal and company profiles | one engine, a policy profile per repository | | 0035 |
 | C1 | independent servers, a context per device | unified view | 0029 |
 | C2 to C5 | dots do not talk: a person avoids a repository on two dots | migration tool | 0045 |
-| D1, D3 | trust levels; the untrusted-step runner is proven in a container | wiring the runner into a workflow, evidence export | 0032 |
+| D1, D3 | trust levels; every push of a repository with a `sandbox` block goes through the patch guard and, if set, a container test (required on client and strict) | evidence export | 0032 |
 | F1 | advisory adapter | polling, reachability check, write-back | 0039 |
 | F2, F3 | Sentry and tracker adapters | polling or webhook endpoint, signature check, write-back | 0039 |
 | F4 | link proposals with a person's confirmation | automatic linking | 0041 |

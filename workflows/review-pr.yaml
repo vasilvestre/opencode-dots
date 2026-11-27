@@ -79,6 +79,12 @@ inputs:
     validation:
       pattern: '^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$'
 
+  - name: sandbox
+    type: string
+    required: false
+    default: ""
+    description: base64 of the repository's sandbox block (patch guard and container test before a push); empty means no check, ADR 0032
+
 states:
   initial: guard
 
@@ -912,12 +918,13 @@ states:
       fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       bover=$(cat "$d.budget" 2>/dev/null || true)
-      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ] || [ -n "{{.inputs.sandbox}}" ]; then
         grc=0
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
         ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
         GATE_REPO="{{.inputs.repo}}" GATE_BRANCH="$branch" GATE_PUSH_REPO="$head_repo" GATE_BUDGET_OVER="$bover" \
         GATE_TITLE="$(head -1 "$d/fixmsg.md")" \
+        GATE_SANDBOX="{{.inputs.sandbox}}" GATE_WORKDIR="$work" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: fix not pushed (gate $grc)"; exit 0; }
       fi
@@ -991,7 +998,7 @@ states:
       fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
       bover=$(cat "$d.budget" 2>/dev/null || true)
-      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ] || [ -n "{{.inputs.sandbox}}" ]; then
         grc=0
         ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/verdict.txt" GATE_REPO="{{.inputs.repo}}" GATE_BUDGET_OVER="$bover" \
         GATE_PR_AUTHOR="$(jq -r '.author.login // empty' "$d/meta.json")" GATE_MERGE_SCOPE="${GATE_MERGE_SCOPE:-}" \

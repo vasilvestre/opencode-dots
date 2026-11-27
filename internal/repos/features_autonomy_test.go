@@ -70,7 +70,7 @@ func TestAutonomyFromDefaultsAndProfiles(t *testing.T) {
 
 func TestAutonomyAutoIsRefusedUnderTrust(t *testing.T) {
 	for _, level := range []string{"client", "strict"} {
-		block := "trust: " + level + "\n    executor: server\n    autonomy: auto"
+		block := "trust: " + level + "\n    executor: server\n    sandbox: {}\n    autonomy: auto"
 		doc, err := Parse([]byte(trustDoc(level, block)))
 		if err != nil {
 			t.Fatal(err)
@@ -84,7 +84,7 @@ func TestAutonomyAutoIsRefusedUnderTrust(t *testing.T) {
 func TestAutonomyObserveIsAllowedUnderTrust(t *testing.T) {
 	for _, level := range []string{"client", "strict"} {
 		for _, a := range []string{"observe", "act"} {
-			block := "trust: " + level + "\n    executor: server\n    identity: marker\n    autonomy: " + a
+			block := "trust: " + level + "\n    executor: server\n    sandbox: {}\n    identity: marker\n    autonomy: " + a
 			doc, err := Parse([]byte(trustDoc(level, block)))
 			if err != nil {
 				t.Fatal(err)

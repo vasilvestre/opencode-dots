@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Runs a test command on the files of a checkout, in the throwaway container of bin/sandbox-run (no
+# network, read-only root, no capabilities, limits). The tree is exported to a temporary copy first:
+# the command reads and writes the copy, never the checkout, and no .git or credential goes in.
+#
+#   bin/sandbox-test WORKDIR IMAGE COMMAND
+#
+# Exit: the command's status, 124 on timeout, 1 when no container engine can run it (fail closed:
+# a test that cannot run is not a test that passed), 2 on a usage error or a refused image.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+[ $# -eq 3 ] || { echo "usage: bin/sandbox-test WORKDIR IMAGE COMMAND" >&2; exit 2; }
+work=$1 image=$2 cmd=$3
+[ -d "$work" ] || { echo "sandbox-test: $work is not a directory" >&2; exit 2; }
+engine=${DOTS_SANDBOX_ENGINE:-docker}
+if [ -z "${DOTS_SANDBOX_NO_ENGINE_CHECK:-}" ] && ! command -v "$engine" >/dev/null 2>&1; then
+  echo "sandbox-test: no $engine on this machine, the tests cannot run" >&2
+  exit 1
+fi
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+# Tracked and untracked files that are not ignored, as they are now: what would be committed.
+git -C "$work" ls-files -co --exclude-standard -z | tar -C "$work" --null -T - -cf - 2>/dev/null | tar -C "$tmp" -xf -
+DOTS_SANDBOX_WRITABLE=1 "$root/bin/sandbox-run" "$image" "$tmp" -- sh -c "$cmd" 2>&1 | tail -c "${DOTS_SANDBOX_LOG_CAP:-20000}"
+exit "${PIPESTATUS[0]}"

@@ -32,6 +32,7 @@ superseded by 0048.
 ## Not built, and why
 
 - Roles and a viewer (0037): each changes what a person may do.
+- A container test inside a workflow, end to end with docker: only the patch guard runs in CI.
 - Upgrade pull requests for advisories need `composer update` in a sandbox with network, a security decision.
 - Emergency stop per repository, dry-run, first-contribution filters, retention and evidence export, a periodic
   report, moving a repository between dots: open tickets.

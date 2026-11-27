@@ -91,6 +91,10 @@ func (trust) Modify(r *Resolved, out *Output, from int) error {
 			}
 		}
 	}
+	// Another party's code is pushed to only after the patch guard has looked at the change.
+	if _, ok := r.Values["sandbox"]; !ok {
+		add("a %s repository needs a `sandbox` block (an empty one takes the defaults): its pushes go through the patch guard", level)
+	}
 	if level == "strict" {
 		if _, ok := r.Values["checkout"]; ok {
 			add("a strict repository keeps no local checkout on a workstation")

@@ -160,6 +160,24 @@ section_classify() {
     case_done
   done
 
+  say "== fix-issue: the sandbox check before a push =="
+  local sb
+  for sb in pass refuse; do
+    case_new "fix-issue sandbox $sb"
+    set_issue 7 "Crash on empty input" "The input field crashes the form."
+    if [ "$sb" = pass ]; then b64=$(printf '%s' '{"max_lines":400}' | base64 -w0); else b64=$(printf '%s' '{"allow_paths":["docs/*"]}' | base64 -w0); fi
+    FAKE_CLASS=1 FAKE_FIX=patch run_wf fix-issue repo=$REPO issue=7 autonomy=auto "sandbox=$b64"
+    if [ "$sb" = pass ]; then
+      check "fix-issue sandbox pass: the branch was pushed" bash -c "git -C $T/remotes/tester/demo.git branch --list 'fix/*' | grep -q fix/"
+      check "fix-issue sandbox pass: the pull request was opened" gh_once '^gh pr create'
+    else
+      check "fix-issue sandbox refuse: nothing pushed" no_branch 'fix/*'
+      check "fix-issue sandbox refuse: no pull request" gh_none '^gh pr create'
+      check "fix-issue sandbox refuse: the refusal names the sandbox check" grep -q 'refused by the sandbox check' "$T/out.log"
+    fi
+    case_done
+  done
+
   case_new "classify floor"
   set_issue 7 "Crash on empty input" "The login token is not refreshed when the input is empty."
   FAKE_CLASS=1 FAKE_FIX=patch run_wf fix-issue repo=$REPO issue=7 autonomy=auto
@@ -239,6 +257,29 @@ section_review() {
         check "$label: origin branch untouched" bash -c "! git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
         check "$label: push and comment are notes" bash -c "[ $(note_of push) = 1 ] && [ $(note_of comment) = 1 ]" ;;
     esac
+    case_done
+  done
+
+  say "== review-pr: the sandbox check before a push (docs/runner.md) =="
+  local b64
+  for scen in pass refuse-path; do
+    case_new "review-pr sandbox $scen"
+    seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+    case $scen in
+      pass) b64=$(printf '%s' '{"max_lines":400,"allow_paths":["src.txt"]}' | base64 -w0) ;;
+      refuse-path) b64=$(printf '%s' '{"allow_paths":["docs/*"]}' | base64 -w0) ;;
+    esac
+    # No autonomy ceiling at all: the sandbox check alone must hold or let the push through.
+    FAKE_REVIEW=finding-then-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" "sandbox=$b64"
+    check "sandbox $scen: run succeeds" test "$RC" = 0
+    if [ "$scen" = pass ]; then
+      check "sandbox pass: the fix reached the pull request branch" bash -c "git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+    else
+      check "sandbox $scen: the branch is untouched" bash -c "! git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+      check "sandbox $scen: the refusal says it was the sandbox check" grep -q 'refused by the sandbox check' "$T/out.log"
+      check "sandbox $scen: a note records why" test "$(note_of push)" = 1
+    fi
+    check "sandbox $scen: no network" no_net
     case_done
   done
 

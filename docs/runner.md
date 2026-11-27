@@ -68,7 +68,43 @@ bin/patch-guard [--allow-path GLOB]... [--deny-path GLOB]... [--allow-locks] [--
 
 It checks the diff text, not the repository: it cannot tell what a change does.
 
-## How a workflow step calls it
+## In a repository: the `sandbox` key
+
+A repository that opts in has every push checked **by the publish gate**, the one place every outward write
+passes (ADR 0002). The four workflows that push (`review-pr`, `fix-issue`, `fix-ci`, `reply-pr`) hand the gate the
+patch and the checkout; the gate runs `bin/patch-guard` on the patch and, with a test configured, `bin/sandbox-test`
+on the checkout. A refusal is exit 5, the push does not happen, and the reason is a note the dashboard shows.
+
+```yaml
+repos:
+  acme/client-app:
+    trust: client
+    sandbox:
+      max_lines: 300                      # added plus removed lines, default 400, up to 5000
+      allow_paths: ["src/*", "tests/*"]   # optional: every touched path must match one
+      allow_locks: false                  # lock files are refused unless true
+      test: {image: dots-test, command: make test}   # optional, in a throwaway container
+```
+
+- An empty block (`sandbox: {}`) takes the defaults and checks the patch only.
+- A `trust: client` or `trust: strict` repository **must** have the block: `bin/repos generate` refuses it
+  otherwise (ADR 0032).
+- It works with no autonomy ceiling: the check alone holds or lets the push through. A ceiling still applies after it,
+  and a ceiling of `act` or `auto` does not lift a refusal.
+- A check that cannot run refuses: no `jq`, a setting that is not valid, no patch, no container engine for a
+  configured test. It is never skipped.
+- A patch refused by the guard never reaches the tests.
+- `bin/sandbox-test WORKDIR IMAGE COMMAND` exports the checkout's files (tracked and untracked, not ignored: what
+  would be committed, with no `.git`) to a temporary copy and runs the command on it in the container with
+  `DOTS_SANDBOX_WRITABLE=1`; the log is capped (`DOTS_SANDBOX_LOG_CAP`, 20 kB). No network means the image carries
+  the dependencies.
+- The setting reaches a workflow as the input `sandbox`, the base64 of the block's JSON, so that a quote in a command
+  cannot break the shell line. `GATE_SANDBOX` and `GATE_WORKDIR` carry it into the gate.
+
+Tests: `bin/test-gate-sandbox` (the gate, with a fake test runner), the e2e cases of `review-pr` and `fix-issue`
+(`bin/test-e2e`), and `internal/repos` for the key.
+
+## How a workflow step calls it by hand
 
 The agent writes a diff to a file; shell steps check, test, then apply. The agent
 never commits or pushes (see `AGENTS.md`).
@@ -125,5 +161,6 @@ Each line is a check in `bin/test-sandbox` that passes:
 - `gVisor` or any other runtime: not installed, not tried.
 - `--cpus` is set but no test measures CPU throttling.
 - A kernel or runtime escape: out of scope for a container.
-- Nothing is wired into a workflow, so the call sequence in the section above has not
-  run end to end.
+- The container part has not run inside a workflow end to end: the e2e cases use the patch guard
+  with a fake test runner (no docker in CI). `fix-ci` and `reply-pr` carry the same wiring as `review-pr` and
+  `fix-issue`, without an e2e case of their own yet.
