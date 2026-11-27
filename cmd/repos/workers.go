@@ -28,7 +28,7 @@ func workerCommand(ctx context.Context, st *store.Store, out io.Writer, action s
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "worker=%s expires=%s\n", got.Name, got.ExpiresAt.UTC().Format(time.RFC3339))
+		fmt.Fprintf(out, "worker=%s expires=%s\n", got.Name, got.ExpiresAtUTC())
 		return nil
 	case "heartbeat":
 		if w.Name == "" {
@@ -41,7 +41,7 @@ func workerCommand(ctx context.Context, st *store.Store, out io.Writer, action s
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "worker=%s expires=%s\n", got.Name, got.ExpiresAt.UTC().Format(time.RFC3339))
+		fmt.Fprintf(out, "worker=%s expires=%s\n", got.Name, got.ExpiresAtUTC())
 		return nil
 	case "expire":
 		if w.Name == "" {
@@ -64,7 +64,7 @@ func workerCommand(ctx context.Context, st *store.Store, out io.Writer, action s
 			if x.Live(now) {
 				state = "live"
 			}
-			fmt.Fprintf(out, "%s\t%s\t%s\texpires %s\t%s\n", x.Name, x.Machine, state, x.ExpiresAt.UTC().Format(time.RFC3339), x.Capabilities)
+			fmt.Fprintf(out, "%s\t%s\t%s\texpires %s\t%s\n", x.Name, x.Machine, state, x.ExpiresAtUTC(), x.Capabilities)
 		}
 		return nil
 	}

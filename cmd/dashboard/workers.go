@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"opencode-dots/internal/store"
 )
@@ -50,9 +49,9 @@ func (d *dash) workers(w http.ResponseWriter, r *http.Request) {
 	for _, x := range list {
 		out = append(out, workerView{
 			Name: x.Name, Machine: x.Machine, Capabilities: x.Capabilities,
-			RegisteredAt: x.RegisteredAt.UTC().Format(time.RFC3339),
-			RenewedAt:    x.RenewedAt.UTC().Format(time.RFC3339),
-			ExpiresAt:    x.ExpiresAt.UTC().Format(time.RFC3339),
+			RegisteredAt: x.RegisteredAtUTC(),
+			RenewedAt:    x.RenewedAtUTC(),
+			ExpiresAt:    x.ExpiresAtUTC(),
 			Live:         x.Live(now),
 		})
 	}

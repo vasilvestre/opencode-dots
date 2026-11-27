@@ -34,6 +34,12 @@ type Worker struct {
 // Live reports whether the worker's time to live has not run out at the given time.
 func (w Worker) Live(at time.Time) bool { return at.Before(w.ExpiresAt) }
 
+// RegisteredAtUTC, RenewedAtUTC and ExpiresAtUTC render the timestamps as UTC RFC 3339 text, so a
+// caller prints them without reaching into the fields.
+func (w Worker) RegisteredAtUTC() string { return w.RegisteredAt.UTC().Format(time.RFC3339) }
+func (w Worker) RenewedAtUTC() string    { return w.RenewedAt.UTC().Format(time.RFC3339) }
+func (w Worker) ExpiresAtUTC() string    { return w.ExpiresAt.UTC().Format(time.RFC3339) }
+
 func checkWorkerName(name string) error {
 	if name == "" || strings.ContainsFunc(name, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
 		return fmt.Errorf("store: %q is not a worker name (no spaces, not empty)", name)
