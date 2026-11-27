@@ -44,7 +44,7 @@ the hub section below).
 ## Holding a claim while you work
 
 `bin/claim` is the local agent. It creates the claim, remembers it under
-`~/.local/state/dots/claims/`, and `dots-claim.timer` renews what this machine holds every minute.
+`~/.local/state/dots/claims/`, and the `claim` task of `bin/tick` ([units.md](units.md)) renews what this machine holds every minute.
 
 ```bash
 bin/claim start vasilvestre/opencode-dots#52 feat/adopt-workspace-memory "Adopt workspace memory"

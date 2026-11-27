@@ -63,36 +63,27 @@ real error: a list it cannot read, or `gh` failing on a repository. A trip is no
 
 `make repos` generates `breaker.list` from `repos.yaml`: every repository with `circuit_breaker`
 gets a line, with its `subjects` when it has any. The file is gitignored like `tend.list`; a
-repository without the key is not listed. The user timer `systemd/dots-breaker.timer` runs
-`bin/breaker check-all` every 15 minutes (`dots-breaker.service` reads `.env` for `DOT_LOGIN`,
-and sets `STATE_DIR`). Enable it with `systemctl --user enable --now dots-breaker.timer`.
+repository without the key is not listed. The `breaker` task of `bin/tick` ([units.md](units.md)) runs
+`bin/breaker check-all` every 15 minutes (it reads `.env` for `DOT_LOGIN` and sets `STATE_DIR`).
 
 `bin/test-breaker` covers every trigger against a fake `gh`.
 
 ## Install on a host
 
-Run these on the machine that hosts the dot, from the repository root.
-
 ```bash
 make repos                                   # writes breaker.list (empty or absent when no repository has circuit_breaker)
-mkdir -p ~/.config/systemd/user
-cp systemd/dots-breaker.service systemd/dots-breaker.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now dots-breaker.timer
+bin/dots-units install --role <role>         # installs the tick, which runs the breaker task
 ```
 
-`.env` (read by the unit through `EnvironmentFile`) must define:
+`.env` must define:
 
 - `GH_TOKEN`: a token `gh` can use to list pull requests and read check runs of the listed repositories.
 - `DOT_LOGIN`: the dot's GitHub login. Without it the check asks `gh api user`, which costs a call per run.
 
-The service sets `STATE_DIR` itself. `DISCORD_WEBHOOK` is not used by the breaker; it belongs to the
-health alert (`docs/health.md`).
+`DISCORD_WEBHOOK` is not used by the breaker; it belongs to the health alert ([health.md](health.md)).
 
 ### What to check after
 
-- `systemctl --user list-timers` shows `dots-breaker.timer` with a next run in at most 15 minutes.
-- `systemctl --user start dots-breaker.service`, then `systemctl --user status dots-breaker.service`:
-  `Result: success`. On a host without `breaker.list` the journal says "nothing to check".
+- `bin/tick list` shows `breaker` with a recent time and `exit 0`.
+- `bin/tick run breaker` runs it now. On a host without `breaker.list` it says "nothing to check".
 - `bin/breaker status` prints "nothing tripped", or one line per tripped repository.
-- `bin/health` (`docs/health.md`) reports the units of the project.

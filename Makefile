@@ -127,7 +127,7 @@ tunnel: ## owner view of a server's dashboard on http://127.0.0.1:$(TUNNEL_PORT)
 	@echo "owner view on http://127.0.0.1:$(TUNNEL_PORT) (Ctrl-C to close)"
 	ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:$(TUNNEL_PORT):127.0.0.1:8099 $(SERVER)
 
-executor-tunnel: ## let a server send tasks to this machine's awf serve (ADR 0031): make executor-tunnel SERVER=user@host
+executor-tunnel: ## legacy push model, replaced by the job queue (ADR 0048, docs/executors.md): a reverse tunnel so a server reaches this awf
 	@test -n "$(SERVER)" || { echo "usage: make executor-tunnel SERVER=user@host (or export DOTS_SERVER)"; exit 2; }
 	@echo "server 127.0.0.1:$(EXECUTOR_PORT) -> this machine's awf serve on 127.0.0.1:2511 (Ctrl-C to close)"
 	ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -R 127.0.0.1:$(EXECUTOR_PORT):127.0.0.1:2511 $(SERVER)

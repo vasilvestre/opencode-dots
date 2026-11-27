@@ -1,33 +1,35 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-11-22
-**Commit:** f044a9c
+**Updated:** 2026-11-27
 
 ## OVERVIEW
 
-Runs one dedicated opencode agent plus `awf` workflows (PR review, comment
-reply, daily repository tending, issue fixing) on a personal workstation. One
-Docker image carries `opencode`, `awf`, `gh` and `awf-gh`; a Go dashboard reads
-the run state. Go 1.24 for the dashboard, Bash for the entry scripts, YAML for
-the workflows.
+A control plane that keeps repositories maintained by AI agents, on a short leash: it watches GitHub (and, through
+adapters, advisories, Sentry and trackers), turns events into work items, and runs fixed `awf` workflows (review,
+reply, fix issue, fix CI, tend) whose agents write text while **shell steps own every side effect**, behind one
+publish gate. A server queues the work, workers (any machine with `awf` and an agent CLI) pull and run it, a Go
+dashboard shows it. Go 1.24 for the commands, Bash for the entry scripts, YAML for the workflows. See `README.md`
+and `docs/README.md`.
 
 ## STRUCTURE
 
 ```
 ADR/           decision records: index in README.md, one file per decision
 agent/         opencode config mounted into the container: AGENTS.md, agents/assistant.md
-bin/           configure (mode chooser), tend (daily dispatch), adr (records)
-cmd/dashboard/ Go server for the activity page
+bin/           the scripts: tick, dots-units, where, pause, publish-gate, patch-guard, sandbox-test, tend, adr, ...
+cmd/dashboard/ Go server: pages, sign-in, the job queue and worker listener, the hub token, pause, checkouts
+cmd/worker/    dots-worker: follows the hub, claims jobs from the queue, runs them on the local awf
 cmd/health/    one-command health check, exit 0 healthy, 1 degraded, 2 down
 cmd/dots/      read-only CLI over run logs: runs, show, logs (docs/debug.md)
 cmd/repos/     CLI that generates awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
-internal/      models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite); sources/: inbound adapters (advisory, jira, sentry) to envelopes
+internal/      jobs/: the queue (leases, claims, pause); events/: the Mercure client and tokens; spend/: run cost; models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite); sources/: inbound adapters (advisory, jira, sentry) to envelopes
 model-presets.yaml  global model presets projected into workflow defaults
-docs/          workflow reference, memory design, autonomy, classification, runner, health, sources
-workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue
+docs/          indexed by docs/README.md: workflows, units, remote and the queue, autonomy, pause, runner, paths, health, sources
+workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue, fix-ci, and hidden helpers (_name)
 deploy/sandbox/ Dockerfile of the throwaway test image for bin/sandbox-run
-deploy/        a server as code (ADR 0028): providers/<name> (OpenTofu), types/local (system.sh, user.sh, push.sh), test/
-systemd/       user units and timers
+deploy/        a server as code (ADR 0028): providers/<name> (OpenTofu), types/local (system.sh, user.sh, push.sh), test/;
+               tick/<role>.tasks: the short recurring jobs of a role (bin/tick); hub/: the Mercure hub's Caddyfile
+systemd/       user units; installed by bin/dots-units from one manifest per role (docs/units.md)
 ui/            dashboard: index.html shell, ES modules, no build step
 state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 ```
@@ -50,7 +52,14 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Autonomy ceiling at publishing steps | `bin/publish-gate`, `docs/autonomy.md` | optional `autonomy` input, empty stays legacy |
 | Classify a work item (level 1, 2, 3) | `workflows/_classify-item.yaml`, `docs/classification.md` | hidden, posts nothing |
 | Work source adapters | `internal/sources`, `docs/sources.md` | advisory: `bin/advisories`; jira: `bin/jira-poll`; sentry: `bin/sentry-poll` |
-| Run untrusted steps in a container | `bin/sandbox-run`, `bin/patch-guard`, `docs/runner.md` | not wired to a workflow yet |
+| Check a push before it goes out | `bin/publish-gate` (patch guard, `bin/sandbox-test`), `docs/runner.md` | the `sandbox` key; required on trust client and above |
+| Stop the dot, or one repository | `bin/pause`, `docs/pause.md` | the gate, tend and the queue read `STATE_DIR/pause/` |
+| Install or check a machine | `bin/dots-units`, `docs/units.md` | roles: workstation, server, worker |
+| Add a short recurring job | `deploy/tick/<role>.tasks`, `bin/tick` | a task line, not a new timer |
+| The job queue and workers | `internal/jobs`, `cmd/dashboard/queue.go`, `cmd/worker`, `docs/remote.md` | ADR 0048 |
+| Worker tokens, hub tokens | `cmd/dashboard/workertokens.go`, `hubtoken.go`, `bin/worker-token` | tokens kept only as hashes |
+| Where a repository lives on a machine | `bin/where`, `docs/paths.md` | `~/.config/dots/paths`, the Projects card on Home |
+| Trust levels, Europe, zero retention | `internal/repos/features_trust.go`, ADR 0032 and 0050 | `settings.trust` |
 | Debug a failed run | `bin/dots show last`, `docs/debug.md` | `internal/runlog` reads state/logs and transcripts |
 | Is the dot alive | `cmd/health`, `docs/health.md` | `make health` |
 | Add a key a repository accepts | `internal/repos/features_*.go` | one feature = one file, `bin/repos features` lists them |
@@ -77,7 +86,14 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
   paths.
 - Nothing binds a public interface. Ports stay on `127.0.0.1`. The tailnet
   reaches the dashboard through `tailscale serve`, not through a wider bind
-  (ADR 0013).
+  (ADR 0013). The one exception is the hub's own Caddy, reached through a proxy:
+  it answers three paths and 404s the rest (ADR 0048).
+- Private names (a company, a client, a host, a project) appear nowhere that git
+  tracks: not in docs, tests, examples or commit messages. Use `example-org`,
+  `acme`, `webapp`. A push that carries one is blocked.
+- A short recurring job is a line in `deploy/tick/<role>.tasks`, not a new
+  `.timer`. The only timers left are `dots-tick` and the daily `dots-tend`.
+- `bin/*` is gitignored except a list; add a new script with `git add -f bin/NAME`.
 - An accepted ADR is never rewritten. A new decision supersedes it, and both
   files name the other.
 - Build Go commands with `make go-build` (or `go build -o bin/NAME ./cmd/NAME`):
@@ -99,6 +115,12 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 - No named volumes: they arrive root-owned and the agent cannot write.
 - Do not dispatch a pass with `awf run`; it leaves no trace in history. Post to
   `awf serve` instead.
+- Never write a unit file through a link into `systemd/`: it empties the source.
+  `bin/dots-units` writes a temporary file and replaces the target.
+- Never chain `make ci | tail && git push`: the pipe hides the exit code. Read the
+  result, then push.
+- A check that cannot run (no `jq`, no engine, a setting that does not parse) refuses;
+  it is never skipped.
 
 ## COMMANDS
 
@@ -114,7 +136,10 @@ make logs
 make down
 make awf-gh      # one polling pass, for testing by hand
 make repos       # regenerate awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
-make script-tests # bin/test-publish-gate, test-classify, test-sandbox (offline)
+make ci          # every CI step locally: vet, tests, shell suites, deslop-please
+make script-tests # the offline shell suites: publish-gate, classify, sandbox, pause, tick, dots-units, where, ...
+make validate    # parse every workflow
+bin/test-e2e     # the workflows end to end, offline (needs awf and jq)
 make health      # build bin/health and run it
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
 make go-build    # build the dashboard, repos, health and dots commands into bin/
@@ -123,6 +148,10 @@ make health      # go build ./cmd/health, then run it: exit 0 healthy, 1 degrade
 bin/tend         # one tend-repo run per repository with tend enabled (tend.list)
 bin/claim start OWNER/REPO#N BRANCH   # hold the branch: the dot stops pushing to it (ADR 0026)
 bin/held REPO BRANCH                  # what a workflow step asks before a push: 0 free, 3 held
+bin/pause all|repo OWNER/REPO         # emergency stop; bin/pause resume ...; bin/pause status
+bin/where OWNER/REPO                  # the local checkout of a repository, if there is one
+bin/worker-token issue LABEL --repos a/b   # a revocable token for a worker (on the server)
+make tunnel SERVER=user@host          # the owner view of a server's dashboard on 127.0.0.1:8097
 ```
 
 Systemd install, one manifest per role (docs/units.md):
@@ -147,10 +176,11 @@ bin/tick list                                       # the short recurring jobs, 
   push, and read the CI result after it (`gh run list`). Five pushes once failed
   unnoticed on a `deslop-please` error that local tests did not cover. The
   workflows are covered offline by `bin/test-e2e` (needs `awf` and `jq`, so not in
-  CI); `make validate` only parses the YAML.
+  CI); `make validate` only parses the YAML. A test never touches a real home or
+  repository: it builds a temporary one.
 - `state/` and `.tower/` are runtime output. Never treat them as source or
   document what they contain.
 - `make up` and `make awf-gh` require `.env` and `compose.override.yaml` from
   `make configure`.
-- `bin/awf-gh`, `bin/dashboard` and `bin/repos` are build artifacts, gitignored.
-  Their source is the sibling repo, `cmd/dashboard` and `cmd/repos`.
+- `bin/awf-gh`, `bin/dashboard`, `bin/repos`, `bin/health`, `bin/worker` and `bin/dots` are
+  build artifacts, gitignored (`make go-build`). `awf-gh` is built from the sibling repo.

@@ -16,13 +16,9 @@ to leak from. After a restore, log in again (`gh auth login`, `opencode auth log
 The script reads the archive back before it keeps it, so a cut connection never replaces a
 good backup, and it keeps the newest 14 (`DOTS_BACKUP_KEEP`).
 
-To run it daily from the workstation, with the server in `~/.config/dots/executor.env`
-(`DOTS_SERVER=user@host`):
-
-```bash
-install -m 644 systemd/dots-backup-server.service systemd/dots-backup-server.timer ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now dots-backup-server.timer
-```
+To run it daily from the workstation, put the server in `~/.config/dots/executor.env`
+(`DOTS_SERVER=user@host`): the `backup-server` task of `bin/tick` ([units.md](units.md)) then runs it once a day,
+and does nothing when `DOTS_SERVER` is not set. `bin/tick run backup-server` runs it now.
 
 To restore, copy the archive to the server and extract it in the home directory (the paths in the
 archive start there): `tar -xzf dots-<date>.tgz -C ~`.

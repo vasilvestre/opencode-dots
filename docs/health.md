@@ -35,49 +35,30 @@ The token is sent only to `api.github.com` and is never printed.
 `--dir` (repository root, default the working directory), `--state`, `--awf`,
 `--json`, `--min-free-mb`, `--token-warn-days`, `--stale-after`, `--units`.
 
-## On a timer
+## On a schedule
 
-`make health` builds `bin/health` and runs it. `systemd/dots-health.timer`
-starts `dots-health.service` 2 minutes after boot and every 10 minutes after
-that. The service writes the `--json` result to `$STATE_DIR/health.json`
-(replaced whole, so a reader never sees half a file) and keeps the exit code of
-`bin/health`. Exit 1 (degraded) is recorded but does not fail the unit; exit 2
-(down) fails it. The token is read from `.env` by the command and never printed.
-
-`OnFailure=` starts `dots-health-alert.service`, which posts one line to the
-`DISCORD_WEBHOOK` of `.env`, the destination the workflow `notify` steps use. It
-does nothing when the variable is unset. The dashboard's `notifications.json`
-(ADR 0017) is a separate destination that only the dashboard process reads, so
-the alert does not use it.
+`health` is a task of `bin/tick` ([units.md](units.md)): every 10 minutes `bin/health-check` runs
+`bin/health --json` and writes the result to `$STATE_DIR/health.json` (replaced whole, so a reader never sees half a
+file). Exit 1 (degraded) is recorded and is not a failure; exit 2 (down) makes the task fail and posts one line to the
+`DISCORD_WEBHOOK` of `.env`, the destination the workflow `notify` steps use. It does nothing when the variable is
+unset. The dashboard's `notifications.json` (ADR 0017) is a separate destination that only the dashboard process
+reads, so the alert does not use it. The token is read from `.env` by the command and never printed.
 
 ```bash
-cp systemd/dots-health*.* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now dots-health.timer
+bin/tick run health        # run it now and show its output
+bin/tick list              # when it last ran and how it ended
 ```
 
-## Install on a host
-
-Run these on the machine that hosts the dot, from the repository root.
-
-```bash
-make health                                  # builds bin/health
-mkdir -p ~/.config/systemd/user
-cp systemd/dots-health.service systemd/dots-health.timer systemd/dots-health-alert.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now dots-health.timer
-```
-
-`.env` (read by the units through `EnvironmentFile`) must define:
+`bin/dots-units install --role <role>` installs the tick, so there is nothing to enable one by one. `.env` must define:
 
 - `GH_TOKEN`: the token the `github token` check tests (sent only to `api.github.com`).
-- `DOT_LOGIN`: the dot's GitHub login, shared with the breaker (`docs/breaker.md`).
-- `DISCORD_WEBHOOK`: where `dots-health-alert.service` posts when the dot is down. Unset, the alert does
-  nothing.
+- `DOT_LOGIN`: the dot's GitHub login, shared with the breaker ([breaker.md](breaker.md)).
+- `DISCORD_WEBHOOK`: where the alert posts when the dot is down. Unset, the alert does nothing.
 
 ### What to check after
 
-- `systemctl --user list-timers` shows `dots-health.timer` with a next run in at most 10 minutes.
+- `bin/tick list` shows `health` with a recent time and `exit 0` or `exit 1`.
 - `bin/health` prints the summary and exits 0 (healthy), 1 (degraded) or 2 (down).
-- `$STATE_DIR/health.json` exists and is fresh; the dashboard's health page reads it.
-- `bin/breaker status` (`docs/breaker.md`) if the breaker is installed too.
+- `$STATE_DIR/health.json` exists and is fresh; the dashboard's Health page reads it, and says so when it is stale
+  (over 30 minutes).
+- `bin/breaker status` ([breaker.md](breaker.md)) if the breaker is on too.

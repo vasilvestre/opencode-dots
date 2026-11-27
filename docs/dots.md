@@ -1,6 +1,6 @@
 # Two dots on one repository
 
-ADR 0038 (proposed), first step only. Two dots (a personal one and a team's, or one per
+ADR 0038, superseded by [ADR 0045](../ADR/0045-dots-do-not-talk-to-each-other.md) (dots do not talk to each other): the `dot` key stays as the one way to say, by configuration, which dot acts on a repository. Two dots (a personal one and a team's, or one per
 teammate) can end up watching the same repository: a double review, two pushes. The `dot` key
 settles it by configuration, with no network between the servers.
 
