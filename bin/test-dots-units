@@ -35,6 +35,11 @@ bin/dots-units install --role worker >/dev/null 2>&1; grep -q "enable --now dots
 rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
 grep -q "enable --now dots-hub.service" "$h/sc.log" && ko "server: the hub must wait for its binary and keys" || ok "server: the hub unit is written but not started without its keys"
 
+# A machine that runs opencode under its own name keeps it: no second unit for the same port.
+rm -f "$u"/*; touch "$u/opencode.service"; : >"$h/sc.log"; bin/dots-units install --role server >/dev/null 2>&1
+[ ! -e "$u/dots-opencode.service" ] && ! grep -q "dots-opencode" "$h/sc.log" && ok "an existing opencode.service is taken for dots-opencode" || ko "duplicate opencode"
+rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
+
 # status
 bin/dots-units status --role server >"$h/st" 2>&1; [ $? = 0 ] && ok "status of a clean machine passes" || { ko "status clean"; cat "$h/st"; }
 rm "$u/dots-awf.service"; bin/dots-units status --role server >"$h/st" 2>&1; rc=$?

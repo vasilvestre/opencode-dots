@@ -47,9 +47,19 @@ units_for() { # role -> unit files, one per line
   if [ "$1" != worker ] && [ -s "$root/tend.list" ]; then printf 'dots-tend.service\ndots-tend.timer\n'; fi
 }
 
-enabled_for() { # the units to enable --now: timers and the long-running services
+# A machine installed before the manifest may run opencode under its own name: a second unit would
+# fight it for the port, so the manifest takes the existing one for dots-opencode.
+role_units() {
   local u
   for u in $(units_for "$1"); do
+    if [ "$u" = dots-opencode.service ] && [ -e "$dst/opencode.service" ] && [ ! -e "$dst/dots-opencode.service" ]; then continue; fi
+    echo "$u"
+  done
+}
+
+enabled_for() { # the units to enable --now: timers and the long-running services
+  local u
+  for u in $(role_units "$1"); do
     case $u in
       *.timer) echo "$u" ;;
       dots-hub.service) [ -x "$HOME/.local/bin/mercure" ] && [ -f "$HOME/.config/dots/hub.env" ] && echo "$u" ;; # deploy/types/local/hub.sh sets it up
@@ -78,7 +88,7 @@ write_unit() { # unit
 
 cmd_install() {
   [ -n "$role" ] || { echo "dots-units: install needs --role" >&2; exit 2; }
-  local list; list=$(units_for "$role")
+  local list; list=$(role_units "$role")
   echo "role $role: $(echo "$list" | wc -l) units into $dst"
   run mkdir -p "$dst" "$HOME/.config/dots"
   if [ "$dry" = 1 ]; then echo "  would write $HOME/.config/dots/role ($role)"; else echo "$role" >"$HOME/.config/dots/role"; fi
@@ -124,7 +134,7 @@ cmd_status() {
   local bad=0 u state want_enabled want_all
   echo "role $role"
   want_enabled=$(enabled_for "$role")
-  want_all=$(units_for "$role")
+  want_all=$(role_units "$role")
   for u in $want_all; do
     if [ ! -e "$dst/$u" ]; then printf '  MISSING   %s\n' "$u"; bad=1; continue; fi
     if has "$want_enabled" "$u"; then
