@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"opencode-dots/internal/events"
+	"opencode-dots/internal/workertokens"
 )
 
 func workerRig(t *testing.T) *rig {
 	r := newRig(t)
 	withHub(r)
-	r.d.wtokens.failDelay = 0
+	r.d.wtokens.FailDelay = 0
 	return r
 }
 
@@ -29,7 +30,7 @@ func issueToken(t *testing.T, r *rig, body string) (secret, id string) {
 	}
 	var out struct{ Token, ID string }
 	json.Unmarshal(rec.Body.Bytes(), &out)
-	if !strings.HasPrefix(out.Token, workerPrefix) || out.ID == "" {
+	if !strings.HasPrefix(out.Token, workertokens.Prefix) || out.ID == "" {
 		t.Fatalf("issue answer = %s", rec.Body)
 	}
 	return out.Token, out.ID
@@ -74,7 +75,7 @@ func TestWorkerTokenWithNoRepositoryListCoversTheKnownOnes(t *testing.T) {
 func TestWorkerTokenRefusesWhatIsNotLive(t *testing.T) {
 	r := workerRig(t)
 	secret, id := issueToken(t, r, `{"label":"a"}`)
-	for name, tok := range map[string]string{"none": "", "unknown": workerPrefix + "nope", "wrong prefix": "x" + secret} {
+	for name, tok := range map[string]string{"none": "", "unknown": workertokens.Prefix + "nope", "wrong prefix": "x" + secret} {
 		if got := exchange(r, tok).Code; got != 401 {
 			t.Errorf("%s = %d, want 401", name, got)
 		}
@@ -90,7 +91,7 @@ func TestWorkerTokenRefusesWhatIsNotLive(t *testing.T) {
 	}
 	// An expired token stops too.
 	s2, _ := issueToken(t, r, `{"label":"b","days":1}`)
-	r.d.wtokens.now = func() time.Time { return time.Now().Add(48 * time.Hour) }
+	r.d.wtokens.Now = func() time.Time { return time.Now().Add(48 * time.Hour) }
 	if got := exchange(r, s2).Code; got != 401 {
 		t.Fatalf("an expired token = %d, want 401", got)
 	}
@@ -120,23 +121,23 @@ func TestWorkerTokenIssuingIsOwnerOnlyAndBounded(t *testing.T) {
 func TestWorkerTokensAreKeptHashedAndPrivate(t *testing.T) {
 	r := workerRig(t)
 	dir := t.TempDir()
-	r.d.wtokens = newWorkerStore(dir)
-	r.d.wtokens.failDelay = 0
+	r.d.wtokens = workertokens.New(dir)
+	r.d.wtokens.FailDelay = 0
 	secret, _ := issueToken(t, r, `{"label":"laptop"}`)
-	path := filepath.Join(dir, workerTokensFile)
+	path := filepath.Join(dir, workertokens.File)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), secret) || strings.Contains(string(raw), strings.TrimPrefix(secret, workerPrefix)) {
+	if strings.Contains(string(raw), secret) || strings.Contains(string(raw), strings.TrimPrefix(secret, workertokens.Prefix)) {
 		t.Fatal("the file holds the secret")
 	}
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
 	}
 	// A restart keeps the token; a listing never shows the secret.
-	again := newWorkerStore(dir)
-	if _, ok := again.lookup(secret); !ok {
+	again := workertokens.New(dir)
+	if _, ok := again.Lookup(secret); !ok {
 		t.Fatal("the token did not survive a restart")
 	}
 	rec := ask(r.h, "GET", "/api/worker-tokens", "owner", "", "")

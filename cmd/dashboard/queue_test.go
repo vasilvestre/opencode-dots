@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"opencode-dots/internal/workertokens"
 )
 
 // workerDo sends a request to the worker listener with a bearer token.
@@ -114,7 +116,7 @@ func TestQueueNeedsAWorkerTokenAndAnOwner(t *testing.T) {
 	r := workerRig(t)
 	r.signIn()
 	id := enqueueRun(t, r, openRepo)
-	for _, tok := range []string{"", workerPrefix + "nope"} {
+	for _, tok := range []string{"", workertokens.Prefix + "nope"} {
 		if rec := workerDo(r, "GET", "/api/jobs", tok, ""); rec.Code != 401 {
 			t.Errorf("jobs with token %q = %d, want 401", tok, rec.Code)
 		}

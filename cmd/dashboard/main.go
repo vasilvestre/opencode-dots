@@ -22,6 +22,7 @@ import (
 
 	"opencode-dots/internal/auth"
 	"opencode-dots/internal/jobs"
+	"opencode-dots/internal/workertokens"
 )
 
 type review struct {
@@ -145,7 +146,7 @@ func main() {
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
-	d.wtokens = newWorkerStore(*state)
+	d.wtokens = workertokens.New(*state)
 	d.queue = jobs.Open(*state)
 	if d.hub, err = newHubIssuer(*hubURL, *hubAud, *hubInternal, *hubEnv); err != nil {
 		log.Fatal(err)
@@ -198,7 +199,7 @@ type dash struct {
 	opencodeDB   string          // opencode SQLite database, read-only
 	allow        map[string]bool // extra hosts allowed to write, see -allow-host
 	hub          *hubIssuer      // nil: no subscriber tokens
-	wtokens      *workerStore
+	wtokens      *workertokens.Store
 	queue        *jobs.Queue
 	clones       cloneState
 	gh           string // the gh binary that clones a project; empty means "gh" on the PATH

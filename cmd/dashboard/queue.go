@@ -13,6 +13,7 @@ import (
 	"opencode-dots/internal/events"
 	"opencode-dots/internal/jobs"
 	"opencode-dots/internal/repos"
+	"opencode-dots/internal/workertokens"
 )
 
 // The queue (internal/jobs) is an awf look-alike for a watcher: awf-gh posts a run to
@@ -80,12 +81,12 @@ func (d *dash) queueList(w http.ResponseWriter, r *http.Request) {
 }
 
 // workerAuth resolves the bearer token of a worker and the repositories it may serve.
-func (d *dash) workerAuth(w http.ResponseWriter, r *http.Request) (workerToken, map[string]bool, bool) {
-	t, ok := d.wtokens.lookup(bearer(r))
+func (d *dash) workerAuth(w http.ResponseWriter, r *http.Request) (workertokens.Token, map[string]bool, bool) {
+	t, ok := d.wtokens.Lookup(bearer(r))
 	if !ok {
-		time.Sleep(d.wtokens.failDelay)
+		time.Sleep(d.wtokens.FailDelay)
 		writeJSONStatus(w, http.StatusUnauthorized, map[string]string{"error": "invalid or revoked worker token"})
-		return workerToken{}, nil, false
+		return workertokens.Token{}, nil, false
 	}
 	set := map[string]bool{}
 	for _, repo := range d.workerRepos(t) {
@@ -96,7 +97,7 @@ func (d *dash) workerAuth(w http.ResponseWriter, r *http.Request) (workerToken, 
 
 // workerName is who holds a claim: the token's label and this process's instance id, so two
 // machines sharing one token are two holders and never renew each other's claim.
-func workerName(t workerToken, r *http.Request) string {
+func workerName(t workertokens.Token, r *http.Request) string {
 	inst := strings.Map(func(c rune) rune {
 		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' {
 			return c
