@@ -34,8 +34,8 @@ disk as ES modules, with no build step.
 | `/api/files` | the editable files: `workflows/*.yaml` and the local configs |
 | `/api/source?path=` | one editable file as text |
 | `/api/save` (PUT) | writes one editable file, keeps a `.bak` |
-| `/api/models` (GET) | lists presets, migration status, model variables with preset and override, and available local model IDs |
-| `/api/models` (PUT) | updates presets and overrides, then projects resolved workflow defaults |
+| `/api/models` (GET) | lists presets, model variables with preset and override, and available local model IDs |
+| `/api/models` (PUT) | validates and writes presets and overrides to `model-presets.yaml`, keeping a `.bak` |
 | `/api/autonomy` | `state/notes/`, `state/held/` and `state/held/released/` (what the autonomy ceiling kept), read only |
 | `/api/autonomy/artifact?kind=&name=` | (notes, held or released) the artifact one gate file points at, as text, inside `state/` only |
 | `/api/autonomy/release` (POST) | starts `publish-held` through awf with `{id}`, after checking the record; the dashboard never publishes |
@@ -47,62 +47,26 @@ disk as ES modules, with no build step.
 
 ## MODEL PRESETS
 
-The Config view's Model defaults form uses `GET /api/models` and
-`PUT /api/models`. The tracked root `model-presets.yaml` has `version: 1`, two
-presets (plus two optional claude ones) and optional per-role overrides. The
-fixed mapping is:
+The Config view's Model defaults form uses `GET /api/models` and `PUT /api/models` (ADR 0052). The
+tracked root `model-presets.yaml` has `version: 1`, four required presets (`light`, `default`,
+`claude_light`, `claude_default`) and optional per-role overrides. `internal/models` holds the role
+table, the validation and the file; this handler is the HTTP glue. Workflows read the file when a
+run starts (`bin/model`), so the dashboard writes nothing else and a save applies to the next run.
 
-- `light`: `ask-pr/model`, `fix-ci/model`, `reply-pr/model`,
-  `review-pr/address_model`.
-- `default`: `_fix-issue-owned/model`, `_fix-issue-external/model`, `tend-repo/model`, `review-pr/review_model`.
-- `claude_light`: `review-pr/claude_address_model`.
-- `claude_default`: `review-pr/claude_review_model`.
-
-The claude roles use `models.ClaudePattern` (no provider prefix), and every
-other role uses `models.Pattern`; each variable carries a `provider`. A missing
-claude preset takes `sonnet` or `haiku`. `review-pr` agent steps read
-`{{.states.pick_review_model.Output}}` and `{{.states.pick_address_model.Output}}`,
-and the dashboard reports a conflict when a pick step does not read its three
-inputs. The effective review and address models must differ for each provider.
-See ADR 0019.
-
-An override wins over its assigned preset. The API eagerly projects each
-resolved ID into the workflow input's concrete default. awf keeps reading
-workflow defaults, not the preset file. A model identifier is `provider/model`,
-with an optional `#variant`. The `provider: opencode` field selects the awf
-adapter, not the model provider.
-
-`GET /api/models` returns `presets`, `migration_required`, `variables`,
-`problems` and `available`. Each variable carries its `preset`, `override` and
-role-specific `conflict`. Top-level `problems` also reports structural or preset
-file errors when no role variables exist. The `available`
-array comes from the local `opencode models` command. The Config view offers
-those IDs in a native datalist and keeps every field free text. A failed or
-timed-out lookup returns an empty array without blocking the form.
-
-`PUT /api/models` accepts `{presets, overrides}`. An override value is a string
-or `null`; `null` clears it. The legacy `{variables}` payload remains a
-compatibility path that creates explicit overrides. Only `/api/models` writes
-`model-presets.yaml`; the generic editor does not expose it.
-
-A missing preset file means migration mode. `GET` does not write during
-migration. Derive `light` from the current `ask-pr/model` default and `default`
-from the current `_fix-issue-owned/model` default. Make every differing role an
-override, preserving all current runtime models. The first save creates the
-preset file.
-
-Automatic runs from `awf-gh`, Ask and `bin/tend` omit model inputs and use the
-saved workflow defaults. The Run dialog can override a model for one run. A
-saved change applies to the next run without restarting awf or OpenCode. A
-running request keeps the model it started with.
-
-Only a dashboard-started run keeps its exact original inputs in browser
-`localStorage`, including a model override. Replay uses that record when
-available. An automatic run has no browser record, so replay may use the current
-saved default instead of the historical model.
-
-A `tend-repo` override changes only its own role. Its nested `review-pr` run uses
-`review-pr`'s own resolved `review_model` and `address_model`.
+- `GET` returns `variables` (each role with its preset, override and resolved `value`), `presets`
+  and `available` (the local `opencode models` IDs; a failed or timed-out lookup is an empty list).
+  A missing or invalid file is a 500 with the reason.
+- `PUT` accepts `{presets, overrides}`: presets replace the ones named, an override is a string or
+  `null` to clear it. It checks `PUT`, a trusted `Host` and `Origin`, a JSON content type, a 16 KiB
+  cap, one object and no unknown field, then validates the result (identifier shape, known roles,
+  different effective `review-pr` review and address models per provider: 422) and writes the file
+  under `editMu` with a stamped `.bak` and `atomicWrite`.
+- A model identifier is `provider/model` with an optional `#variant`; the claude roles use
+  `models.ClaudePattern` (no provider prefix). Validation checks syntax, not availability: an
+  unavailable model fails the next agent step.
+- Only `/api/models` writes `model-presets.yaml`; the generic editor does not expose it.
+- A run keeps the model it started with. The Run dialog can override a model for one run, and
+  automatic runs from `awf-gh`, Ask and `bin/tend` use the presets.
 
 ## REPLAY
 

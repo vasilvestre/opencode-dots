@@ -60,7 +60,7 @@ The generic editor saves only `workflows/*.yaml`, `awf-gh.yaml`, `tend.list`,
 `.bak` beside the file. The Model defaults form also writes the tracked root
 `model-presets.yaml`. The page never commits: read the diff and commit yourself.
 See [ADR 0004](../ADR/0004-dashboard-edits-local-config.md),
-[ADR 0018](../ADR/0018-dashboard-managed-model-presets.md) and
+[ADR 0052](../ADR/0052-workflows-read-model-presets-at-run-time.md) and
 [ADR 0017](../ADR/0017-dashboard-edits-completion-notifications.md).
 
 The Config view manages global presets in `model-presets.yaml` (version 1).
@@ -73,21 +73,13 @@ A repository routed to `provider: claude` cannot use those IDs: the `claude`
 CLI takes `sonnet`, `haiku` or `claude-sonnet-4-5`, not `provider/model`. So
 the file holds a second pair, `claude_default` (`review-pr/claude_review_model`)
 and `claude_light` (`review-pr/claude_address_model`), with their own syntax.
-`review-pr` picks the pair that matches its `provider` input. They default to
-`sonnet` and `haiku`, and a file without them stays valid. See
-[ADR 0019](../ADR/0019-claude-model-presets.md).
+`review-pr` picks the pair that matches its `provider` input.
 
-The dashboard eagerly projects those resolved IDs into workflow input
-defaults. awf still reads concrete workflow defaults. On first use, migration
-derives `light` from `ask-pr/model` and `default` from `_fix-issue-owned/model`. Every
-other current value becomes an override, so no runtime model changes. The first
-save creates `model-presets.yaml`.
-
-Saved changes apply to the next run without restarting awf or OpenCode.
-Automatic dispatch keeps using saved workflow defaults. The Run dialog still
-overrides one run, and a running request keeps its started model. A
-`tend-repo` override does not change the resolved roles of its nested
-`review-pr` run. See [ADR 0018](../ADR/0018-dashboard-managed-model-presets.md).
+Workflows read the file when a run starts (`bin/model`), so a saved change
+applies to the next run without restarting awf or OpenCode, and nothing else is
+written. The Run dialog still overrides one run, and a running request keeps its
+started model. A `tend-repo` override does not change the resolved roles of its
+nested `review-pr` run. See [ADR 0052](../ADR/0052-workflows-read-model-presets-at-run-time.md).
 
 Prices come from awf itself: since v0.12.0 it records what each agent step cost
 (`cost_usd`) in the run log, and the page sums that per run. A run started by an

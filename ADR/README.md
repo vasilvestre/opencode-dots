@@ -26,7 +26,7 @@ your mind by writing a new one that supersedes it.
 | [0016](0016-awf-gh-runs-natively.md) | awf-gh can run natively | accepted | 2026-11-25 |
 | [0017](0017-dashboard-edits-completion-notifications.md) | The dashboard edits completion notifications | accepted | 2026-11-25 |
 | [0018](0018-dashboard-managed-model-presets.md) | The dashboard manages global model presets | superseded by 0019 | 2026-11-25 |
-| [0019](0019-claude-model-presets.md) | Model presets are per provider | accepted | 2026-11-25 |
+| [0019](0019-claude-model-presets.md) | Model presets are per provider | superseded by 0052 | 2026-11-25 |
 | [0020](0020-fix-issue-works-from-a-fork.md) | fix-issue works from a fork when it cannot push upstream | accepted | 2026-11-25 |
 | [0021](0021-fix-issue-routes-to-hidden-workflows.md) | fix-issue routes to hidden workflows | accepted | 2026-11-25 |
 | [0022](0022-repos-yaml-is-the-source-of-truth.md) | repos.yaml is the source of truth for the repository list | superseded by 0024 | 2026-11-25 |
@@ -58,6 +58,7 @@ your mind by writing a new one that supersedes it.
 | [0048](0048-workers-pull-jobs-from-a-queue.md) | Workers pull jobs from a queue, through one public entry | accepted | 2026-11-27 |
 | [0049](0049-one-tick-timer-per-machine.md) | One tick timer per machine, installed by role | accepted | 2026-11-27 |
 | [0050](0050-trust-needs-europe-and-zero-retention.md) | From client up, the code stays in Europe and only zero-retention models read it | proposed | 2026-11-27 |
+| [0052](0052-workflows-read-model-presets-at-run-time.md) | Workflows read the model presets when a run starts | accepted | 2026-11-27 |
 
 ## When to write one
 

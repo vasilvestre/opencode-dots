@@ -243,6 +243,9 @@ section_review() {
     review_case fixpush "$ceil"
     check "$label: run succeeds" test "$RC" = 0
     check "$label: the address agent ran" agent_ran address
+    # the models come from model-presets.yaml (ADR 0052): the reviewer from the default preset,
+    # the fixer from its override
+    check "$label: the models are the presets'" test "$(cat "$T/fake/agent.models" | sort -u | tr '\n' ' ')" = "$(for r in review_model address_model; do MODEL_PRESETS=$REPO_ROOT/model-presets.yaml bin/model review-pr/$r default; done | sort -u | tr '\n' ' ')"
     check "$label: both review rounds ran" test "$(grep -c '^agent review' "$T/fake/agent.steps")" = 2
     check "$label: no merge in a run that pushed" gh_none '^gh pr merge'
     case "$ceil" in

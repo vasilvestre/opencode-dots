@@ -55,6 +55,8 @@ case_new() {
   ln -s "$REPO_ROOT/bin/patch-guard" "$T/dots/bin/patch-guard"
   ln -s "$REPO_ROOT/bin/sandbox-test" "$T/dots/bin/sandbox-test"
   ln -s "$REPO_ROOT/bin/dot-sign" "$T/dots/bin/dot-sign"
+  ln -s "$REPO_ROOT/bin/model" "$T/dots/bin/model"
+  ln -s "$REPO_ROOT/model-presets.yaml" "$T/dots/model-presets.yaml"
   ln -s "$E2E_DIR/fakes/held" "$T/dots/bin/held"
   ln -s "$E2E_DIR/fakes/budget" "$T/dots/bin/budget"
   mkdir -p "$T/dots/workflows"

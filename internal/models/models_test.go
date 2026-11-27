@@ -1,285 +1,133 @@
 package models
 
 import (
-	"context"
-	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
-	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
-func TestParseCatalog(t *testing.T) {
-	cases := []struct {
-		name string
-		data string
-		want []string
-	}{
-		{"empty", "", []string{}},
-		{"blank lines", "\n \r\n\t\n", []string{}},
-		{"trim sort and deduplicate", " provider/z \n\nprovider/a#fast\r\nprovider/z\n", []string{"provider/a#fast", "provider/z"}},
-		{"invalid IDs", "provider\n/model\nprovider/\nprovider/model space\nprovider//model\nprovider/model#\nprovider/model#bad/variant\n", []string{}},
-		{"slashes and variants", "openrouter/anthropic/claude-4.5#thinking\nopencode-go/deepseek-v4.1-flash\nlocal/helper#fast\nlocal/helper#fast\n", []string{"local/helper#fast", "opencode-go/deepseek-v4.1-flash", "openrouter/anthropic/claude-4.5#thinking"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := parseCatalog([]byte(c.data))
-			if got == nil {
-				t.Fatal("parser returned a nil array")
-			}
-			if len(got) != len(c.want) {
-				t.Fatalf("catalog = %q, want %q", got, c.want)
-			}
-			for i := range c.want {
-				if got[i] != c.want[i] {
-					t.Fatalf("catalog = %q, want %q", got, c.want)
-				}
-			}
-		})
-	}
-}
+const doc = `version: 1
+presets:
+    light: acme/small
+    default: acme/big
+    claude_light: haiku
+    claude_default: sonnet
+overrides:
+    review-pr/address_model: other/fixer
+`
 
-func TestLoadCatalog(t *testing.T) {
-	dir := t.TempDir()
-	script := filepath.Join(dir, "opencode")
-	output := " provider/z \nprovider/a#fast\nprovider/z\ninvalid\n"
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '"+output+"'\n"), 0o755); err != nil {
+func load(t *testing.T, s string) *Configuration {
+	t.Helper()
+	c, err := Parse([]byte(s))
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir)
+	return c
+}
 
-	got := LoadCatalog(context.Background())
-	want := []string{"provider/a#fast", "provider/z"}
-	if len(got) != len(want) {
-		t.Fatalf("catalog = %q, want %q", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("catalog = %q, want %q", got, want)
+func TestResolveTakesTheOverrideThenThePreset(t *testing.T) {
+	c := load(t, doc)
+	for key, want := range map[string]string{"ask-pr/model": "acme/small", "tend-repo/model": "acme/big",
+		"review-pr/address_model": "other/fixer", "review-pr/claude_review_model": "sonnet", "nope/model": ""} {
+		if got := c.Resolve(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
 		}
 	}
 }
 
-func TestLoadCatalogTimeout(t *testing.T) {
-	dir := t.TempDir()
-	script := filepath.Join(dir, "opencode")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec /bin/sleep 10\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-	start := time.Now()
-	got := LoadCatalog(context.Background())
-	if got == nil || len(got) != 0 {
-		t.Fatalf("timed-out catalog = %q, want an empty array", got)
-	}
-	if elapsed := time.Since(start); elapsed > catalogTimeout+2*time.Second {
-		t.Fatalf("catalog lookup took %s, want the %s timeout", elapsed, catalogTimeout)
+func TestParseRefusesWhatItCannotRead(t *testing.T) {
+	for name, s := range map[string]string{
+		"empty":             "",
+		"two documents":     doc + "---\nversion: 1\n",
+		"unknown key":       doc + "extra: 1\n",
+		"version":           strings.Replace(doc, "version: 1", "version: 2", 1),
+		"missing preset":    strings.Replace(doc, "    claude_light: haiku\n", "", 1),
+		"unknown preset":    strings.Replace(doc, "    light:", "    tiny: acme/x\n    light:", 1),
+		"bad model":         strings.Replace(doc, "acme/small", "small", 1),
+		"claude with slash": strings.Replace(doc, "haiku", "a/haiku", 1),
+		"unknown role":      doc + "    ghost/model: a/b\n",
+		"same reviewers":    strings.Replace(doc, "other/fixer", "acme/big", 1),
+	} {
+		if _, err := Parse([]byte(s)); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
 	}
 }
 
-func TestWriteAllRollsBackWrittenFiles(t *testing.T) {
-	root := t.TempDir()
-	var changes []fileChange
-	var paths []string
-	for _, name := range []string{"a.yaml", "b.yaml", "c.yaml"} {
-		path := filepath.Join(root, name)
-		original := []byte("name: original-" + name + "\n")
-		if err := os.WriteFile(path, original, 0o644); err != nil {
+func TestUpdatedValidatesAndLeavesTheOriginal(t *testing.T) {
+	c := load(t, doc)
+	clear := (*string)(nil)
+	set := "x/y"
+	next, err := c.Updated(map[string]string{"light": "acme/tiny"}, map[string]*string{"review-pr/address_model": clear, "ask-pr/model": &set})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Resolve("ask-pr/model") != "x/y" || next.Resolve("fix-ci/model") != "acme/tiny" || next.Resolve("review-pr/address_model") != "acme/tiny" {
+		t.Fatalf("update = %+v", next)
+	}
+	if c.Resolve("fix-ci/model") != "acme/small" || len(c.Overrides) != 1 {
+		t.Fatal("the original changed")
+	}
+	if _, err := c.Updated(nil, map[string]*string{"review-pr/address_model": &set, "review-pr/review_model": &set}); err == nil {
+		t.Fatal("equal reviewers were accepted")
+	}
+}
+
+func TestMarshalRoundTrips(t *testing.T) {
+	c := load(t, doc)
+	out, err := c.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := load(t, string(out)); got.Resolve("review-pr/address_model") != "other/fixer" || got.Presets["claude_default"] != "sonnet" {
+		t.Fatalf("round trip lost data: %s", out)
+	}
+}
+
+func TestVariablesListEveryRole(t *testing.T) {
+	vars := load(t, doc).Variables()
+	if len(vars) != len(Roles) {
+		t.Fatalf("%d variables for %d roles", len(vars), len(Roles))
+	}
+	for _, v := range vars {
+		if (v.Key == "review-pr/address_model") != (v.Override != nil) {
+			t.Errorf("%s override = %v", v.Key, v.Override)
+		}
+	}
+}
+
+func TestParseCatalogKeepsValidIDsOnce(t *testing.T) {
+	got := parseCatalog([]byte("b/x\n\nnot an id\na/y\nb/x\n"))
+	if !slices.Equal(got, []string{"a/y", "b/x"}) {
+		t.Fatalf("catalog = %v", got)
+	}
+}
+
+// The workflows ask bin/model for their role and the preset it is assigned to: that is where the
+// assignment is written, so it must be the table's.
+func TestWorkflowsAskForTheRolesOfTheTable(t *testing.T) {
+	asked := map[string]string{}
+	files, _ := filepath.Glob(filepath.Join("..", "..", "workflows", "*.yaml"))
+	// `bin/model ROLE PRESET`, or review-pr's `role=ROLE; preset=PRESET` for its two providers.
+	re := regexp.MustCompile(`bin/model"? ([A-Za-z0-9_/-]+) ([a-z_]+)|role=([A-Za-z0-9_/-]+); preset=([a-z_]+)`)
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
 			t.Fatal(err)
 		}
-		paths = append(paths, path)
-		changes = append(changes, fileChange{path: "workflows/" + name, abs: path, original: original, data: []byte("name: changed-" + name + "\n")})
-	}
-	write := func(path string, data []byte) error {
-		if path == paths[2] {
-			return errors.New("injected write failure")
-		}
-		return os.WriteFile(path, data, 0o644)
-	}
-	err := writeAll(changes, write)
-	if err == nil || !strings.Contains(err.Error(), "injected write failure") {
-		t.Fatalf("writeAll error = %v", err)
-	}
-	for i, change := range changes {
-		got, err := os.ReadFile(paths[i])
-		if err != nil || string(got) != string(change.original) {
-			t.Fatalf("%s holds %q (%v), want %q", paths[i], got, err, change.original)
+		for _, m := range re.FindAllStringSubmatch(string(raw), -1) {
+			asked[m[1]+m[3]] = m[2] + m[4]
 		}
 	}
-}
-
-// Every agent step must take its model from a defaulted, validated input.
-func TestWorkflowModelInputs(t *testing.T) {
-	type workflowInput struct {
-		Name        string `yaml:"name"`
-		Type        string `yaml:"type"`
-		Required    *bool  `yaml:"required"`
-		Default     string `yaml:"default"`
-		Description string `yaml:"description"`
-		Validation  struct {
-			Pattern string `yaml:"pattern"`
-		} `yaml:"validation"`
+	for _, r := range Roles {
+		if asked[r.Key] != r.Preset {
+			t.Errorf("%s: workflows ask preset %q, the table says %q", r.Key, asked[r.Key], r.Preset)
+		}
 	}
-	type workflowState struct {
-		Type     string `yaml:"type"`
-		Provider string `yaml:"provider"`
-		Options  struct {
-			Model string `yaml:"model"`
-		} `yaml:"options"`
-	}
-	type workflowStates struct {
-		Initial string                   `yaml:"initial"`
-		Steps   map[string]workflowState `yaml:",inline"`
-	}
-	type workflowDocument struct {
-		Name   string          `yaml:"name"`
-		Inputs []workflowInput `yaml:"inputs"`
-		States workflowStates  `yaml:"states"`
-	}
-
-	cases := []struct {
-		file     string
-		inputs   map[string]bool
-		agents   map[string]string
-		provider string
-	}{
-		{
-			file:   "ask-pr.yaml",
-			inputs: map[string]bool{"model": true},
-			agents: map[string]string{"ask": "{{.inputs.model}}"},
-		},
-		{
-			file:   "fix-ci.yaml",
-			inputs: map[string]bool{"model": true},
-			agents: map[string]string{"fix": "{{.inputs.model}}"},
-		},
-		{
-			file:   "_fix-issue-owned.yaml",
-			inputs: map[string]bool{"model": true},
-			agents: map[string]string{"fix": "{{.inputs.model}}"},
-		},
-		{
-			file:   "_fix-issue-external.yaml",
-			inputs: map[string]bool{"model": true},
-			agents: map[string]string{"fix": "{{.inputs.model}}"},
-		},
-		{
-			file:   "reply-pr.yaml",
-			inputs: map[string]bool{"model": true},
-			agents: map[string]string{"reply": "{{.inputs.model}}"},
-		},
-		{
-			file: "review-pr.yaml",
-			inputs: map[string]bool{
-				"review_model":         true,
-				"address_model":        true,
-				"claude_review_model":  true,
-				"claude_address_model": true,
-			},
-			agents: map[string]string{
-				"review":  "{{.states.pick_review_model.Output}}",
-				"address": "{{.states.pick_address_model.Output}}",
-			},
-			provider: "{{.inputs.provider}}",
-		},
-		{
-			file:   "tend-repo.yaml",
-			inputs: map[string]bool{"model": true},
-			agents: map[string]string{"learn": "{{.inputs.model}}"},
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.file, func(t *testing.T) {
-			data, err := os.ReadFile(filepath.Join("..", "..", "workflows", c.file))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var workflow workflowDocument
-			if err := yaml.Unmarshal(data, &workflow); err != nil {
-				t.Fatalf("parse workflow: %v", err)
-			}
-			if workflow.Name != strings.TrimSuffix(c.file, ".yaml") {
-				t.Errorf("workflow name = %q, want %q", workflow.Name, strings.TrimSuffix(c.file, ".yaml"))
-			}
-
-			inputs := make(map[string]workflowInput)
-			modelInputs := 0
-			for _, input := range workflow.Inputs {
-				if input.Name != "model" && !strings.HasSuffix(input.Name, "_model") {
-					continue
-				}
-				modelInputs++
-				inputs[input.Name] = input
-			}
-			if modelInputs != len(c.inputs) {
-				t.Errorf("workflow has %d model inputs, want %d", modelInputs, len(c.inputs))
-			}
-			for name := range c.inputs {
-				input, ok := inputs[name]
-				if !ok {
-					t.Errorf("missing model input %q", name)
-					continue
-				}
-				if input.Type != "string" {
-					t.Errorf("input %q type = %q, want string", name, input.Type)
-				}
-				if input.Required == nil || *input.Required {
-					t.Errorf("input %q must set required: false", name)
-				}
-				if strings.TrimSpace(input.Default) == "" {
-					t.Errorf("input %q has no default", name)
-				}
-				if strings.TrimSpace(input.Description) == "" {
-					t.Errorf("input %q has no description", name)
-				}
-				wantPattern := Pattern
-				if strings.HasPrefix(name, "claude_") {
-					wantPattern = ClaudePattern
-				}
-				if input.Validation.Pattern != wantPattern {
-					t.Errorf("input %q pattern = %q, want %q", name, input.Validation.Pattern, wantPattern)
-				}
-				if !modelRE(wantPattern).MatchString(input.Default) {
-					t.Errorf("input %q default %q does not match its pattern", name, input.Default)
-				}
-			}
-			for name := range inputs {
-				if _, ok := c.inputs[name]; !ok {
-					t.Errorf("unexpected model input %q", name)
-				}
-			}
-
-			agents := make(map[string]bool)
-			for name, state := range workflow.States.Steps {
-				if state.Type != "agent" {
-					continue
-				}
-				agents[name] = true
-				wantModel, ok := c.agents[name]
-				if !ok {
-					t.Errorf("unexpected agent state %q", name)
-					continue
-				}
-				wantProvider := c.provider
-				if wantProvider == "" {
-					wantProvider = "opencode"
-				}
-				if state.Provider != wantProvider {
-					t.Errorf("agent state %q provider = %q, want %q", name, state.Provider, wantProvider)
-				}
-				if state.Options.Model != wantModel {
-					t.Errorf("agent state %q model = %q, want %q", name, state.Options.Model, wantModel)
-				}
-			}
-			for name := range c.agents {
-				if !agents[name] {
-					t.Errorf("missing agent state %q", name)
-				}
-			}
-		})
+	if len(asked) != len(Roles) {
+		t.Errorf("workflows ask for %d roles, the table has %d", len(asked), len(Roles))
 	}
 }

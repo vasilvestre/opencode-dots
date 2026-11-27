@@ -50,13 +50,24 @@ inputs:
   - name: model
     type: string
     required: false
-    default: mistral/deepseek-v4-1-flash-1017
-    description: model for the agent step
+    default: ""
+    description: model for the agent step; empty takes the preset of model-presets.yaml (bin/model)
     validation:
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?)?$'
 
 states:
-  initial: budget_check
+  initial: pick_model
+
+  # The model of this role is read when the run starts, from model-presets.yaml (ADR 0052);
+  # a model given as an input wins.
+  pick_model:
+    type: step
+    command: |
+      m='{{.inputs.model}}'
+      printf '%s' "${m:-$("${DOTS_HOME:-/work}/bin/model" tend-repo/model default)}"
+    timeout: 10
+    on_success: budget_check
+    on_failure: error
 
   # Daily budget (ADR 0036, docs/budget.md). With no budget input this writes nothing. With one,
   # the answer of bin/budget is kept in a flag file that the gate steps below read: reached (or
@@ -169,7 +180,7 @@ states:
       # the run files live under STATE_DIR. Other providers ignore the option.
       allowed_tools: "Read,Grep,Glob,Write,Edit"
       # A free default model hits the shared rate limit within minutes.
-      model: "{{.inputs.model}}"
+      model: "{{.states.pick_model.Output}}"
     prompt: |
       You keep one repository honest. It is {{.inputs.repo}}, mostly written by
       AI agents, and you work from what happened since the last pass.
@@ -323,7 +334,7 @@ states:
       draft: "true"
       scout: "true"
       dry_run: "{{.inputs.dry_run}}"
-      model: "{{.inputs.model}}"
+      model: "{{.states.pick_model.Output}}"
     timeout: 1500
     on_success: file
     on_failure: file

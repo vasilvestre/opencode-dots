@@ -19,17 +19,17 @@ inputs:
   - name: review_model
     type: string
     required: false
-    default: mistral/deepseek-v4-1-flash-1017
-    description: model for the review agent
+    default: ""
+    description: model for the review agent; empty takes the preset of model-presets.yaml (bin/model)
     validation:
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?)?$'
   - name: address_model
     type: string
     required: false
-    default: claude-agent/sonnet
-    description: model for the fix agent
+    default: ""
+    description: model for the fix agent; empty takes the preset of model-presets.yaml (bin/model)
     validation:
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?)?$'
   # Per-repo routing: a repos[].inputs.provider entry in awf-gh.yaml picks the
   # agent CLI for this run. The provider decides which model pair is used:
   # review_model and address_model for opencode, the claude_ pair for claude.
@@ -67,17 +67,17 @@ inputs:
   - name: claude_review_model
     type: string
     required: false
-    default: sonnet
-    description: claude model for the review agent (used when provider is claude)
+    default: ""
+    description: claude model for the review agent (used when provider is claude); empty takes the preset of model-presets.yaml (bin/model)
     validation:
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$'
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?)?$'
   - name: claude_address_model
     type: string
     required: false
-    default: haiku
-    description: claude model for the fix agent (used when provider is claude)
+    default: ""
+    description: claude model for the fix agent (used when provider is claude); empty takes the preset of model-presets.yaml (bin/model)
     validation:
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?$'
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._:+-]*(\[[A-Za-z0-9]+\])?)?$'
 
   - name: sandbox
     type: string
@@ -144,16 +144,18 @@ states:
     on_success: pick_review_model
     on_failure: release_error
 
-  # awf has no conditional in its interpolation, so a shell step picks the model
-  # that matches the provider and the agent steps read its output.
+  # awf has no conditional in its interpolation, so a shell step picks the model that matches the
+  # provider; the agent steps read its output. An input given on the run wins, else the model is
+  # read from model-presets.yaml when the run starts (ADR 0052).
   pick_review_model:
     type: step
     command: |
       if [ "{{.inputs.provider}}" = claude ]; then
-        printf '%s' '{{.inputs.claude_review_model}}'
+        m='{{.inputs.claude_review_model}}'; role=review-pr/claude_review_model; preset=claude_default
       else
-        printf '%s' '{{.inputs.review_model}}'
+        m='{{.inputs.review_model}}'; role=review-pr/review_model; preset=default
       fi
+      printf '%s' "${m:-$("${DOTS_HOME:-/work}/bin/model" "$role" "$preset")}"
     timeout: 10
     on_success: pick_address_model
     on_failure: release_error
@@ -162,10 +164,11 @@ states:
     type: step
     command: |
       if [ "{{.inputs.provider}}" = claude ]; then
-        printf '%s' '{{.inputs.claude_address_model}}'
+        m='{{.inputs.claude_address_model}}'; role=review-pr/claude_address_model; preset=claude_light
       else
-        printf '%s' '{{.inputs.address_model}}'
+        m='{{.inputs.address_model}}'; role=review-pr/address_model; preset=light
       fi
+      printf '%s' "${m:-$("${DOTS_HOME:-/work}/bin/model" "$role" "$preset")}"
     timeout: 10
     on_success: fetch
     on_failure: release_error

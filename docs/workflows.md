@@ -91,29 +91,24 @@ through `GET /api/models` and `PUT /api/models`. Its role mapping is fixed:
 | --- | --- |
 | `light` | `ask-pr/model`, `fix-ci/model`, `reply-pr/model`, `review-pr/address_model` |
 | `default` | `_fix-issue-owned/model`, `_fix-issue-external/model`, `tend-repo/model`, `review-pr/review_model` |
-
 | `claude_default` | `review-pr/claude_review_model` |
 | `claude_light` | `review-pr/claude_address_model` |
 
-The claude pair is optional in the file (defaults `sonnet` and `haiku`) and
-uses claude names (`sonnet`, `claude-sonnet-4-5`, `sonnet[1m]`), because awf
-passes the model to the `claude` CLI unchanged. `review-pr` has two shell steps,
-`pick_review_model` and `pick_address_model`, that print the opencode or the
-claude model according to `inputs.provider`; the `review` and `address` agent
-steps read that output. See ADR 0019.
+All four presets are required. The claude pair uses claude names (`sonnet`,
+`claude-sonnet-4-5`, `sonnet[1m]`), because awf passes the model to the `claude`
+CLI unchanged. A role can set an optional custom override, which wins over its
+assigned preset.
 
-A role can set an optional custom override. An override wins over its assigned
-preset. The dashboard eagerly projects each resolved ID into the workflow
-input's concrete default. awf keeps reading workflow defaults, not the preset
-file.
-
-On first use, migration derives `light` from the current `ask-pr/model` default
-and `default` from the current `_fix-issue-owned/model` default. Every other current
-value becomes an override, so migration changes no runtime model. The first
-save creates `model-presets.yaml`.
+The model inputs default to empty, which means "the preset". Each workflow
+starts with a `pick_model` shell step that prints the input when the run gave
+one and otherwise `bin/model ROLE PRESET`, which reads `model-presets.yaml` when
+the run starts; the agent step reads `{{.states.pick_model.Output}}`.
+`review-pr` has two such steps, `pick_review_model` and `pick_address_model`,
+that also choose the opencode or the claude role by `inputs.provider`. See
+[ADR 0052](../ADR/0052-workflows-read-model-presets-at-run-time.md).
 
 Automatic runs from `awf-gh`, Ask and `bin/tend` omit model inputs and use the
-saved workflow defaults. The Run dialog can override a model for one run.
+saved presets. The Run dialog can override a model for one run.
 
 A saved change applies to the next run without restarting awf or OpenCode. A
 running request keeps the model it started with.
@@ -624,9 +619,9 @@ An agent step looks like this:
     on_failure: error
 ```
 
-Every agent step must read a validated model input with a non-empty default.
-The `light` and `default` preset inputs and every override must also be non-empty
-model IDs. Use `provider/model`, with an optional `#variant`. The free default
+Every agent step must read a model that `bin/model` resolved from a preset (a
+`pick_model` step), never a literal. Use `provider/model`, with an optional
+`#variant`, in `model-presets.yaml`. The free default
 hits a shared rate limit within minutes and every agent step then fails with
 `provider.free-limit`.
 

@@ -35,10 +35,10 @@ inputs:
   - name: model
     type: string
     required: false
-    default: mistral/deepseek-v4-1-flash-1017
-    description: model for the agent step
+    default: ""
+    description: model for the agent step; empty takes the preset of model-presets.yaml (bin/model)
     validation:
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?)?$'
 
   - name: sandbox
     type: string
@@ -47,7 +47,18 @@ inputs:
     description: base64 of the repository's sandbox block (patch guard and container test before a push); empty means no check, ADR 0032
 
 states:
-  initial: fetch
+  initial: pick_model
+
+  # The model of this role is read when the run starts, from model-presets.yaml (ADR 0052);
+  # a model given as an input wins.
+  pick_model:
+    type: step
+    command: |
+      m='{{.inputs.model}}'
+      printf '%s' "${m:-$("${DOTS_HOME:-/work}/bin/model" reply-pr/model light)}"
+    timeout: 10
+    on_success: fetch
+    on_failure: error
 
   fetch:
     type: step
@@ -171,7 +182,7 @@ states:
       # the run files live under STATE_DIR. Other providers ignore the option.
       allowed_tools: "Read,Grep,Glob,Write,Edit"
       # A free default model hits the shared rate limit within minutes.
-      model: "{{.inputs.model}}"
+      model: "{{.states.pick_model.Output}}"
     prompt: |
       You answer a review comment on my pull request
       {{.inputs.repo}}#{{.inputs.pr}}.

@@ -23,7 +23,7 @@ cmd/health/    one-command health check, exit 0 healthy, 1 degraded, 2 down
 cmd/dots/      read-only CLI over run logs: runs, show, logs (docs/debug.md)
 cmd/repos/     CLI that generates awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
 internal/      jobs/: the queue (leases, claims, pause); events/: the Mercure client and tokens; spend/: run cost; models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite); sources/: inbound adapters (advisory, jira, sentry) to envelopes
-model-presets.yaml  global model presets projected into workflow defaults
+model-presets.yaml  global model presets, read by the workflows at run time (bin/model)
 docs/          indexed by docs/README.md: workflows, units, remote and the queue, autonomy, pause, runner, paths, health, sources
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue, fix-ci, and hidden helpers (_name)
 deploy/sandbox/ Dockerfile of the throwaway test image for bin/sandbox-run
@@ -47,7 +47,7 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Daily tend dispatch | `bin/tend` | reads `tend.list`, posts to the awf API |
 | Bot instructions | `agent/AGENTS.md` | mounted config, not documentation |
 | Dashboard edits a config file | `/api/save` in `main.go` | allowlist and backups, see ADR 0004 |
-| Manage global model presets | `model-presets.yaml`, Config Model defaults | eager projection, see ADR 0018 and `cmd/dashboard/AGENTS.md` |
+| Manage global model presets | `model-presets.yaml`, Config Model defaults | read at run time, see ADR 0052 and `cmd/dashboard/AGENTS.md` |
 | Which repositories, and what the dot does on each | `repos.yaml` (copy `repos.example.yaml`) | source of truth, see ADR 0022 and `internal/repos/AGENTS.md` |
 | Autonomy ceiling at publishing steps | `bin/publish-gate`, `docs/autonomy.md` | optional `autonomy` input, empty stays legacy |
 | Classify a work item (level 1, 2, 3) | `workflows/_classify-item.yaml`, `docs/classification.md` | hidden, posts nothing |
@@ -73,7 +73,7 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
   repositories; `awf-gh.yaml`, `tend.list`, `repos.map` and `sync.map` are
   generated from it (`make repos`), gitignored and never edited by hand. Only
   `repos.example.yaml` is tracked.
-- The dashboard projects `model-presets.yaml` into workflow input defaults.
+- Workflows read `model-presets.yaml` when a run starts (`bin/model`, ADR 0052).
   Edit presets through the Config view, not by hand.
 - `DOT_OPENCODE`, `DOT_AWF`, `DOT_GH`, `DOT_AWFGH`, `DOT_CLAUDE` are mode
   selectors written by `bin/configure`, which also reads them back to keep the

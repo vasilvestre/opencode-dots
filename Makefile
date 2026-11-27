@@ -144,6 +144,7 @@ ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
 	test/workspace.sh
 	test/watchers.sh
 	test/held.sh
+	test/model.sh
 	test/tend.sh
 	test/propose-links.sh
 	$(MAKE) script-tests

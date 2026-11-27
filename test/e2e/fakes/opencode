@@ -13,6 +13,8 @@ set -u
 : "${FAKE_DIR:?}" "${STATE_DIR:?}"
 [ "${1:-}" = run ] || exit 0          # `opencode mcp list` and the like
 prompt=${2:-}
+# The model awf asked for, one per call, so a check can see where it came from.
+args=("$@"); for i in "${!args[@]}"; do case "${args[$i]}" in --model|-m) echo "${args[$((i + 1))]}" >> "$FAKE_DIR/agent.models" ;; --model=*) echo "${args[$i]#--model=}" >> "$FAKE_DIR/agent.models" ;; esac; done
 echo "opencode-stub $(printf '%s' "$prompt" | head -1)" >> "$FAKE_DIR/agent.log"
 
 first=$(printf '%s' "$prompt" | head -1)

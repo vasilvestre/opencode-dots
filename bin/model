@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# model ROLE PRESET: the model a workflow role runs, read from model-presets.yaml when the run
+# starts (ADR 0052). An override of the role wins over the preset the role is assigned to.
+#   bin/model review-pr/review_model default
+# The file is the one the dashboard writes, so its shape is fixed: `presets:` and `overrides:`
+# hold one `key: value` per line.
+set -euo pipefail
+[ $# = 2 ] || { echo "usage: model WORKFLOW/INPUT PRESET" >&2; exit 2; }
+file=${MODEL_PRESETS:-${DOTS_HOME:-/work}/model-presets.yaml}
+[ -r "$file" ] || { echo "model: $file is not readable" >&2; exit 1; }
+awk -v role="$1" -v preset="$2" '
+  /^[^ #]/ { sect = $1; next }
+  sect == "presets:" || sect == "overrides:" {
+    line = $0; sub(/^ +/, "", line)
+    key = line; sub(/:.*/, "", key)
+    val = line; sub(/^[^:]*: */, "", val); gsub(/^["\047]|["\047]$/, "", val)
+    if (sect == "overrides:" && key == role) over = val
+    if (sect == "presets:" && key == preset) pre = val
+  }
+  END {
+    if (over != "") print over
+    else if (pre != "") print pre
+    else { print "model: no model for " role " (preset " preset ")" > "/dev/stderr"; exit 1 }
+  }' "$file"

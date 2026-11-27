@@ -22,7 +22,6 @@ export function mountConfig(el, arg) {
   let editor = null;
   let modelLoading = true;
   let modelSaving = false;
-  let modelConflicts = false;
   let modelInputs = [];
   let notifLoading = true;
   let notifSaving = false;
@@ -176,8 +175,8 @@ export function mountConfig(el, arg) {
   paintNav();
 
   function updateModelsSave() {
-    saveModelsBtn.disabled = modelLoading || modelSaving || modelConflicts || modelRoles.length === 0 || !modelsDirty();
-    saveModelsBtn.title = saveModelsBtn.disabled && !modelLoading && !modelConflicts ? "No changes to save" : "";
+    saveModelsBtn.disabled = modelLoading || modelSaving || modelRoles.length === 0 || !modelsDirty();
+    saveModelsBtn.title = saveModelsBtn.disabled && !modelLoading ? "No changes to save" : "";
   }
 
   function modelField(id, value, dataset, list = null) {
@@ -200,7 +199,6 @@ export function mountConfig(el, arg) {
     modelInputs = [];
     modelRoles = [];
     presetInputs = {};
-    modelConflicts = false;
     updateModelsSave();
     mount(modelsEl, h("div", { class: "empty" }, "Loading model defaults…"));
     try {
@@ -209,12 +207,9 @@ export function mountConfig(el, arg) {
       const variables = res?.variables || [];
       const available = Array.isArray(res?.available) ? res.available : [];
       const presets = res?.presets || {};
-      const problems = Array.isArray(res?.problems) ? res.problems : [];
       const catalog = available.length ? h("datalist", { id: "model-catalog" },
         available.map((model) => h("option", { value: model })),
       ) : null;
-      const conflicts = variables.filter((v) => v.conflict);
-      modelConflicts = conflicts.length > 0 || problems.length > 0;
       const catalogID = available.length ? "model-catalog" : null;
       const hasClaude = variables.some((v) => v.provider === "claude");
       const claudeCatalog = h("datalist", { id: "claude-catalog" },
@@ -250,16 +245,13 @@ export function mountConfig(el, arg) {
       const roleField = (v, i) => {
         const role = modelRoles[i];
         const details = `model-role-${i}-details`;
-        const conflict = `model-role-${i}-conflict`;
-        role.input.setAttribute("aria-describedby", v.conflict ? `${details} ${conflict}` : details);
+        role.input.setAttribute("aria-describedby", details);
         return h("div", { class: "field" },
           h("label", { for: role.checkbox.id }, role.checkbox, " Use a custom override"),
           role.input,
           h("div", { class: "hint", id: details },
             `${v.workflow} · ${v.input} · preset: `, h("code", {}, v.preset || "unassigned"),
             " · resolved: ", h("code", {}, v.value || "")),
-          v.conflict ? h("div", { class: "hint", id: conflict, style: { color: "var(--err)" } }, v.conflict) : null,
-          v.description ? h("div", { class: "hint" }, v.description) : null,
         );
       };
       const rolesOf = (provider) => variables
@@ -268,19 +260,6 @@ export function mountConfig(el, arg) {
       mount(modelsEl,
         catalog,
         hasClaude ? claudeCatalog : null,
-        res?.migration_required ? h("div", { class: "issues" },
-          h("div", { class: "head" }, "Model presets need a first save"),
-          h("p", { class: "hint", style: { padding: "0 12px 10px" } },
-            "Current workflow defaults were imported in memory. Save to create model-presets.yaml."),
-        ) : null,
-        problems.length ? h("div", { class: "issues bad" },
-          h("div", { class: "head" }, "Resolve model configuration problems before saving"),
-          h("ul", {}, problems.map((problem) => h("li", {}, problem))),
-        ) : null,
-        conflicts.length ? h("div", { class: "issues bad" },
-          h("div", { class: "head" }, "Resolve model conflicts before saving"),
-          h("ul", {}, conflicts.map((v) => h("li", {}, `${v.workflow}/${v.input}: ${v.conflict}`))),
-        ) : null,
         h("div", { class: "field" },
           h("label", { for: "model-preset-light" }, "Light preset"),
           presetInputs.light,
@@ -322,7 +301,7 @@ export function mountConfig(el, arg) {
   }
 
   async function saveModels() {
-    if (modelLoading || modelSaving || modelConflicts || modelRoles.length === 0 || !modelsDirty()) return;
+    if (modelLoading || modelSaving || modelRoles.length === 0 || !modelsDirty()) return;
     modelSaving = true;
     updateModelsSave();
     modelInputs.forEach((input) => { input.disabled = true; });

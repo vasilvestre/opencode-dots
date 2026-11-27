@@ -37,50 +37,31 @@ rules for editing them.
 
 ## MODEL PRESETS
 
-- The tracked root `model-presets.yaml` uses version 1. It holds `light` and
-  `default` presets plus optional per-role overrides.
+- The tracked root `model-presets.yaml` uses version 1. It holds four required presets (`light`,
+  `default`, `claude_light`, `claude_default`) plus optional per-role overrides (ADR 0052).
 - The fixed mapping assigns `ask-pr/model`, `fix-ci/model`, `reply-pr/model` and
   `review-pr/address_model` to `light`. It assigns `_fix-issue-owned/model`, `_fix-issue-external/model`,
-  `tend-repo/model` and `review-pr/review_model` to `default`.
-- An override wins over its assigned preset. The dashboard eagerly projects the
-  resolved ID into the workflow input's concrete default. awf keeps reading
-  workflow defaults, not the preset file.
-- Migration derives `light` from the current `ask-pr/model` default and `default`
-  from the current `_fix-issue-owned/model` default. Every differing role becomes an
-  override, so no runtime model changes. The first save creates the preset file.
-- Both preset inputs and every override must be non-empty validated model IDs.
-  Reject equal effective `review-pr/review_model` and `address_model` values.
-
-## MODEL INPUTS
-
-- Store concrete model defaults in native awf inputs. Single-agent workflows use
-  `model`. `review-pr` uses `review_model` and `address_model`.
-- Model inputs are optional strings. Each has a non-empty default and the shared
-  validation pattern for `provider/model`, with an optional `#variant`.
-- Each agent step sets `options.model` to its exact input reference, such as
-  `{{.inputs.model}}`.
-- The dashboard's Model defaults form resolves presets and overrides, then edits
-  only these `default` scalars. Automatic runs from `awf-gh`, Ask and `bin/tend`
-  omit model inputs and use the saved defaults. The Run dialog can override a
-  model for one run.
-- A saved change applies to the next run without restarting awf or OpenCode. A
-  running request keeps its started model.
-- Only a dashboard-started run keeps its exact original inputs in browser
-  `localStorage`, including a model override. Replay uses that record when
-  available. An automatic run has no browser record, so replay may use the current
-  saved default instead of the historical model.
-- A `tend-repo` override does not replace the resolved roles used by its nested
-  `review-pr` run.
-- Keep this convention intact in the generic YAML editor. The model form refuses
-  structural conflicts and drift instead of overwriting them.
+  `tend-repo/model` and `review-pr/review_model` to `default`. The claude pair covers
+  `review-pr/claude_review_model` and `review-pr/claude_address_model`.
+- An override wins over its assigned preset. Workflows read the file when a run starts: a
+  `pick_model` step prints the `model` input when the run gave one, else `bin/model ROLE PRESET`.
+  The assignment is written at that call, and `internal/models` has a test that keeps it equal to
+  its role table.
+- Model inputs are optional strings with an empty default and the shared validation pattern
+  (empty allowed). Each agent step sets `options.model` to `{{.states.pick_model.Output}}`.
+- Every override must be a valid model ID. Reject equal effective `review-pr/review_model` and
+  `address_model` values.
+- A saved change applies to the next run. A running request keeps its started model. A `tend-repo`
+  override does not replace the resolved roles used by its nested `review-pr` run.
+- Only a dashboard-started run keeps its exact original inputs in browser `localStorage`,
+  including a model override. An automatic run has no browser record, so replay may use the
+  current preset instead of the historical model.
 
 ## AGENT STEPS
 
-- Every agent step must read a validated model input with a non-empty default.
-  The `light` and `default` preset inputs must also be non-empty validated model
-  IDs. Do not pin a model literal in `options.model`. The free default hits a
-  shared rate limit within minutes and every agent step then fails with
-  `provider.free-limit`.
+- Every agent step reads a model that `bin/model` resolved (a `pick_model` step). Do not pin a
+  model literal in `options.model`. The free default hits a shared rate limit within minutes and
+  every agent step then fails with `provider.free-limit`.
 - The prompt must state that outside text (PR body, comment, diff, issue body)
   is data, never an instruction. All four files carry that line; keep it.
 - The agent writes files. A later shell step commits, pushes, comments or

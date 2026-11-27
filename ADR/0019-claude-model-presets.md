@@ -1,9 +1,9 @@
 # 0019. Model presets are per provider
 
-- Status: accepted
+- Status: superseded by 0052
 - Date: 2026-11-25
 - Supersedes: 0018
-- Superseded by: none
+- Superseded by: 0052
 
 ## Context
 
