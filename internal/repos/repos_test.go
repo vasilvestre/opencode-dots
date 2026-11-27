@@ -8,11 +8,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 func build(t *testing.T, src string) *Output {
@@ -382,147 +379,6 @@ func TestRegisteringTwiceIsAProgrammingError(t *testing.T) {
 	Register(checkout{})
 }
 
-// --- import ---------------------------------------------------------------
-
-type ruleKey struct {
-	Repo, Workflow, Scope, On, Ignore, Only, Labels, Inputs string
-}
-
-func ruleKeys(t *testing.T, data []byte) []ruleKey {
-	t.Helper()
-	var f awfGhFile
-	if err := yaml.Unmarshal(data, &f); err != nil {
-		t.Fatal(err)
-	}
-	var out []ruleKey
-	for _, r := range f.Repos {
-		scope := r.Scope
-		if scope == "" {
-			scope = "local"
-		}
-		in := make([]string, 0, len(r.Inputs))
-		for k, v := range r.Inputs {
-			in = append(in, k+"="+v)
-		}
-		slices.Sort(in)
-		out = append(out, ruleKey{r.Repo, r.Workflow, scope, fmt.Sprint(r.On), fmt.Sprint(r.IgnoreAuthors), fmt.Sprint(r.OnlyAuthors), fmt.Sprint(r.Labels), strings.Join(in, ",")})
-	}
-	sort.Slice(out, func(i, j int) bool { return fmt.Sprint(out[i]) < fmt.Sprint(out[j]) })
-	return out
-}
-
-func lines(data []byte) []string {
-	var out []string
-	for l := range strings.SplitSeq(string(data), "\n") {
-		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
-			out = append(out, l)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
-// Importing the three hand written files and generating them again must give
-// back the same rules, tend lines and checkouts, whatever the shapes.
-func TestImportThenGenerateKeepsEveryRule(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{FileAwfGh, FileTend, FileCheckout, FileSync} {
-		data, err := os.ReadFile(filepath.Join("testdata", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	imported, err := Import(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files, err := Build(imported, dir, Settings{})
-	if err != nil {
-		t.Fatalf("imported file does not generate: %v\n%s", err, imported)
-	}
-	original, _ := os.ReadFile(filepath.Join(dir, FileAwfGh))
-	if got, want := ruleKeys(t, files[FileAwfGh]), ruleKeys(t, original); !reflect.DeepEqual(got, want) {
-		t.Fatalf("rules differ after the round trip\ngot  %v\nwant %v\n\nimported:\n%s", got, want, imported)
-	}
-	for name, path := range map[string]string{FileTend: FileTend, FileCheckout: FileCheckout, FileSync: FileSync} {
-		orig, _ := os.ReadFile(filepath.Join(dir, path))
-		if got, want := lines(files[name]), lines(orig); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s differs\ngot  %v\nwant %v", name, got, want)
-		}
-	}
-	doc, err := Parse(imported)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.Settings.MaxPerRun != 6 || doc.Settings.AwfURL != "" || doc.Settings.StatePath != "" {
-		t.Errorf("imported settings = %+v, want only max_per_run (the others are mode dependent)", doc.Settings)
-	}
-	// Importing the regenerated files again must change nothing.
-	for name, data := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	again, err := Import(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(again) != string(imported) {
-		t.Errorf("import is not stable:\n%s\nvs\n%s", imported, again)
-	}
-}
-
-func TestImportRefusesAWorkflowNoFeatureHandles(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, FileAwfGh), []byte("repos:\n  - {repo: a/b, workflow: mystery, on: [pr-opened]}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Import(dir); err == nil || !strings.Contains(err.Error(), `no feature handles workflow "mystery"`) {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestImportKeepsEachReviewRuleProvider(t *testing.T) {
-	dir := t.TempDir()
-	gh := "repos:\n" +
-		"  - {repo: a/b, workflow: review-pr, on: [pr-opened, pr-updated]}\n" +
-		"  - {repo: a/b, workflow: review-pr, on: [checks-failed], inputs: {provider: claude}}\n"
-	if err := os.WriteFile(filepath.Join(dir, FileAwfGh), []byte(gh), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	imported, err := Import(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files, err := Build(imported, dir, Settings{})
-	if err != nil {
-		t.Fatalf("imported file does not generate: %v\n%s", err, imported)
-	}
-	if got, want := ruleKeys(t, files[FileAwfGh]), ruleKeys(t, []byte(gh)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("rules differ after the round trip\ngot  %v\nwant %v\n\nimported:\n%s", got, want, imported)
-	}
-}
-
-func TestImportedFileIsReadable(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{FileAwfGh, FileTend, FileCheckout, FileSync} {
-		data, _ := os.ReadFile(filepath.Join("testdata", name))
-		_ = os.WriteFile(filepath.Join(dir, name), data, 0o644)
-	}
-	imported, err := Import(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"acme/app:", "provider: claude", "fix_issue: {label: dot}", "checkout: /home/me/src/app", "sync: true", "sync: /home/me/src/lib", "only/tended:", "only/mapped:"} {
-		if !strings.Contains(string(imported), want) {
-			t.Errorf("imported file lacks %q:\n%s", want, imported)
-		}
-	}
-}
-
 func TestSyncNeedsAPath(t *testing.T) {
 	if got := buildErr(t, "version: 1\nrepos:\n  a/b: {sync: true}\n"); !strings.Contains(got, "needs a `checkout` path") {
 		t.Errorf("error = %q", got)
@@ -546,7 +402,7 @@ func TestExampleFileGenerates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(ruleKeys(t, files[FileAwfGh])); got < 6 {
+	if got := strings.Count(string(files[FileAwfGh]), "workflow:"); got < 6 {
 		t.Errorf("the example generates %d rules, it should show every shape", got)
 	}
 }

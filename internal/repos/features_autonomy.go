@@ -13,7 +13,7 @@ var autonomyLevels = []string{"observe", "propose", "act", "auto"}
 // autonomy is the ceiling of what a dot may do on a repository (ADR 0040).
 // observe writes an internal note, propose holds the artifact until a person
 // releases it with the publish-held workflow (ADR 0040).
-type autonomy struct{ base }
+type autonomy struct{}
 
 func (autonomy) Key() string { return "autonomy" }
 func (autonomy) Doc() string {

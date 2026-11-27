@@ -16,7 +16,7 @@ const maxDailyUSD = 10000
 // budget caps what the dot's autonomous actions on a repository may spend in one UTC
 // day (ADR 0036, first step). It is opt-in: with no key nothing is capped, nothing is
 // read and no generated file changes.
-type budget struct{ base }
+type budget struct{}
 
 func (budget) Key() string { return "budget" }
 func (budget) Doc() string {

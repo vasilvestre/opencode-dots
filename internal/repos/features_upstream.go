@@ -17,7 +17,7 @@ var upstreamRepo = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 // depends on, by creating issues there (ADR 0043). It is off unless the key is
 // present, and it only exists at autonomy `auto`: a tracker nobody here
 // controls is the widest write the dot has.
-type upstream struct{ base }
+type upstream struct{}
 
 func (upstream) Key() string { return "upstream" }
 func (upstream) Doc() string {

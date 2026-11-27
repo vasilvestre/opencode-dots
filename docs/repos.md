@@ -8,8 +8,7 @@ gitignored and only `repos.example.yaml` is versioned:
 
 ```bash
 go build -o bin/repos ./cmd/repos
-bin/repos import        # existing install: builds repos.yaml from awf-gh.yaml, tend.list and repos.map
-cp repos.example.yaml repos.yaml   # new install only, never over an existing awf-gh.yaml
+cp repos.example.yaml repos.yaml   # first install only
 $EDITOR repos.yaml      # one block per repository
 make repos              # writes awf-gh.yaml, tend.list, repos.map and sync.map
 make configure          # fits awf_url and state_path to local or docker mode
@@ -26,6 +25,5 @@ them. The dashboard validates `repos.yaml` when it saves it, refuses a file that
 would not generate, and rewrites the four files. `make configure` regenerates
 `awf-gh.yaml` with the `awf_url` and `state_path` that fit local or docker mode.
 
-Coming from the four hand-written files, `bin/repos import` builds the first
-`repos.yaml` from them, and its test shows regenerating gives the same rules.
-See [ADR 0022](../ADR/0022-repos-yaml-is-the-source-of-truth.md).
+The importer that built the first `repos.yaml` from the four hand-written files is gone: the
+migration is done (see git history before this change). See [ADR 0022](../ADR/0022-repos-yaml-is-the-source-of-truth.md).

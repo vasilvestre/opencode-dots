@@ -15,7 +15,7 @@ func init() { Register(breaker{}) }
 // breaker is the optional circuit breaker of ADR 0040: when on, a revert of a
 // merge made by the dot, or a red default branch after one, drops the
 // repository to `act` (bin/breaker). It only exists at `auto`.
-type breaker struct{ base }
+type breaker struct{}
 
 func (breaker) Key() string { return "circuit_breaker" }
 func (breaker) Doc() string {

@@ -3,7 +3,6 @@
 //
 //	repos generate   write the generated files (only the ones that changed)
 //	repos check      exit 1 when a generated file is out of date, write nothing
-//	repos import     build a first repos.yaml from the three existing files
 //	repos spend      what the runs of one UTC day cost, per repository (ADR 0036)
 //	repos features   list the keys a repository accepts
 //	repos db         the database side of repos.yaml: import, export, check, list (ADR 0024)
@@ -19,7 +18,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"opencode-dots/internal/repos"
 	"opencode-dots/internal/store"
@@ -53,7 +51,6 @@ func main() {
 	dir := fs.String("dir", ".", "repository root: holds repos.yaml and receives the generated files")
 	awfURL := fs.String("awf-url", "", "awf_url of the generated awf-gh.yaml (default: keep the current one)")
 	statePath := fs.String("state-path", "", "state_path of the generated awf-gh.yaml (default: keep the current one)")
-	force := fs.Bool("force", false, "import: overwrite an existing repos.yaml")
 	dbPath := fs.String("db", "", "db: the database file (default: $STATE_DIR/dots.db, else <dir>/state/dots.db)")
 	workspace := fs.String("workspace", "default", "db: the workspace of the projects")
 	prune := fs.Bool("prune", false, "db import: delete the projects the file omits, unless work items name them")
@@ -106,8 +103,6 @@ func main() {
 		fmt.Println(strings.Join(repos.FeatureDocs(), "\n"))
 	case "generate", "check":
 		fail(generate(*dir, override, cmd == "check", *fromDB, *dbPath, *workspace))
-	case "import":
-		fail(importFiles(*dir, *force))
 	case "spend":
 		fail(spendCommand(os.Stdout, *dir, *stateDir, *day, fs.Arg(0)))
 	case "events":
@@ -138,7 +133,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: repos generate|check|import|features [-dir DIR] [-awf-url URL] [-state-path PATH] [-force]")
+	fmt.Fprintln(os.Stderr, "usage: repos generate|check|features [-dir DIR] [-awf-url URL] [-state-path PATH]")
 	fmt.Fprintln(os.Stderr, "       repos spend [-state DIR] [-day YYYY-MM-DD] [OWNER/REPO]")
 	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list|work-items [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
 	fmt.Fprintln(os.Stderr, "       repos db observe -repo R -kind K -number N -actor LOGIN [-branch B] [-linked 12,13] [-title T]")
@@ -175,7 +170,7 @@ func generate(dir string, override repos.Settings, checkOnly, fromDB bool, dbPat
 	} else {
 		data, err := os.ReadFile(filepath.Join(dir, repos.SourceFile))
 		if err != nil {
-			return fmt.Errorf("%w (run `repos import` to build it from awf-gh.yaml, tend.list and repos.map)", err)
+			return fmt.Errorf("%w (copy repos.example.yaml to repos.yaml)", err)
 		}
 		if files, err = repos.Build(data, dir, override); err != nil {
 			return err
@@ -198,31 +193,6 @@ func generate(dir string, override repos.Settings, checkOnly, fromDB bool, dbPat
 		return nil
 	}
 	fmt.Println("repos: wrote", strings.Join(changed, ", "))
-	return nil
-}
-
-func importFiles(dir string, force bool) error {
-	target := filepath.Join(dir, repos.SourceFile)
-	if _, err := os.Stat(target); err == nil && !force {
-		return fmt.Errorf("%s exists, pass -force to replace it", target)
-	}
-	data, err := repos.Import(dir)
-	if err != nil {
-		return err
-	}
-	// Prove the import before writing it: the file must parse and generate.
-	if _, err := repos.Build(data, dir, repos.Settings{}); err != nil {
-		return fmt.Errorf("the imported file does not generate: %w", err)
-	}
-	if old, err := os.ReadFile(target); err == nil {
-		if err := os.WriteFile(target+"."+time.Now().Format("20060102-150405")+".bak", old, 0o600); err != nil {
-			return err
-		}
-	}
-	if err := os.WriteFile(target, data, 0o600); err != nil {
-		return err
-	}
-	fmt.Println("repos: wrote", repos.SourceFile, "- read it, then run `repos generate`; the generated files replace the three you had")
 	return nil
 }
 

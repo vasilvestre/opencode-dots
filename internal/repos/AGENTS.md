@@ -15,7 +15,6 @@ dashboard calls it when it saves `repos.yaml`. ADR 0022.
 | `features_trust.go` | `trust`: refuses a block that breaks the level of ADR 0032, after every other feature of the repository ran |
 | `store.go` | `ImportToStore`, `BuildFromStore`, `ExportYAML`, `DiffStoreAndFile`: repos.yaml and the database of `internal/store` (ADR 0024, step 1) |
 | `emit.go` | `Render`, `Write`, `Diff`, `Build`, settings merging |
-| `importer.go` | `Import`: builds a repos.yaml from awf-gh.yaml, tend.list, repos.map, sync.map (breaker.list is output only) |
 
 ## ADD A FEATURE
 
@@ -30,11 +29,7 @@ A feature is one key under a repository. To add one:
    name is the generated file; it gets the standard header).
 4. To change what other features emitted for the same repository (as `provider`
    does), override `Modify`; it runs after every `Emit` of that repository.
-5. To make `bin/repos import` recognise an existing rule, override `Workflow` (the
-   awf-gh workflow the feature owns), and teach `importer.go` any other file.
-6. Test it: `TestAFeatureCanBeAddedWithoutTouchingTheLoader` shows the shape. If
-   the feature reads a file `bin/repos import` should absorb, add it to
-   `testdata/` and the round trip test.
+5. Test it: `TestAFeatureCanBeAddedWithoutTouchingTheLoader` shows the shape.
 
 The loader never learns a key's meaning: an unknown key is an error that names
 the known ones, so a typo cannot switch a feature off quietly.

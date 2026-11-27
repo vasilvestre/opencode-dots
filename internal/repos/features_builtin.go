@@ -116,9 +116,8 @@ type watch struct {
 	doc           string
 }
 
-func (w watch) Key() string      { return w.key }
-func (w watch) Doc() string      { return w.doc }
-func (w watch) Workflow() string { return w.workflow }
+func (w watch) Key() string { return w.key }
+func (w watch) Doc() string { return w.doc }
 
 func (w watch) Check(v any) error {
 	_, err := w.rules("", v)
@@ -271,7 +270,7 @@ func stringList(block map[string]any, key string) ([]string, error) {
 // provider picks the agent CLI for the repository. It emits nothing itself: it
 // sets the `provider` input on the rules whose workflow declares one, so a
 // workflow that does not support it is never handed an input it would ignore.
-type provider struct{ base }
+type provider struct{}
 
 func (provider) Key() string { return "provider" }
 func (provider) Doc() string {

@@ -18,7 +18,7 @@ func init() { Register(executor{}) }
 // executor says which awf serve runs the tasks of the watch rules of this
 // repository (ADR 0031). It emits nothing: it tags the rules, and Render writes
 // one awf-gh file per executor, since awf-gh takes a single awf_url per file.
-type executor struct{ base }
+type executor struct{}
 
 func (executor) Key() string { return "executor" }
 func (executor) Doc() string {

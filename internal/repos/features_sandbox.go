@@ -20,7 +20,7 @@ const (
 // docs/runner.md): the patch goes through bin/patch-guard, and a configured test runs in a
 // throwaway container with no network. It is opt-in, and required on a `client` or `strict`
 // repository. With no key nothing is checked and no generated file changes.
-type sandbox struct{ base }
+type sandbox struct{}
 
 func (sandbox) Key() string { return "sandbox" }
 func (sandbox) Doc() string {

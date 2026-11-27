@@ -26,7 +26,7 @@ func levelIndex(s string) int {
 // nothing: Modify refuses a block that contradicts the level, before any file is
 // written. It checks the configuration, not a running agent: the isolation that
 // holds today is the machine boundary of ADR 0029.
-type trust struct{ base }
+type trust struct{}
 
 func (trust) Key() string { return "trust" }
 func (trust) Doc() string {

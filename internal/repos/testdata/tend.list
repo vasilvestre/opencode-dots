@@ -1,6 +1,0 @@
-# repo auto_merge
-acme/app true
-acme/lib true
-acme/tool false
-upstream/cli false
-only/tended false

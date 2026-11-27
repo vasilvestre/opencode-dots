@@ -11,7 +11,7 @@ var identityModes = []string{"off", "marker", "signed"}
 
 // identity says whether the dot marks what it writes to GitHub, so a pull request
 // of the dot can be told from a human's under the same login (docs/identity.md).
-type identity struct{ base }
+type identity struct{}
 
 func (identity) Key() string { return "identity" }
 func (identity) Doc() string {

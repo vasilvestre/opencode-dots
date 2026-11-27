@@ -2,7 +2,6 @@ package repos
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -21,26 +20,29 @@ func openStore(t *testing.T) *store.Store {
 	return st
 }
 
-// fixtureDocs are repos.yaml files that cover the shapes the generator knows: the imported
-// hand written files (defaults, profiles, several rules per repository, checkouts, sync)
-// and an executor document.
+// fixtureDocs are repos.yaml documents of several shapes: every watcher feature with a checkout,
+// a sync and a provider, an executor document and a tend-only one.
 func fixtureDocs(t *testing.T) map[string][]byte {
 	t.Helper()
-	dir := t.TempDir()
-	for _, name := range []string{FileAwfGh, FileTend, FileCheckout, FileSync} {
-		data, err := os.ReadFile(filepath.Join("testdata", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	imported, err := Import(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return map[string][]byte{"imported": imported, "executors": []byte(executorDoc), "tend only": []byte("version: 1\nrepos:\n  acme/a: {tend: true}\n  acme/b: {tend: {auto_merge: true}}\n")}
+	const full = `version: 1
+settings:
+  max_per_run: 6
+repos:
+  acme/app:
+    checkout: /home/me/src/app
+    sync: true
+    provider: claude
+    tend: true
+    review: true
+    reply: true
+    fix_ci: true
+    fix_issue: {label: dot}
+  acme/lib:
+    checkout: /home/me/src/lib
+    sync: /home/me/src/lib
+    review: {on: [pr-opened]}
+`
+	return map[string][]byte{"full": []byte(full), "executors": []byte(executorDoc), "tend only": []byte("version: 1\nrepos:\n  acme/a: {tend: true}\n  acme/b: {tend: {auto_merge: true}}\n")}
 }
 
 func TestStoreGeneratesTheSameFilesAsTheFile(t *testing.T) {

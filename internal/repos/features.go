@@ -74,17 +74,12 @@ type Feature interface {
 	// index `from` of out.Rules on (as provider does), instead of or as well as
 	// emitting its own. It runs after every Emit of that repository.
 	Modify(r *Resolved, out *Output, from int) error
-	// Workflow names the awf-gh workflow whose rules this feature owns, so
-	// `bin/repos import` can read them back; empty for a feature that is not a
-	// watcher rule.
-	Workflow() string
 }
 
 // base holds the optional methods of Feature, for a feature that needs neither.
 type base struct{}
 
 func (base) Modify(*Resolved, *Output, int) error { return nil }
-func (base) Workflow() string                     { return "" }
 
 var (
 	registry = map[string]Feature{}
