@@ -144,6 +144,18 @@ var migrations = []string{
 		renewed_at    TEXT NOT NULL,
 		expires_at    TEXT NOT NULL
 	);`,
+	// 5: what a source says about a work item (ADR 0039): the latest payload, and an
+	// append-only trail of the changes. Both are data from outside, never instructions.
+	`ALTER TABLE work_item ADD COLUMN payload TEXT NOT NULL DEFAULT '{}';
+	CREATE TABLE work_item_event (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		work_item_id TEXT NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
+		at           TEXT NOT NULL,
+		kind         TEXT NOT NULL,
+		actor_id     TEXT NOT NULL REFERENCES actor(id),
+		data         TEXT NOT NULL DEFAULT '{}'
+	);
+	CREATE INDEX work_item_event_item ON work_item_event(work_item_id, id);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

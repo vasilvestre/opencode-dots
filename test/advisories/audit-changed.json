@@ -1,0 +1,72 @@
+{
+  "advisories": {
+    "acme/http": [
+      {
+        "advisoryId": "PKSA-0000",
+        "packageName": "acme/http",
+        "affectedVersions": ">=1.0.0,<1.4.2|>=2.0.0,<2.1.1",
+        "title": "Header injection in the client",
+        "cve": "CVE-2024-11111",
+        "link": "https://example.test/advisory/x",
+        "reportedAt": "2024-03-01T10:00:00+00:00",
+        "sources": [
+          {
+            "name": "GitHub",
+            "remoteId": "GHSA-cfgh-2345-wxvr"
+          }
+        ],
+        "severity": "critical"
+      }
+    ],
+    "acme/cache": [
+      {
+        "advisoryId": "PKSA-0000",
+        "packageName": "acme/cache",
+        "affectedVersions": ">=2.0,<3.0.5",
+        "title": "Cache poisoning",
+        "cve": "CVE-2023-22222",
+        "link": "https://example.test/advisory/x",
+        "reportedAt": "2024-03-01T10:00:00+00:00",
+        "sources": [
+          {
+            "name": "GitHub",
+            "remoteId": "GHSA-mmpp-2222-ccgg"
+          }
+        ],
+        "severity": "medium"
+      }
+    ],
+    "acme/nofix": [
+      {
+        "advisoryId": "PKSA-0000",
+        "packageName": "acme/nofix",
+        "affectedVersions": ">=1.0",
+        "title": "Unfixed parser flaw",
+        "cve": "CVE-2023-55555",
+        "link": "https://example.test/advisory/x",
+        "reportedAt": "2024-03-01T10:00:00+00:00",
+        "sources": [],
+        "severity": "low"
+      }
+    ],
+    "acme/auth-bundle": [
+      {
+        "advisoryId": "PKSA-0000",
+        "packageName": "acme/auth-bundle",
+        "affectedVersions": "<2.2.0",
+        "title": "Session fixation",
+        "cve": "CVE-2024-33333",
+        "link": "https://example.test/advisory/x",
+        "reportedAt": "2024-03-01T10:00:00+00:00",
+        "sources": [
+          {
+            "name": "GitHub",
+            "remoteId": "GHSA-qqrr-3333-vwxx"
+          }
+        ],
+        "severity": "critical"
+      }
+    ]
+  },
+  "abandoned": {}
+}

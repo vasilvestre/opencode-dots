@@ -1,0 +1,26 @@
+{
+  "packages": [
+    {
+      "name": "acme/http",
+      "version": "1.3.0"
+    },
+    {
+      "name": "acme/cache",
+      "version": "v2.5.1"
+    },
+    {
+      "name": "acme/nofix",
+      "version": "1.2.0"
+    },
+    {
+      "name": "acme/auth-bundle",
+      "version": "2.1.0"
+    },
+    {
+      "name": "acme/other",
+      "version": "9.0.0"
+    }
+  ],
+  "packages-dev": [],
+  "content-hash": "x"
+}

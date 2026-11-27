@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# bin/advisories against a fake composer and fixture reports (test/advisories). No network,
+# no real composer, no real repository: the repos.yaml, the clones, the state and the
+# database all live in a temporary directory.
+#
+#   bin/test-advisories
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+fx=$root/test/advisories
+command -v jq >/dev/null || { echo "bin/test-advisories: jq is required" >&2; exit 2; }
+command -v go >/dev/null || { echo "bin/test-advisories: go is required to build bin/repos" >&2; exit 2; }
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+fail=0
+check() { # NAME CMD...
+  local name=$1; shift
+  if "$@"; then echo "ok   $name"; else echo "FAIL $name"; fail=1; fi
+}
+
+go build -o "$work/repos" ./cmd/repos || { echo "FAIL cannot build cmd/repos"; exit 1; }
+
+# A fake composer: logs what it was called with and what directory it was given.
+mkdir -p "$work/bin" "$work/fake"
+cat > "$work/bin/composer" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE/argv"
+wd=""
+for a in "$@"; do case $a in --working-dir=*) wd=${a#*=} ;; esac; done
+ls -A "$wd" | tr '\n' ' ' >> "$FAKE/wdfiles"; echo >> "$FAKE/wdfiles"
+printf '%s\n' "${GH_TOKEN:-unset}" >> "$FAKE/token"
+if [ -f "$FAKE/fail" ]; then echo "boom https://user:hunter2@packages.test/x" >&2; exit 2; fi
+cat "$FAKE/audit.json"
+exit 1   # composer audit exits non-zero when it finds advisories
+EOF
+chmod +x "$work/bin/composer"
+export PATH=$work/bin:$PATH FAKE=$work/fake
+
+# The repositories: one with a lock, one without, one not cloned.
+proj=$work/proj; mkdir -p "$proj" "$work/clones/app" "$work/clones/nolock"
+cp "$fx/composer.lock" "$fx/composer.json" "$work/clones/app/"
+cp "$fx/composer.json" "$work/clones/nolock/"
+cat > "$proj/repos.yaml" <<EOF
+version: 1
+repos:
+  acme/app:
+    advisories: true
+    checkout: $work/clones/app
+  acme/nolock:
+    advisories: true
+    checkout: $work/clones/nolock
+  acme/noclone:
+    advisories: true
+  acme/plain:
+    review: true
+EOF
+"$work/repos" generate -dir "$proj" > "$work/generate.out" 2>&1 || { cat "$work/generate.out"; echo "FAIL generate"; exit 1; }
+check "advisory.list holds the three opted-in repositories and not the others" \
+  test "$(grep -vc '^#' "$proj/advisory.list")" = 3
+! grep -q 'acme/plain' "$proj/advisory.list" || { echo "FAIL plain repository listed"; fail=1; }
+
+export STATE_DIR=$work/state ADVISORY_LIST=$proj/advisory.list REPOS_MAP=$proj/repos.map \
+  WORK_ROOT=$work/none REPOS_BIN=$work/repos ADVISORY_NOTE_PAUSE=0 GH_TOKEN=ghp_notforprinting
+"$work/repos" db import -dir "$proj" > /dev/null || { echo "FAIL db import"; exit 1; }
+
+run() { # sets rc, out
+  out=$(bin/advisories 2>&1); rc=$?
+}
+notes() { find "$STATE_DIR/notes" -maxdepth 1 -name '*.txt' 2>/dev/null | wc -l; }
+calls() { wc -l < "$FAKE/argv" 2>/dev/null || echo 0; }
+
+# 1. first ingest ---------------------------------------------------------------
+cp "$fx/audit.json" "$FAKE/audit.json"
+run
+check "first run exits 0" test "$rc" = 0
+check "first run: four new advisories" grep -q 'acme/app: 4 new, 0 changed, 0 seen' <<<"$out"
+check "first run: four notes" test "$(notes)" = 4
+check "first run: a class file next to each note" test "$(find "$STATE_DIR/notes" -name '*.class.json' | wc -l)" = 4
+check "composer ran once: no lock, no clone, no call" test "$(calls)" = 1
+check "composer ran with plugins and scripts off, on a copy" grep -q -- '--no-plugins --no-scripts' "$FAKE/argv"
+check "composer saw only copies of composer.lock and composer.json" test "$(tr -s ' ' <"$FAKE/wdfiles" | head -1 | sed 's/ $//')" = "composer.json composer.lock"
+check "the clone was not touched" test "$(ls -A "$work/clones/app" | tr '\n' ' ')" = "composer.json composer.lock "
+check "composer got no token" grep -qx unset "$FAKE/token"
+check "no token is printed" bash -c '! grep -q ghp_notforprinting <<<"$1"' _ "$out"
+check "a repository without composer.lock is skipped" grep -q 'acme/nolock: no composer.lock, skipped' <<<"$out"
+check "a repository without a clone is skipped" grep -q 'acme/noclone: no local checkout, skipped' <<<"$out"
+
+level_of() { jq -r --arg k "advisory-$1" 'select(.key == $k) | .level' "$STATE_DIR"/notes/*.class.json; }
+check "level 1: a fix in the installed major" test "$(level_of GHSA-cfgh-2345-wxvr)" = 1
+check "level 2: only a new major fixes it" test "$(level_of GHSA-mmpp-2222-ccgg)" = 2
+check "level 3: no fixed version" test "$(level_of CVE-2023-55555)" = 3
+check "level 3: critical on an auth package" test "$(level_of GHSA-qqrr-3333-vwxx)" = 3
+check "the class 3 note says so" grep -rq '^class: 3' "$STATE_DIR/notes" --include='*.txt'
+check "the note is an artifact copy with the summary" grep -rq 'Package: `acme/http`, installed `1.3.0`' "$STATE_DIR/notes/artifacts"
+check "database holds four advisory work items" test "$("$work/repos" db work-items -repo acme/app | grep -c 'advisory:')" = 4
+
+# 2. repeat ---------------------------------------------------------------------
+run
+check "repeat: nothing new, nothing changed" grep -q 'acme/app: 0 new, 0 changed, 4 seen' <<<"$out"
+check "repeat: no new note" test "$(notes)" = 4
+check "repeat: still four work items" test "$("$work/repos" db work-items -repo acme/app | grep -c 'advisory:')" = 4
+
+# 3. changed severity -------------------------------------------------------------
+cp "$fx/audit-changed.json" "$FAKE/audit.json"
+sleep 1   # a record is named by the second: the change must not land in the second of the first note
+run
+check "changed: one changed advisory" grep -q 'acme/app: 0 new, 1 changed, 3 seen' <<<"$out"
+check "changed: one more note" test "$(notes)" = 5
+check "changed: the note says critical" grep -rq 'Severity: critical' "$STATE_DIR/notes/artifacts"
+check "changed: still four work items" test "$("$work/repos" db work-items -repo acme/app | grep -c 'advisory:')" = 4
+
+# 4. no advisories ------------------------------------------------------------------
+cp "$fx/audit-empty.json" "$FAKE/audit.json"
+run
+check "empty report: exits 0 with nothing new" bash -c 'test "$1" = 0 && grep -q "0 new, 0 changed, 0 seen" <<<"$2"' _ "$rc" "$out"
+
+# 5. composer fails without json ------------------------------------------------------
+touch "$FAKE/fail"
+run
+check "composer failure: exit 1" test "$rc" = 1
+check "composer failure: says so and masks the credentials" bash -c 'grep -q "gave no json" <<<"$1" && ! grep -q hunter2 <<<"$1"' _ "$out"
+rm -f "$FAKE/fail"
+
+# 6. composer missing ---------------------------------------------------------------
+out=$(COMPOSER=no-such-composer-here bin/advisories 2>&1); rc=$?
+check "composer missing: exit 0 and a clear line" bash -c 'test "$1" = 0 && grep -q "composer not found" <<<"$2"' _ "$rc" "$out"
+out=$(ADVISORY_LIST=$work/absent.list bin/advisories 2>&1); rc=$?
+check "no advisory.list: exit 0" bash -c 'test "$1" = 0 && grep -q "nothing to audit" <<<"$2"' _ "$rc" "$out"
+
+# 7. hostile advisory text --------------------------------------------------------------
+export STATE_DIR=$work/state2
+"$work/repos" db import -dir "$proj" > /dev/null
+cp "$fx/audit-hostile.json" "$FAKE/audit.json"
+run
+check "hostile: exits 0, four new advisories" bash -c 'test "$1" = 0 && grep -q "4 new" <<<"$2"' _ "$rc" "$out"
+check "hostile: no file was created by the injected text" test ! -e "$root/pwned" -a ! -e "$work/pwned"
+check "hostile: no control character in any note or class file" \
+  bash -c '! grep -rlP "[\x00-\x08\x0b-\x1f\x7f]" "$1" >/dev/null' _ "$STATE_DIR/notes"
+check "hostile: a javascript: link is withheld, the title only sits in a code span" bash -c '! grep -rq -- "- Link: javascript" "$1/notes/artifacts" && grep -rq -- "- Link: none" "$1/notes/artifacts"' _ "$STATE_DIR"
+check "hostile: the title is capped" test "$(grep -rh 'Title as reported' "$STATE_DIR/notes/artifacts" | awk '{ if (length($0) > m) m = length($0) } END { print m }')" -lt 400
+check "hostile: no agent, merge or ignore came out of the text: levels unchanged" test "$(level_of GHSA-mmpp-2222-ccgg)" = 2
+check "hostile: still four work items" test "$("$work/repos" db work-items -repo acme/app | grep -c 'advisory:')" = 4
+
+[ "$fail" = 0 ] && echo "bin/test-advisories: all passed" || echo "bin/test-advisories: FAILED"
+exit "$fail"

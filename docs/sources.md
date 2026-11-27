@@ -1,7 +1,7 @@
 # Work sources
 
 `internal/sources` is the inbound half of the adapters of ADR 0023 and ADR 0039. It is
-a package and its tests only: nothing calls it yet, and no watcher is wired to it.
+a package and its tests; only the advisory adapter is called, by `bin/advisories` (`docs/advisories.md`).
 
 ## Envelope
 
@@ -48,3 +48,8 @@ fixed versions taken from the upper bounds), the CVE ids and a severity (`low`, 
 `high`, `critical`, `unknown`). The id comes from a GitHub source (`GHSA-`) or the `cve`
 field. An entry with neither is left out and reported in the error. Titles and links are
 carried as data and never read for references or commands.
+
+## Wired end to end
+
+The advisory source is wired: `bin/advisories` feeds the adapter, `bin/repos db ingest` records the
+work items, and a classification and a note follow. See `docs/advisories.md`. Sentry and Jira are not.

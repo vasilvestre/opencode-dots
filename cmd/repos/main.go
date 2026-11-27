@@ -55,7 +55,12 @@ func main() {
 	fromDB := fs.Bool("from-db", false, "generate, check: build the files from the database instead of repos.yaml (ADR 0024, step 2)")
 	ev := workitem.GitHubEvent{}
 	linked := fs.String("linked", "", "db observe: issue numbers GitHub links to the pull request, comma separated")
-	fs.StringVar(&ev.Repo, "repo", "", "db observe, db work-items: the repository")
+	fs.StringVar(&ev.Repo, "repo", "", "db observe, db work-items, db ingest: the repository")
+	var ing dbIngest
+	fs.StringVar(&ing.Source, "source", "", "db ingest: the source of the report on stdin (advisory)")
+	fs.StringVar(&ing.Lock, "lock", "", "db ingest: the composer.lock whose installed versions classify the advisories")
+	fs.StringVar(&ing.Floor, "floor", "", "db ingest: the sensitive vocabulary file (default <dir>/workflows/data/classify-floor.txt)")
+	fs.BoolVar(&ing.JSON, "json", false, "db ingest: print one JSON object per advisory")
 	fs.StringVar(&ev.Kind, "kind", "", "db observe: the event (pr-opened, issue-opened, ...)")
 	fs.IntVar(&ev.Number, "number", 0, "db observe: the issue or pull request number")
 	fs.StringVar(&ev.Branch, "branch", "", "db observe: the head branch of a pull request")
@@ -91,7 +96,8 @@ func main() {
 		}
 		ev.LinkedIssues = nums
 		cl.Branch, cl.Actor, cl.Repo = ev.Branch, ev.Actor, ev.Repo
-		err = dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev, cl)
+		ing.Repo = ev.Repo
+		err = dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev, cl, ing)
 		var held heldError
 		if errors.As(err, &held) {
 			fmt.Println(held.Error())
@@ -108,6 +114,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: repos generate|check|import|features [-dir DIR] [-awf-url URL] [-state-path PATH] [-force]")
 	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list|work-items [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
 	fmt.Fprintln(os.Stderr, "       repos db observe -repo R -kind K -number N -actor LOGIN [-branch B] [-linked 12,13] [-title T]")
+	fmt.Fprintln(os.Stderr, "       repos db ingest -source advisory -repo R [-lock composer.lock] [-json] < composer-audit.json")
 	fmt.Fprintln(os.Stderr, "       repos db claim -actor LOGIN -machine M (-work-item ID | -ref REF) [-branch B] [-ttl 90s]")
 	fmt.Fprintln(os.Stderr, "       repos db heartbeat|release -claim ID    repos db claims -work-item ID")
 	fmt.Fprintln(os.Stderr, "       repos db worker register -name N -machine M [-capabilities JSON] [-ttl 90s]   heartbeat|expire -name N   list")
@@ -207,7 +214,7 @@ func warnStaleWatchers(dir string, files map[string][]byte) {
 // dbCommand is the database side of repos.yaml (ADR 0024, step 1). repos.yaml stays the
 // source: `import` loads it, `check` compares what the database would generate with what
 // the file generates, `export` and `list` read the database back.
-func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHubEvent, cl dbClaim) error {
+func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHubEvent, cl dbClaim, ing dbIngest) error {
 	dbPath = resolveDB(dir, dbPath)
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -265,6 +272,8 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 		}
 		fmt.Printf("work_item=%s %s refs=%s\n", res.WorkItem.ID, state, strings.Join(refList(res.WorkItem), ","))
 		return nil
+	case "ingest":
+		return ingestCommand(ctx, st, os.Stdin, os.Stdout, os.Stderr, dir, workspace, ing)
 	case "work-items":
 		projects, err := st.Projects(ctx, workspace)
 		if err != nil {
@@ -303,7 +312,7 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 		}
 		return nil
 	default:
-		return fmt.Errorf("repos db: unknown subcommand %q (import, export, check, list, observe, work-items)", sub)
+		return fmt.Errorf("repos db: unknown subcommand %q (import, export, check, list, observe, ingest, work-items)", sub)
 	}
 }
 

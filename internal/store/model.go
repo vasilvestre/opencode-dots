@@ -248,6 +248,9 @@ type WorkItem struct {
 	ProjectID string
 	Title     string
 	State     string
+	// Payload is what the source last said about the item, as JSON (`{}` when it never
+	// said anything). Its text is data from outside.
+	Payload   json.RawMessage
 	CreatedBy string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -364,28 +367,29 @@ func (s *Store) WorkItemsByProject(ctx context.Context, projectID string) ([]Wor
 
 // workItem returns one work item with its references, or ErrNotFound.
 func (s *Store) workItem(ctx context.Context, id string) (WorkItem, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, title, state, created_by, created_at, updated_at FROM work_item WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, title, state, payload, created_by, created_at, updated_at FROM work_item WHERE id = ?`, id)
 	return s.finishWorkItem(ctx, row)
 }
 
 // WorkItemByRef returns the work item that holds a reference, or ErrNotFound.
 func (s *Store) WorkItemByRef(ctx context.Context, ref string) (WorkItem, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT w.id, w.project_id, w.title, w.state, w.created_by, w.created_at, w.updated_at
+		SELECT w.id, w.project_id, w.title, w.state, w.payload, w.created_by, w.created_at, w.updated_at
 		FROM work_item w JOIN work_item_ref r ON r.work_item_id = w.id WHERE r.ref = ?`, ref)
 	return s.finishWorkItem(ctx, row)
 }
 
 func (s *Store) finishWorkItem(ctx context.Context, row *sql.Row) (WorkItem, error) {
 	var w WorkItem
-	var created, updated string
-	err := row.Scan(&w.ID, &w.ProjectID, &w.Title, &w.State, &w.CreatedBy, &created, &updated)
+	var created, updated, payload string
+	err := row.Scan(&w.ID, &w.ProjectID, &w.Title, &w.State, &payload, &w.CreatedBy, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return WorkItem{}, ErrNotFound
 	}
 	if err != nil {
 		return WorkItem{}, err
 	}
+	w.Payload = json.RawMessage(payload)
 	w.CreatedAt, w.UpdatedAt = parseTime(created), parseTime(updated)
 	rows, err := s.db.QueryContext(ctx, `SELECT ref, source_event, attached_by, attached_at FROM work_item_ref WHERE work_item_id = ? ORDER BY attached_at, ref`, w.ID)
 	if err != nil {
