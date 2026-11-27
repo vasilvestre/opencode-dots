@@ -1,6 +1,6 @@
 # 0042. A workstation is a worker that joins an instance
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none

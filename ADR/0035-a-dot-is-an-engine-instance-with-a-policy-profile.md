@@ -1,6 +1,6 @@
 # 0035. A dot is an instance of the engine with a policy profile
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none

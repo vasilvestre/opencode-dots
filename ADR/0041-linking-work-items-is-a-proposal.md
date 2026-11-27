@@ -1,6 +1,6 @@
 # 0041. Linking work items across sources is a proposal; merging stays explicit
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none

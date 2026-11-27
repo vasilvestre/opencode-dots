@@ -1,9 +1,9 @@
 # 0038. Two dots on one repository share metadata and reviewed lessons, never code or raw memory
 
-- Status: proposed
+- Status: superseded by 0045
 - Date: 2026-11-26
 - Supersedes: none
-- Superseded by: none
+- Superseded by: 0045
 
 ## Context
 

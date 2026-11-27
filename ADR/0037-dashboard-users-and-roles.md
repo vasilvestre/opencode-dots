@@ -1,6 +1,6 @@
 # 0037. The dashboard has users, roles and an audit trail
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none
