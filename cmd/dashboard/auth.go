@@ -21,17 +21,19 @@ import (
 // a GitHub OAuth client id is configured; with it off nothing here runs and the dashboard
 // answers as it always did.
 //
-// The visitor proves who they are through the OAuth device flow with NO scope. The dashboard
-// reads their login once, drops the token at once and keeps only the login in a server-side
-// session. What a login may see is asked of GitHub with the dot's own token (visibility.go).
+// The visitor signs in through the OAuth device flow with the scope `repo` (ADR 0046). Right
+// after the approval the dashboard uses their token once: it reads the login and the visitor's
+// permission on every configured repository (rights.go), then drops the token. The server-side
+// session keeps the login, the set of visible repositories and an expiry of one hour.
 
 const (
 	sessionCookie  = "dots_session"
-	sessionTTL     = 8 * time.Hour
+	sessionTTL     = time.Hour
 	maxSessions    = 500
 	maxPending     = 200
 	defaultPollGap = 5 * time.Second
 	slowDownStep   = 5 * time.Second
+	deviceScope    = "repo"
 	deviceGrant    = "urn:ietf:params:oauth:grant-type:device_code"
 	authBodyCap    = 4096
 	githubBodyCap  = 1 << 20
@@ -40,32 +42,25 @@ const (
 // loginRE is what a GitHub login looks like, checked before it reaches a URL path.
 var loginRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// secret keeps the dot's own token out of a log line or a debug print.
-type secret string
-
-func (secret) String() string   { return "[redacted]" }
-func (secret) GoString() string { return "[redacted]" }
-
 // authConfig is what the flags and the environment give.
 type authConfig struct {
-	ClientID  string
-	GitHubURL string // device flow host, default https://github.com
-	APIURL    string // REST API, default https://api.github.com
-	Token     string // the dot's own token, from GH_TOKEN
+	ClientID      string
+	GitHubURL     string // device flow host, default https://github.com
+	APIURL        string // REST API, default https://api.github.com
+	MinPermission string // "push" (default) or "pull"
 }
 
 type authState struct {
 	clientID  string
 	githubURL string
 	apiURL    string
-	token     secret
+	minRank   int
 	client    *http.Client
 	now       func() time.Time
 
 	mu       sync.Mutex
 	pending  map[string]*devicePending
 	sessions map[string]session
-	perms    map[string]permEntry
 	limits   map[string]*window
 	readSeen map[string]time.Time
 }
@@ -78,9 +73,10 @@ type devicePending struct {
 	expires    time.Time
 }
 
-// session holds a login and nothing else about the visitor.
+// session holds a login and the repositories it may see (lower-cased). It never holds a token.
 type session struct {
 	login   string
+	visible map[string]bool
 	expires time.Time
 }
 
@@ -89,20 +85,22 @@ type window struct {
 	n     int
 }
 
+// newAuth builds the sign-in, or nil when no client id is set. main has checked the minimum
+// permission with parseMinPermission; an empty one is the default.
 func newAuth(c authConfig) *authState {
 	if c.ClientID == "" {
 		return nil
 	}
+	minRank, _ := parseMinPermission(c.MinPermission)
 	return &authState{
 		clientID:  c.ClientID,
 		githubURL: strings.TrimRight(firstNonEmpty(c.GitHubURL, "https://github.com"), "/"),
 		apiURL:    strings.TrimRight(firstNonEmpty(c.APIURL, "https://api.github.com"), "/"),
-		token:     secret(c.Token),
+		minRank:   minRank,
 		client:    &http.Client{Timeout: 10 * time.Second},
 		now:       time.Now,
 		pending:   map[string]*devicePending{},
 		sessions:  map[string]session{},
-		perms:     map[string]permEntry{},
 		limits:    map[string]*window{},
 		readSeen:  map[string]time.Time{},
 	}
@@ -130,26 +128,32 @@ func ownerRequest(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// sessionLogin is the login of the request's session, or "" when there is none.
-func (a *authState) sessionLogin(r *http.Request) string {
+// sessionView is the login and the visible repositories of the request's session, or "" when
+// there is none.
+func (a *authState) sessionView(r *http.Request) (string, map[string]bool) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
-		return ""
+		return "", nil
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s, ok := a.sessions[c.Value]
 	if !ok {
-		return ""
+		return "", nil
 	}
 	if !a.now().Before(s.expires) {
 		delete(a.sessions, c.Value)
-		return ""
+		return "", nil
 	}
-	return s.login
+	return s.login, s.visible
 }
 
-func (a *authState) openSession(login string) string {
+func (a *authState) sessionLogin(r *http.Request) string {
+	login, _ := a.sessionView(r)
+	return login
+}
+
+func (a *authState) openSession(login string, visible map[string]bool) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
@@ -168,7 +172,7 @@ func (a *authState) openSession(login string) string {
 		delete(a.sessions, oldest)
 	}
 	id := randomID(32)
-	a.sessions[id] = session{login: login, expires: now.Add(sessionTTL)}
+	a.sessions[id] = session{login: login, visible: visible, expires: now.Add(sessionTTL)}
 	return id
 }
 
@@ -263,8 +267,8 @@ func (a *authState) githubForm(path string, form url.Values, out any) error {
 	return nil
 }
 
-// deviceStart begins a device flow: POST /auth/device/start. The scope is empty on purpose:
-// the visitor proves who they are and grants nothing.
+// deviceStart begins a device flow: POST /auth/device/start. It asks for the scope `repo`, the
+// one `gh auth login` asks, so GitHub can say what the visitor may do on each repository.
 func (d *dash) deviceStart(w http.ResponseWriter, r *http.Request) {
 	if d.auth == nil {
 		http.NotFound(w, r)
@@ -282,7 +286,7 @@ func (d *dash) deviceStart(w http.ResponseWriter, r *http.Request) {
 		ExpiresIn  int    `json:"expires_in"`
 		Interval   int    `json:"interval"`
 	}
-	if err := a.githubForm("/login/device/code", url.Values{"client_id": {a.clientID}, "scope": {""}}, &out); err != nil ||
+	if err := a.githubForm("/login/device/code", url.Values{"client_id": {a.clientID}, "scope": {deviceScope}}, &out); err != nil ||
 		out.DeviceCode == "" || out.UserCode == "" || out.ExpiresIn <= 0 {
 		log.Printf("sign-in: the device code request failed")
 		authError(w, http.StatusBadGateway, "GitHub did not start the sign-in")
@@ -383,7 +387,12 @@ func (d *dash) devicePoll(w http.ResponseWriter, r *http.Request) {
 		authError(w, http.StatusBadGateway, "GitHub refused the sign-in")
 		return
 	}
-	login, err := a.loginOf(res.AccessToken) // the token ends here: it is never stored
+	// The token is used here and nowhere else: it is never stored, logged or sent on.
+	login, err := a.loginOf(res.AccessToken)
+	var visible map[string]bool
+	if err == nil {
+		visible = a.visibleRepos(res.AccessToken, d.knownRepos())
+	}
 	res.AccessToken = ""
 	a.forget(in.ID)
 	if err != nil {
@@ -391,7 +400,7 @@ func (d *dash) devicePoll(w http.ResponseWriter, r *http.Request) {
 		authError(w, http.StatusBadGateway, "GitHub did not name the account")
 		return
 	}
-	id := a.openSession(login)
+	id := a.openSession(login, visible)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: id, Path: "/", MaxAge: int(sessionTTL / time.Second),
 		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secureRequest(r)})
 	d.recordSignIn(r, login)
@@ -423,7 +432,7 @@ func (a *authState) forget(id string) {
 	a.mu.Unlock()
 }
 
-// loginOf reads the login the token belongs to. It is the only use of the visitor's token.
+// loginOf reads the login the token belongs to.
 func (a *authState) loginOf(token string) (string, error) {
 	if token == "" {
 		return "", errors.New("no token")
@@ -474,7 +483,7 @@ func (d *dash) sessionInfo(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	out := map[string]any{"enabled": true, "role": "anonymous", "login": "", "token_missing": d.auth.token == ""}
+	out := map[string]any{"enabled": true, "role": "anonymous", "login": "", "min_permission": minPermissionName(d.auth.minRank)}
 	if ownerRequest(r) {
 		out["role"] = "owner"
 	} else if l := d.auth.sessionLogin(r); l != "" && d.trustedHost(r.Host) {

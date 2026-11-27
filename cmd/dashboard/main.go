@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -107,7 +106,12 @@ func main() {
 		"GitHub OAuth app client id; sign-in for visitors is on only when it is set (docs/dashboard-auth.md)")
 	ghURL := flag.String("github-url", envOr("DOTS_GITHUB_URL", "https://github.com"), "GitHub device flow host")
 	ghAPI := flag.String("github-api", envOr("DOTS_GITHUB_API_URL", "https://api.github.com"), "GitHub REST API base URL")
+	minPerm := flag.String("min-permission", envOr("DOTS_MIN_PERMISSION", "push"),
+		"permission a visitor needs on a repository to see it: push (write or better) or pull (read or better)")
 	flag.Parse()
+	if _, err := parseMinPermission(*minPerm); err != nil {
+		log.Fatal(err)
+	}
 
 	target, err := url.Parse(*awf)
 	if err != nil {
@@ -123,7 +127,7 @@ func main() {
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
-	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, Token: os.Getenv("GH_TOKEN")})
+	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm})
 	d.execDash = parseExecutorDashboards(envOr("DOTS_EXECUTOR_DASHBOARDS", ""))
 	for _, h := range strings.Split(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {

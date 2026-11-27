@@ -4,151 +4,32 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
 // What a signed-in visitor may see (ADR 0044). A visitor is any request that is not the host's
-// own user on loopback (ownerRequest). GitHub says which repositories a login may read; the
-// dashboard asks with the dot's own token, caches each answer for a minute and fails closed.
+// own user on loopback (ownerRequest). The session holds the repositories the visitor's own
+// GitHub token showed them to reach at sign-in (rights.go); a lookup in that set is the whole check.
 //
 // The wrappers below sit in front of the handlers, so a handler knows nothing of visitors:
 // scoped filters what a read returns, ownerOnly refuses the rest. With sign-in off (d.auth is
 // nil) both return the handler untouched.
 
-const permCacheTTL = time.Minute
-const permErrorTTL = 5 * time.Second
 const auditReadEvery = time.Minute
-const permParallel = 8
 
-// permEntry is one cached answer of GitHub for a login and a repository.
-type permEntry struct {
-	ok    bool
-	until time.Time
-}
-
-// readable is every permission that lets a login see a repository.
-var readable = map[string]bool{"read": true, "triage": true, "write": true, "maintain": true, "admin": true}
-
-// canRead asks whether login may read repo. Any error, any non-2xx answer and a missing token
-// say no.
-func (a *authState) canRead(login, repo string) bool {
-	if a.token == "" {
-		return false
-	}
-	key := strings.ToLower(login) + "|" + strings.ToLower(repo)
-	a.mu.Lock()
-	e, ok := a.perms[key]
-	now := a.now()
-	a.mu.Unlock()
-	if ok && now.Before(e.until) {
-		return e.ok
-	}
-	allowed, definitive := a.fetchPermission(login, repo)
-	ttl := permErrorTTL
-	if definitive {
-		ttl = permCacheTTL
-	}
-	a.mu.Lock()
-	if len(a.perms) > 5000 {
-		for k, v := range a.perms {
-			if !a.now().Before(v.until) {
-				delete(a.perms, k)
-			}
-		}
-	}
-	a.perms[key] = permEntry{ok: allowed, until: a.now().Add(ttl)}
-	a.mu.Unlock()
-	return allowed
-}
-
-// fetchPermission is GET /repos/{owner}/{repo}/collaborators/{login}/permission. definitive is
-// true when GitHub gave an answer (a 2xx, or a 4xx such as "the token cannot read this"), and
-// false for a failure worth trying again soon.
-func (a *authState) fetchPermission(login, repo string) (allowed, definitive bool) {
-	owner, name, ok := strings.Cut(repo, "/")
-	if !ok || !loginRE.MatchString(login) || !repoNameRE.MatchString(repo) {
-		return false, true
-	}
-	u := a.apiURL + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name) +
-		"/collaborators/" + url.PathEscape(login) + "/permission"
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return false, true
-	}
-	req.Header.Set("Authorization", "Bearer "+string(a.token))
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return false, false
-	}
-	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusOK:
-		var p struct {
-			Permission string `json:"permission"`
-			RoleName   string `json:"role_name"`
-		}
-		if json.NewDecoder(io.LimitReader(resp.Body, githubBodyCap)).Decode(&p) != nil {
-			return false, false
-		}
-		if p.Permission == "" {
-			p.Permission = p.RoleName
-		}
-		return readable[p.Permission], true
-	case resp.StatusCode/100 == 4 && resp.StatusCode != http.StatusTooManyRequests:
-		return false, true
-	}
-	return false, false
-}
-
-// viewer is one authenticated visitor. The set of repositories they may see is worked out once,
-// on the first question.
+// viewer is one authenticated visitor: the login and the repositories its session may see.
 type viewer struct {
 	login string
-	load  func() map[string]bool
-	once  sync.Once
 	set   map[string]bool
 }
 
 func (v *viewer) can(repo string) bool {
-	if repo == "" {
-		return false
-	}
-	v.once.Do(func() { v.set = v.load() })
-	return v.set[strings.ToLower(repo)]
-}
-
-// visibleRepos is the dot's configured repositories the login may read, lower-cased.
-func (d *dash) visibleRepos(login string) map[string]bool {
-	known := d.knownRepos()
-	out := map[string]bool{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, permParallel)
-	for _, repo := range known {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if d.auth.canRead(login, repo) {
-				mu.Lock()
-				out[strings.ToLower(repo)] = true
-				mu.Unlock()
-			}
-		}()
-	}
-	wg.Wait()
-	return out
+	return repo != "" && v.set[strings.ToLower(repo)]
 }
 
 // who classifies a request. It answers 401 to a visitor who has not signed in and 403 to a
@@ -161,12 +42,12 @@ func (d *dash) who(w http.ResponseWriter, r *http.Request) (v *viewer, owner, ok
 		authError(w, http.StatusForbidden, "forbidden")
 		return nil, false, false
 	}
-	login := d.auth.sessionLogin(r)
+	login, set := d.auth.sessionView(r)
 	if login == "" {
 		writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"error": "sign in with GitHub", "signin": true})
 		return nil, false, false
 	}
-	return &viewer{login: login, load: func() map[string]bool { return d.visibleRepos(login) }}, false, true
+	return &viewer{login: login, set: set}, false, true
 }
 
 // gateFunc decides, before the handler runs, whether a visitor may read what the request names.

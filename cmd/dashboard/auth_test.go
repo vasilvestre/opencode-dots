@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -21,14 +22,13 @@ import (
 )
 
 const (
-	dotToken     = "dot-token-0001"
 	visitorToken = "gho_visitor_secret_0002"
 	openRepo     = "acme/app"
 	hiddenRepo   = "acme/client"
 )
 
-// fakeGitHub answers the three calls the dashboard makes: the device flow, GET /user and the
-// collaborator permission. Nothing here reaches the real GitHub.
+// fakeGitHub answers what the dashboard asks of GitHub: the device flow, GET /user, the GraphQL
+// viewerPermission and the REST repository. Nothing here reaches the real GitHub.
 type fakeGitHub struct {
 	*httptest.Server
 	mu         sync.Mutex
@@ -36,9 +36,12 @@ type fakeGitHub struct {
 	tokenReply []map[string]any // consumed one per poll; then authorization_pending
 	tokenCalls int
 	userCalls  int
-	permCalls  int
-	perms      map[string]string // "login|owner/repo" -> permission
-	permStatus int               // forced status for the permission endpoint, 0 for none
+	gqlCalls   int
+	gqlQueries []string
+	restCalls  int
+	perms      map[string]string // "owner/repo" -> alice's permission: none, read, triage, write, maintain, admin
+	gqlStatus  int               // forced status for GraphQL, 0 for none
+	restStatus int               // forced status for the REST repository, 0 for none
 	expiresIn  int
 	interval   int
 }
@@ -84,29 +87,54 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"login": "alice"})
 	})
-	mux.HandleFunc("/repos/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/graphql", func(w http.ResponseWriter, r *http.Request) {
 		g.mu.Lock()
 		defer g.mu.Unlock()
-		g.permCalls++
-		if r.Header.Get("Authorization") != "Bearer "+dotToken {
+		g.gqlCalls++
+		if r.Header.Get("Authorization") != "Bearer "+visitorToken {
 			http.Error(w, "bad", http.StatusUnauthorized)
 			return
 		}
-		if g.permStatus != 0 {
-			http.Error(w, "forced", g.permStatus)
+		if g.gqlStatus != 0 {
+			http.Error(w, "forced", g.gqlStatus)
 			return
 		}
-		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/repos/"), "/")
-		if len(parts) != 5 || parts[2] != "collaborators" || parts[4] != "permission" {
+		var in struct {
+			Query string `json:"query"`
+		}
+		json.NewDecoder(r.Body).Decode(&in)
+		g.gqlQueries = append(g.gqlQueries, in.Query)
+		data := map[string]any{}
+		for _, m := range regexp.MustCompile(`(r\d+):repository\(owner:"([^"]+)",name:"([^"]+)"\)`).FindAllStringSubmatch(in.Query, -1) {
+			p, ok := g.perms[m[2]+"/"+m[3]]
+			if !ok || p == "none" { // a repository the viewer cannot see is null
+				data[m[1]] = nil
+				continue
+			}
+			data[m[1]] = map[string]string{"viewerPermission": strings.ToUpper(p)}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	})
+	mux.HandleFunc("/repos/", func(w http.ResponseWriter, r *http.Request) {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		g.restCalls++
+		if r.Header.Get("Authorization") != "Bearer "+visitorToken {
+			http.Error(w, "bad", http.StatusUnauthorized)
+			return
+		}
+		if g.restStatus != 0 {
+			http.Error(w, "forced", g.restStatus)
+			return
+		}
+		p, ok := g.perms[strings.TrimPrefix(r.URL.Path, "/repos/")]
+		if !ok || p == "none" {
 			http.NotFound(w, r)
 			return
 		}
-		p, ok := g.perms[parts[3]+"|"+parts[0]+"/"+parts[1]]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]any{"permission": p})
+		rank := map[string]int{"read": 1, "triage": 2, "write": 3, "maintain": 4, "admin": 5}[p]
+		json.NewEncoder(w).Encode(map[string]any{"permissions": map[string]bool{"pull": rank >= 1, "triage": rank >= 2,
+			"push": rank >= 3, "maintain": rank >= 4, "admin": rank >= 5}})
 	})
 	g.Server = httptest.NewServer(mux)
 	t.Cleanup(g.Close)
@@ -210,8 +238,8 @@ func newDash(state, root string, targets map[string]map[string]string, a *authSt
 	return d
 }
 
-func testAuth(g *fakeGitHub, token string, c *clock) *authState {
-	a := newAuth(authConfig{ClientID: "client-1", GitHubURL: g.URL, APIURL: g.URL, Token: token})
+func testAuth(g *fakeGitHub, minPermission string, c *clock) *authState {
+	a := newAuth(authConfig{ClientID: "client-1", GitHubURL: g.URL, APIURL: g.URL, MinPermission: minPermission})
 	a.now = c.now
 	return a
 }
@@ -248,14 +276,18 @@ type rig struct {
 	targets map[string]map[string]string
 }
 
-func newRig(t *testing.T, token string) *rig {
+func newRig(t *testing.T) *rig { return newRigMin(t, "") }
+
+// newRigMin signs alice in against a dot that asks for minPermission. She can push to the open
+// repository and only read the hidden one.
+func newRigMin(t *testing.T, minPermission string) *rig {
 	t.Helper()
 	state, root, targets := fixture(t)
 	g := newFakeGitHub(t)
-	g.perms["alice|"+openRepo] = "read"
-	g.perms["alice|"+hiddenRepo] = "none"
+	g.perms[openRepo] = "write"
+	g.perms[hiddenRepo] = "read"
 	clk := &clock{t: time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)}
-	d := newDash(state, root, targets, testAuth(g, token, clk))
+	d := newDash(state, root, targets, testAuth(g, minPermission, clk))
 	return &rig{t: t, gh: g, clk: clk, d: d, h: routes(d, filepath.Join(root, "index.html"), nil), targets: targets}
 }
 
@@ -305,7 +337,7 @@ func logTo(t *testing.T) *bytes.Buffer {
 
 func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 	logs := logTo(t)
-	r := newRig(t, dotToken)
+	r := newRig(t)
 
 	start := ask(r.h, "POST", "/auth/device/start", "visitor", "", "{}")
 	if start.Code != 200 {
@@ -319,8 +351,8 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 	if strings.Contains(start.Body.String(), "devcode-secret") {
 		t.Fatal("the device code reached the browser")
 	}
-	if len(r.gh.scopes) != 1 || r.gh.scopes[0] != "" {
-		t.Fatalf("scopes sent to GitHub = %q, want one empty scope", r.gh.scopes)
+	if len(r.gh.scopes) != 1 || r.gh.scopes[0] != "repo" {
+		t.Fatalf("scopes sent to GitHub = %q, want the scope repo", r.gh.scopes)
 	}
 	id := s["id"].(string)
 	poll := func() map[string]any {
@@ -352,25 +384,29 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 			cookie = c
 		}
 	}
-	if cookie == nil || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Secure || len(cookie.Value) != 64 || cookie.MaxAge != 8*3600 {
+	if cookie == nil || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Secure || len(cookie.Value) != 64 || cookie.MaxAge != 3600 {
 		t.Fatalf("cookie = %+v", cookie)
 	}
 	if r.gh.userCalls != 1 {
 		t.Fatalf("GET /user was called %d times, want once", r.gh.userCalls)
 	}
 
-	// The token is in no response, no cookie, no session, no log.
+	// The token is in no response, no cookie, no session, no log, nothing the dashboard keeps.
 	for name, text := range map[string]string{
 		"response": rec.Body.String(), "cookie": cookie.String(), "log": logs.String(),
 		"sessions": fmt.Sprintf("%+v %#v", r.d.auth.sessions, r.d.auth.sessions),
-		"pending":  fmt.Sprintf("%+v", r.d.auth.pending), "auth": fmt.Sprintf("%+v", r.d.auth.perms),
+		"pending":  fmt.Sprintf("%+v", r.d.auth.pending), "limits": fmt.Sprintf("%+v %+v", r.d.auth.limits, r.d.auth.readSeen),
 	} {
-		if strings.Contains(text, visitorToken) || strings.Contains(text, dotToken) {
-			t.Errorf("a token is in the %s: %s", name, text)
+		if strings.Contains(text, visitorToken) {
+			t.Errorf("the token is in the %s: %s", name, text)
 		}
 	}
-	if s := r.d.auth.sessions[cookie.Value]; s.login != "alice" || !s.expires.Equal(r.clk.now().Add(8*time.Hour)) {
+	if s := r.d.auth.sessions[cookie.Value]; s.login != "alice" || !s.expires.Equal(r.clk.now().Add(time.Hour)) ||
+		len(s.visible) != 1 || !s.visible[openRepo] {
 		t.Fatalf("session = %+v", s)
+	}
+	if r.gh.gqlCalls != 1 || r.gh.restCalls != 0 {
+		t.Fatalf("GitHub saw %d GraphQL and %d REST calls, want one GraphQL", r.gh.gqlCalls, r.gh.restCalls)
 	}
 	if len(r.d.auth.pending) != 0 {
 		t.Fatal("the finished sign-in is still pending")
@@ -404,7 +440,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 	}
 
 	t.Run("slow_down waits longer", func(t *testing.T) {
-		r := newRig(t, dotToken)
+		r := newRig(t)
 		id := start(r)
 		r.gh.tokenReply = []map[string]any{{"error": "slow_down"}}
 		r.clk.advance(6 * time.Second)
@@ -424,7 +460,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 		}
 	})
 	t.Run("slow_down with GitHub's interval", func(t *testing.T) {
-		r := newRig(t, dotToken)
+		r := newRig(t)
 		id := start(r)
 		r.gh.tokenReply = []map[string]any{{"error": "slow_down", "interval": 15}}
 		r.clk.advance(6 * time.Second)
@@ -433,7 +469,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 		}
 	})
 	t.Run("expiry", func(t *testing.T) {
-		r := newRig(t, dotToken)
+		r := newRig(t)
 		id := start(r)
 		r.clk.advance(901 * time.Second)
 		if _, out := poll(r, id); out["status"] != "expired" || r.gh.tokenCalls != 0 {
@@ -444,7 +480,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 		}
 	})
 	t.Run("expired_token from GitHub", func(t *testing.T) {
-		r := newRig(t, dotToken)
+		r := newRig(t)
 		id := start(r)
 		r.gh.tokenReply = []map[string]any{{"error": "expired_token"}}
 		r.clk.advance(6 * time.Second)
@@ -453,7 +489,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 		}
 	})
 	t.Run("denied", func(t *testing.T) {
-		r := newRig(t, dotToken)
+		r := newRig(t)
 		id := start(r)
 		r.gh.tokenReply = []map[string]any{{"error": "access_denied"}}
 		r.clk.advance(6 * time.Second)
@@ -465,7 +501,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 		}
 	})
 	t.Run("an unknown id", func(t *testing.T) {
-		r := newRig(t, dotToken)
+		r := newRig(t)
 		if code, _ := poll(r, "nope"); code != 404 {
 			t.Fatalf("answered %d", code)
 		}
@@ -473,7 +509,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 }
 
 func TestSignInEndpointsCheckTheRequest(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	do := func(method, host, ctype, body string) int {
 		req := httptest.NewRequest(method, "/auth/device/start", strings.NewReader(body))
 		req.RemoteAddr, req.Host = "127.0.0.1:1", host
@@ -512,80 +548,146 @@ func TestSignInEndpointsCheckTheRequest(t *testing.T) {
 	}
 }
 
-func TestPermissionIsCachedAndFailsClosed(t *testing.T) {
-	r := newRig(t, dotToken)
-	a := r.d.auth
-	r.gh.perms["bob|"+openRepo] = "triage"
-	r.gh.perms["carol|"+openRepo] = "maintain"
-	r.gh.perms["dave|"+openRepo] = "admin"
-	r.gh.perms["eve|"+openRepo] = "write"
-	for _, login := range []string{"alice", "bob", "carol", "dave", "eve"} {
-		if !a.canRead(login, openRepo) {
-			t.Errorf("%s is refused though the permission reads", login)
-		}
+// threeRepos gives the dot a third repository, and alice push on the first, read on the second
+// and nothing on the third.
+func threeRepos(t *testing.T, r *rig) {
+	t.Helper()
+	third := "acme/other"
+	cfg := "repos:\n"
+	for _, repo := range []string{openRepo, hiddenRepo, third} {
+		cfg += "  - repo: " + repo + "\n    scope: s\n    workflow: review-pr\n"
 	}
-	if a.canRead("alice", hiddenRepo) || a.canRead("nobody", openRepo) {
-		t.Error("none, or an unknown user, was admitted")
+	if err := os.WriteFile(filepath.Join(r.d.root, "awf-gh.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
 	}
+	r.gh.perms[third] = "none"
+}
 
-	// A minute of cache.
-	calls := r.gh.permCalls
-	a.canRead("alice", openRepo)
-	a.canRead("ALICE", "Acme/App")
-	if r.gh.permCalls != calls {
-		t.Fatalf("a cached answer asked GitHub again (%d calls)", r.gh.permCalls-calls)
-	}
-	r.gh.perms["alice|"+openRepo] = "none"
-	r.clk.advance(59 * time.Second)
-	if !a.canRead("alice", openRepo) {
-		t.Fatal("the cache dropped the answer before a minute")
-	}
-	r.clk.advance(2 * time.Second)
-	if a.canRead("alice", openRepo) {
-		t.Fatal("a revoked right outlived the cache")
-	}
+func names(r *rig) string {
+	var got []string
+	json.Unmarshal(r.visitor("/api/repos/names").Body.Bytes(), &got)
+	return strings.Join(got, ",")
+}
 
-	// An error hides the repository, and the answer is not trusted afterwards.
-	r.gh.perms["alice|"+openRepo] = "read"
-	r.gh.permStatus = 500
-	r.clk.advance(2 * time.Minute)
-	if a.canRead("alice", openRepo) {
-		t.Fatal("a GitHub error admitted the repository")
-	}
-	r.gh.permStatus = 403
-	r.clk.advance(2 * time.Minute)
-	if a.canRead("alice", openRepo) {
-		t.Fatal("a 403 admitted the repository")
-	}
-	r.gh.permStatus = 0
-	r.clk.advance(2 * time.Minute)
-	if !a.canRead("alice", openRepo) {
-		t.Fatal("the repository stayed hidden once GitHub answered")
-	}
-
-	// A server that is down.
-	r.gh.Close()
-	r.clk.advance(2 * time.Minute)
-	if a.canRead("alice", openRepo) {
-		t.Fatal("an unreachable GitHub admitted the repository")
+func TestMinPermissionDecidesWhatAVisitorSees(t *testing.T) {
+	for _, c := range []struct{ min, want string }{
+		{"", openRepo},
+		{"push", openRepo},
+		{"pull", openRepo + "," + hiddenRepo},
+	} {
+		t.Run("min "+c.min, func(t *testing.T) {
+			r := newRigMin(t, c.min)
+			threeRepos(t, r)
+			r.signIn()
+			if got := names(r); got != c.want {
+				t.Fatalf("names = %q, want %q", got, c.want)
+			}
+			var info map[string]any
+			json.Unmarshal(r.visitor("/api/session").Body.Bytes(), &info)
+			want := c.min
+			if want == "" {
+				want = "push"
+			}
+			if info["min_permission"] != want {
+				t.Fatalf("session = %v", info)
+			}
+		})
 	}
 }
 
-func TestNoTokenHidesEveryRepository(t *testing.T) {
-	r := newRig(t, "")
-	r.signIn()
-	for _, p := range []string{"/api/repos", "/api/repos/names", "/api/memory", "/api/logs", "/api/claims"} {
-		if body := strings.TrimSpace(r.visitor(p).Body.String()); body != "[]" {
-			t.Errorf("%s = %s without a token", p, body)
+func TestEveryPermissionLevelIsMappedOnBothPaths(t *testing.T) {
+	cases := map[string][2]bool{ // permission -> visible under push, under pull
+		"read": {false, true}, "triage": {false, true}, "write": {true, true}, "maintain": {true, true}, "admin": {true, true}, "none": {false, false},
+	}
+	for _, rest := range []bool{false, true} {
+		for perm, want := range cases {
+			for i, min := range []string{"push", "pull"} {
+				r := newRigMin(t, min)
+				r.gh.perms[openRepo] = perm
+				if rest {
+					r.gh.gqlStatus = 500
+				}
+				r.signIn()
+				if got := r.d.auth.sessions[r.cookie].visible[openRepo]; got != want[i] {
+					t.Errorf("rest=%v %s under %s: visible %v, want %v", rest, perm, min, got, want[i])
+				}
+			}
 		}
 	}
-	if r.gh.permCalls != 0 {
-		t.Fatal("asked GitHub for a permission without a token")
+}
+
+func TestGraphQLFailureFallsBackToREST(t *testing.T) {
+	for _, status := range []int{500, 403} {
+		r := newRig(t)
+		r.gh.gqlStatus = status
+		r.signIn()
+		if r.gh.restCalls != 2 {
+			t.Fatalf("status %d: %d REST calls, want one per repository", status, r.gh.restCalls)
+		}
+		if got := names(r); got != openRepo {
+			t.Fatalf("status %d: names = %q", status, got)
+		}
 	}
-	var info map[string]any
-	json.Unmarshal(r.visitor("/api/session").Body.Bytes(), &info)
-	if info["token_missing"] != true || info["role"] != "visitor" || info["login"] != "alice" {
-		t.Fatalf("session = %v", info)
+}
+
+func TestGraphQLAsksForEveryRepositoryInChunks(t *testing.T) {
+	r := newRig(t)
+	var repos []string
+	for i := 0; i < 120; i++ {
+		repos = append(repos, fmt.Sprintf("acme/r%d", i))
+		r.gh.perms[repos[i]] = "write"
+	}
+	got := r.d.auth.visibleRepos(visitorToken, repos)
+	if len(got) != 120 || r.gh.gqlCalls != 3 {
+		t.Fatalf("%d visible after %d GraphQL calls, want 120 after 3", len(got), r.gh.gqlCalls)
+	}
+	if q := r.gh.gqlQueries[0]; !strings.Contains(q, `r0:repository(owner:"acme",name:"r0"){viewerPermission}`) || strings.Count(q, "repository(") != 50 {
+		t.Fatalf("query = %s", q)
+	}
+}
+
+func TestAGitHubFailureShowsAVisitorNothing(t *testing.T) {
+	t.Run("both APIs fail", func(t *testing.T) {
+		r := newRig(t)
+		r.gh.gqlStatus, r.gh.restStatus = 500, 500
+		r.signIn()
+		for _, p := range []string{"/api/repos", "/api/repos/names", "/api/memory", "/api/logs", "/api/claims"} {
+			if body := strings.TrimSpace(r.visitor(p).Body.String()); body != "[]" {
+				t.Errorf("%s = %s after a GitHub failure", p, body)
+			}
+		}
+		if rec := r.visitor("/api/log?id=run-open-0001"); rec.Code != 404 {
+			t.Errorf("a run answered %d after a GitHub failure", rec.Code)
+		}
+	})
+	t.Run("GitHub returns no repository", func(t *testing.T) {
+		r := newRig(t)
+		r.gh.perms = map[string]string{} // nothing returned: hidden
+		r.signIn()
+		if got := names(r); got != "" {
+			t.Fatalf("names = %q", got)
+		}
+	})
+	t.Run("a 403 hides a repository", func(t *testing.T) {
+		r := newRig(t)
+		r.gh.gqlStatus, r.gh.restStatus = 500, 403
+		r.signIn()
+		if got := names(r); got != "" {
+			t.Fatalf("names = %q", got)
+		}
+	})
+}
+
+func TestAnInvalidMinPermissionIsRefused(t *testing.T) {
+	for _, bad := range []string{"admin", "write", "read", "none", "pul"} {
+		if _, err := parseMinPermission(bad); err == nil || !strings.Contains(err.Error(), "push or pull") {
+			t.Errorf("%q accepted or unclear: %v", bad, err)
+		}
+	}
+	for _, good := range []string{"", "push", "pull", " Pull "} {
+		if _, err := parseMinPermission(good); err != nil {
+			t.Errorf("%q refused: %v", good, err)
+		}
 	}
 }
 
@@ -613,7 +715,7 @@ func TestOwnerRequest(t *testing.T) {
 }
 
 func TestAVisitorWhoHasNotSignedInSeesNothing(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	for _, p := range []string{"/api/repos", "/api/usage", "/api/audit", "/api/log?id=run-open-0001", "/api/files", "/api/health"} {
 		rec := r.visitor(p)
 		if rec.Code != 401 || !strings.Contains(rec.Body.String(), `"signin":true`) || strings.Contains(rec.Body.String(), "acme") {
@@ -631,7 +733,7 @@ func TestAVisitorWhoHasNotSignedInSeesNothing(t *testing.T) {
 }
 
 func TestVisitorSeesOnlyThePermittedRepository(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	r.signIn()
 	want := map[string][]string{
 		"/api/artifacts":   {"open review title", "open reply title", openRepo + `","pr":"1"`},
@@ -718,7 +820,7 @@ func TestVisitorSeesOnlyThePermittedRepository(t *testing.T) {
 }
 
 func TestVisitorSeesNoLinkAcrossTheLine(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	r.signIn()
 	var open, all []linkView
 	json.Unmarshal(r.visitor("/api/links").Body.Bytes(), &open)
@@ -729,7 +831,7 @@ func TestVisitorSeesNoLinkAcrossTheLine(t *testing.T) {
 }
 
 func TestVisitorAuditShowsOnlyVisibleRepositories(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	r.signIn()
 	var rows []auditView
 	json.Unmarshal(r.visitor("/api/audit?limit=1").Body.Bytes(), &rows)
@@ -739,7 +841,7 @@ func TestVisitorAuditShowsOnlyVisibleRepositories(t *testing.T) {
 }
 
 func TestVisitorCannotUseOwnerEndpoints(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	r.signIn()
 	cases := []struct{ method, path string }{
 		{"PUT", "/api/save"}, {"GET", "/api/files"}, {"GET", "/api/source?path=repos.yaml"}, {"GET", "/api/health"},
@@ -788,7 +890,7 @@ func TestVisitorCannotUseOwnerEndpoints(t *testing.T) {
 }
 
 func TestVisitorReadsAreAuditedWithTheLogin(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	r.signIn()
 	r.visitor("/api/thread?repo=" + openRepo + "&pr=1")
 	r.visitor("/api/thread?repo=" + openRepo + "&pr=1") // a poll: no second row
@@ -807,7 +909,7 @@ func TestVisitorReadsAreAuditedWithTheLogin(t *testing.T) {
 }
 
 func TestLogoutEndsTheSession(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	r.signIn()
 	if r.visitor("/api/repos").Code != 200 {
 		t.Fatal("signed in but refused")
@@ -821,16 +923,16 @@ func TestLogoutEndsTheSession(t *testing.T) {
 	}
 }
 
-func TestSessionExpiresAfterEightHours(t *testing.T) {
-	r := newRig(t, dotToken)
+func TestSessionExpiresAfterOneHour(t *testing.T) {
+	r := newRig(t)
 	r.signIn()
-	r.clk.advance(8*time.Hour - time.Minute)
+	r.clk.advance(time.Hour - time.Minute)
 	if r.visitor("/api/repos").Code != 200 {
 		t.Fatal("the session ended early")
 	}
 	r.clk.advance(2 * time.Minute)
 	if r.visitor("/api/repos").Code != 401 {
-		t.Fatal("the session outlived eight hours")
+		t.Fatal("the session outlived one hour")
 	}
 }
 
@@ -841,7 +943,7 @@ func TestSignInOffChangesNothing(t *testing.T) {
 	g := newFakeGitHub(t)
 	clk := &clock{t: time.Now()}
 	off := routes(newDash(state, root, targets, nil), filepath.Join(root, "index.html"), nil)
-	on := routes(newDash(state, root, targets, testAuth(g, dotToken, clk)), filepath.Join(root, "index.html"), nil)
+	on := routes(newDash(state, root, targets, testAuth(g, "", clk)), filepath.Join(root, "index.html"), nil)
 	if newAuth(authConfig{}) != nil {
 		t.Fatal("no client id still builds the sign-in")
 	}
@@ -873,13 +975,13 @@ func TestSignInOffChangesNothing(t *testing.T) {
 }
 
 func TestAnOwnerKeepsTheFullViewWithSignInOn(t *testing.T) {
-	r := newRig(t, dotToken)
+	r := newRig(t)
 	var info map[string]any
 	json.Unmarshal(r.owner("/api/session").Body.Bytes(), &info)
 	if info["role"] != "owner" {
 		t.Fatalf("session = %v", info)
 	}
-	if r.gh.permCalls != 0 {
+	if r.gh.gqlCalls+r.gh.restCalls != 0 {
 		t.Fatal("the owner's reads asked GitHub")
 	}
 	if rec := ask(r.h, "GET", "/api/files", "owner", "", ""); rec.Code != 200 {
@@ -894,9 +996,6 @@ func TestDeviceFlowUsesTheConfiguredHostsOnly(t *testing.T) {
 	}
 	if u, _ := url.Parse(a.apiURL); u.Host != "api.github.com" {
 		t.Fatal("bad API default")
-	}
-	if got := fmt.Sprintf("%v %+v %#v", a.token, newAuth(authConfig{ClientID: "x", Token: "tok-123"}).token, secret("tok-123")); strings.Contains(got, "tok-123") {
-		t.Fatalf("the token prints: %s", got)
 	}
 	_ = io.Discard
 }
