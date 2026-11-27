@@ -61,8 +61,12 @@ that does not use it: migration 6 (`link_proposal`, and `merged_into` on `work_i
 operations `ProposeLink`, `ListLinkProposals`, `DeclineLink` and `AcceptLink`, `bin/repos db link`,
 `GET /api/links` with accept and decline endpoints, and a Links page. Accepting refuses, leaving the
 proposal open, across workspaces and across trust levels: a link that holds references and state only
-(question 3) is not built, so the answer in code is "refuse". `SplitLink` is not built; the merged item
-and the events keep what it needs. No workflow proposes yet. See `docs/links.md`.
+(question 3) is not built, so the answer in code is "refuse". Splitting is built too (migration 7, the
+store operation `SplitLink`, `bin/repos db link split` and a Split button): it moves exactly the references
+that were moved, from the kept item back to the merged one, and refuses when anything has changed since.
+A hidden workflow, `_propose-links`, now writes proposals: a shell step picks candidate pairs from
+structured fields only, an agent rates each pair, a shell step validates and inserts. It never accepts a
+link. Its agent step has only run against a stub, and nothing schedules it. See `docs/links.md`.
 
 ### Options
 
