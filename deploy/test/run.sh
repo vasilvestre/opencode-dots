@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 command -v docker >/dev/null 2>&1 || { echo "deploy test: docker is not installed" >&2; exit 1; }
-for f in deploy/lib.sh deploy/types/local/system.sh deploy/types/local/user.sh deploy/types/local/push.sh deploy/test/inside.sh; do
+for f in deploy/lib.sh deploy/types/local/system.sh deploy/types/local/user.sh deploy/types/local/push.sh deploy/types/local/mcp.sh deploy/types/local/skills.sh deploy/test/inside.sh deploy/test/offline.sh; do
   bash -n "$f"
 done
 exec docker run --rm -v "$PWD":/src:ro debian:13 bash /src/deploy/test/inside.sh

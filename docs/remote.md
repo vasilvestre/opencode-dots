@@ -31,3 +31,4 @@ opencode exits. Nothing is exposed on a network.
 - The web UI from a phone. The service serves it; publishing it on the tailnet is one
   `tailscale serve` on the server, and the password is the only gate. Decide that before you do it.
 - Claude on the server. `claude` is not logged in there; log it in on the server once.
+- Skills, agents and the tower MCP on a server: `deploy/types/local/mcp.sh` and `skills.sh`, see [skills.md](skills.md).
