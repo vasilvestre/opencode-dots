@@ -51,8 +51,9 @@ your mind by writing a new one that supersedes it.
 | [0041](0041-linking-work-items-is-a-proposal.md) | Linking work items across sources is a proposal; merging stays explicit | accepted | 2026-11-26 |
 | [0042](0042-workstations-are-workers-of-an-instance.md) | A workstation is a worker that joins an instance | accepted | 2026-11-26 |
 | [0043](0043-dot-files-issues-on-named-upstream-repositories.md) | The dot may file issues on named upstream repositories | proposed | 2026-11-26 |
-| [0044](0044-dashboard-shows-only-the-repositories-a-viewer-can-reach.md) | The dashboard shows a viewer only the repositories GitHub says they can read | accepted | 2026-11-27 |
+| [0044](0044-dashboard-shows-only-the-repositories-a-viewer-can-reach.md) | The dashboard shows a viewer only the repositories GitHub says they can read | superseded by 0046 | 2026-11-27 |
 | [0045](0045-dots-do-not-talk-to-each-other.md) | Dots do not talk to each other; the owner keeps a repository on one dot | accepted | 2026-11-27 |
+| [0046](0046-the-visitor-brings-their-own-token.md) | The dashboard reads a visitor's rights with the visitor's own token | accepted | 2026-11-27 |
 
 ## When to write one
 

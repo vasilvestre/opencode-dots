@@ -1,9 +1,9 @@
 # 0044. The dashboard shows a viewer only the repositories GitHub says they can read
 
-- Status: accepted
+- Status: superseded by 0046
 - Date: 2026-11-27
 - Supersedes: none
-- Superseded by: none
+- Superseded by: 0046
 
 ## Context
 
