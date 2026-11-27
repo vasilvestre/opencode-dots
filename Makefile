@@ -8,7 +8,9 @@ COMPOSE ?= docker compose
 # local clone is the only source.
 AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
-.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test deploy-offline-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests go-build hooks ci
+SERVER ?= $(DOTS_SERVER)
+TUNNEL_PORT ?= 8097
+.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test deploy-offline-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests go-build hooks ci tunnel
 
 configure: ## choose local or image for opencode, awf, gh, awf-gh and (optional) claude; writes .env
 	bin/configure
@@ -109,6 +111,11 @@ go-build: ## build every Go command into bin/ (a bare `go build` inside cmd/NAME
 
 hooks: ## use the tracked git hooks of this clone: refuses a commit that adds a binary
 	git config core.hooksPath .githooks
+
+tunnel: ## owner view of a server's dashboard on http://127.0.0.1:$(TUNNEL_PORT): make tunnel SERVER=user@host
+	@test -n "$(SERVER)" || { echo "usage: make tunnel SERVER=user@host (or export DOTS_SERVER)"; exit 2; }
+	@echo "owner view on http://127.0.0.1:$(TUNNEL_PORT) (Ctrl-C to close)"
+	ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:$(TUNNEL_PORT):127.0.0.1:8099 $(SERVER)
 
 ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
 	go vet ./...
