@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# bin/pause and the publish gate offline: a stop is a file, the gate refuses every action while one
+# applies (even with no ceiling set, which otherwise allows everything), and resuming lifts it.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+w=$(mktemp -d); trap 'rm -rf "$w"' EXIT
+export STATE_DIR=$w
+fail=0
+ok() { echo "ok   $1"; }
+ko() { echo "FAIL $1"; fail=1; }
+gate() { GATE_REF=$1 "$root/bin/publish-gate" "${2:-comment}" >/dev/null 2>&1; echo $?; }
+
+[ "$(gate acme/app#1)" = 0 ] && ok "with nothing stopped and no ceiling the gate allows" || ko "baseline"
+bin/pause repo acme/app "bad merge" >/dev/null
+[ -s "$w/pause/acme__app.json" ] && [ "$(jq -r .reason "$w/pause/acme__app.json")" = "bad merge" ] && ok "a stop is a file with who, why and when" || ko "stop file"
+for a in comment push open-pr merge file-issue; do
+  [ "$(gate acme/app#1 $a)" = 5 ] || { ko "$a on a stopped repository was not refused"; continue; }
+done
+[ "$fail" = 0 ] && ok "every action on a stopped repository is refused, comments included"
+[ "$(gate acme/lib#2)" = 0 ] && ok "another repository is not affected" || ko "collateral stop"
+[ "$(GATE_REPO=acme/app GATE_REF=unknown "$root/bin/publish-gate" comment >/dev/null 2>&1; echo $?)" = 5 ] && ok "GATE_REPO names the repository when the reference does not" || ko "GATE_REPO"
+AUTONOMY=auto bash -c "GATE_REF=acme/app#1 $root/bin/publish-gate merge" >/dev/null 2>&1; [ $? = 5 ] && ok "a stop beats an autonomy ceiling of auto" || ko "auto beat the stop"
+
+bin/pause all "incident" >/dev/null
+[ "$(gate acme/lib#2)" = 5 ] && ok "a global stop refuses every repository" || ko "global stop"
+bin/pause all >/dev/null 2>&1; [ -s "$w/pause/all.json" ] && [ "$(jq -r .reason "$w/pause/all.json")" = incident ] && ok "stopping again keeps the first record" || ko "second stop overwrote"
+out=$(bin/pause status); case $out in *acme/app*bad\ merge*) ok "status lists what is stopped" ;; *) ko "status: $out" ;; esac
+
+bin/pause resume all >/dev/null; bin/pause resume acme/app >/dev/null
+[ "$(gate acme/app#1 merge)" = 0 ] && ok "resuming lifts the stop" || ko "resume"
+bin/pause resume acme/app >/dev/null 2>&1; [ $? = 1 ] && ok "resuming what is not stopped says so" || ko "resume twice"
+bin/pause repo not-a-repo >/dev/null 2>&1; [ $? = 2 ] && ok "a bad repository name is refused" || ko "bad name"
+out=$(bin/pause status); [ "$out" = "nothing is stopped" ] && ok "status of a free dot" || ko "free status: $out"
+exit $fail

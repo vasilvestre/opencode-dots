@@ -32,6 +32,7 @@ var (
 	ErrNotFound  = errors.New("jobs: no such job")
 	ErrTaken     = errors.New("jobs: already taken by another worker")
 	ErrForbidden = errors.New("jobs: not a repository of this worker")
+	ErrPaused    = errors.New("jobs: this repository is stopped (an emergency stop)")
 	ErrNotYours  = errors.New("jobs: this job is held by another worker")
 )
 
@@ -60,11 +61,13 @@ type Queue struct {
 	// waits before it expires (a worker that comes back after days must not run stale work).
 	Lease, PendingTTL, Keep time.Duration
 	jobs                    map[string]*Job
+	stateDir                string // where an emergency stop (bin/pause) leaves its files
 }
 
 // Open loads the queue from stateDir (empty: memory only). A missing or unreadable file starts empty.
 func Open(stateDir string) *Queue {
 	q := &Queue{Now: time.Now, Lease: 2 * time.Minute, PendingTTL: 24 * time.Hour, Keep: 7 * 24 * time.Hour, jobs: map[string]*Job{}}
+	q.stateDir = stateDir
 	if stateDir == "" {
 		return q
 	}
@@ -167,6 +170,20 @@ func (q *Queue) Enqueue(scope, workflow string, inputs map[string]any) (Job, err
 	return *j, nil
 }
 
+// paused says whether the whole dot or this repository is under an emergency stop (bin/pause): its
+// jobs are not offered or claimed, and a claim held on one is cancelled at its next renewal.
+func (q *Queue) paused(repo string) bool {
+	if q.stateDir == "" {
+		return false
+	}
+	for _, name := range []string{"all", strings.ReplaceAll(repo, "/", "__")} {
+		if _, err := os.Stat(filepath.Join(q.stateDir, "pause", name+".json")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (q *Queue) claimable(j *Job) bool {
 	return j.State == Pending || (j.State == Taken && !q.Now().Before(j.Lease))
 }
@@ -178,7 +195,7 @@ func (q *Queue) Pending(repos map[string]bool) []Job {
 	q.settle()
 	var out []Job
 	for _, j := range q.jobs {
-		if repos[j.Repo] && q.claimable(j) {
+		if repos[j.Repo] && q.claimable(j) && !q.paused(j.Repo) {
 			out = append(out, *j)
 		}
 	}
@@ -204,6 +221,12 @@ func (q *Queue) Claim(id, by string, repos map[string]bool) (Job, error) {
 	switch {
 	case j.By == by && j.State == Cancelled:
 		return *j, nil // the stop signal; nothing to renew
+	case q.paused(j.Repo) && j.By == by && j.State == Taken:
+		j.State, j.Finished, j.Note = Cancelled, q.Now(), "stopped by an emergency stop"
+		q.save()
+		return *j, nil // the worker sees Cancelled and stops its run
+	case q.paused(j.Repo):
+		return Job{}, ErrPaused
 	case j.By == by && j.State == Taken, q.claimable(j):
 		j.State, j.By, j.Lease, j.Note = Taken, by, q.Now().Add(q.Lease), ""
 		q.save()

@@ -50,6 +50,8 @@ deliver_promotions() { # $1 = owner/repo
 
 while read -r repo auto rest; do
   case "$repo" in ''|'#'*) continue ;; esac
+  # An emergency stop (bin/pause): the whole dot, or this repository.
+  if [ -e "${STATE_DIR:-state}/pause/all.json" ] || [ -e "${STATE_DIR:-state}/pause/${repo/\//__}.json" ]; then echo "skip $repo: stopped (bin/pause)" >&2; continue; fi
   if [[ ! $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
     echo "skip invalid repo: $repo" >&2
     continue

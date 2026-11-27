@@ -44,7 +44,7 @@
 #   0 allow      the step goes on.
 #   3 hold       propose: the artifact reference is written under $STATE_DIR/held/.
 #   4 note only  observe, class 3 or a reached daily budget: an internal note is written under $STATE_DIR/notes/.
-#   5 refused    the action is never allowed here (a merge below auto, a class 2 merge,
+#   5 refused    the action is never allowed here (an emergency stop, a merge below auto, a class 2 merge,
 #                a merge of someone else's pull request, file-issue below auto, an unknown value).
 # The caller treats every non-zero code as "do not publish" and exits 0 itself.
 set -euo pipefail
@@ -60,6 +60,20 @@ class=${ITEM_CLASS:-}
 ref=${GATE_REF:-unknown}
 artifact=${GATE_ARTIFACT:-}
 state=${STATE_DIR:-/state}
+
+# An emergency stop (bin/pause, docs/pause.md) refuses every action, before any ceiling is looked at.
+pause_repo=${GATE_REPO:-}
+if [ -z "$pause_repo" ]; then
+  case "$ref" in */*#*) pause_repo=${ref%%#*} ;; esac
+fi
+if [ -e "$state/pause/all.json" ]; then
+  echo "publish-gate: $action on $ref refused: the dot is stopped (bin/pause status)" >&2
+  exit 5
+fi
+if [ -n "$pause_repo" ] && [ -e "$state/pause/${pause_repo/\//__}.json" ]; then
+  echo "publish-gate: $action on $ref refused: $pause_repo is stopped (bin/pause status)" >&2
+  exit 5
+fi
 
 budget_over=${GATE_BUDGET_OVER:-}
 case "$budget_over" in

@@ -130,3 +130,30 @@ func TestQueueSurvivesARestartInAPrivateFile(t *testing.T) {
 		t.Fatalf("after restart = %+v", got)
 	}
 }
+
+func TestAnEmergencyStopHoldsJobsBackAndCancelsAClaim(t *testing.T) {
+	dir := t.TempDir()
+	q := Open(dir)
+	a, _ := q.Enqueue("local", "review-pr", run("org/app"))
+	b, _ := q.Enqueue("local", "review-pr", run("other/repo"))
+	os.MkdirAll(filepath.Join(dir, "pause"), 0o755)
+	os.WriteFile(filepath.Join(dir, "pause", "org__app.json"), []byte("{}"), 0o644)
+	all := map[string]bool{"org/app": true, "other/repo": true}
+	if got := q.Pending(all); len(got) != 1 || got[0].ID != b.ID {
+		t.Fatalf("a stopped repository must offer nothing, got %+v", got)
+	}
+	if _, err := q.Claim(a.ID, "ada", all); !errors.Is(err, ErrPaused) {
+		t.Fatalf("claim on a stopped repository = %v, want ErrPaused", err)
+	}
+	os.Remove(filepath.Join(dir, "pause", "org__app.json"))
+	if _, err := q.Claim(a.ID, "ada", all); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "pause", "all.json"), []byte("{}"), 0o644)
+	if j, err := q.Claim(a.ID, "ada", all); err != nil || j.State != Cancelled {
+		t.Fatalf("a held claim at a global stop = %+v, %v, want Cancelled", j, err)
+	}
+	if got := q.Pending(all); len(got) != 0 {
+		t.Fatalf("a global stop offers nothing: %+v", got)
+	}
+}

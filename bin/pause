@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Emergency stop (docs/pause.md): nothing is published, no new run starts, a run in progress is told
+# to stop. One switch for the whole dot, or one per repository. Raising it again is a human act.
+#
+#   bin/pause all [REASON]            stop everything
+#   bin/pause repo OWNER/REPO [REASON] stop one repository
+#   bin/pause resume all|OWNER/REPO   raise it again
+#   bin/pause status                  what is stopped
+#
+# A stop is a small file under STATE_DIR/pause/ (all.json, or OWNER__REPO.json). The publish gate
+# refuses every action while one applies, tend skips the repository, and the queue offers no job of it.
+# Exit codes: 0 done, 1 nothing to resume, 2 usage.
+set -euo pipefail
+state=${STATE_DIR:-$(cd "$(dirname "$0")/.." && pwd)/state}
+dir=$state/pause
+who=${PAUSE_WHO:-$(id -un)}
+slug() { printf '%s' "${1/\//__}"; }
+valid() { [[ $1 =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; }
+
+stop() { # NAME REASON
+  mkdir -p "$dir"
+  if [ -e "$dir/$1.json" ]; then echo "pause: $1 is already stopped" >&2; return 0; fi
+  jq -n --arg who "$who" --arg why "$2" --arg at "$(date -u +%FT%TZ)" '{who:$who, reason:$why, at:$at}' >"$dir/$1.json"
+  echo "stopped: $1"
+}
+
+case ${1:-} in
+  all) stop all "${*:2}" ;;
+  repo)
+    valid "${2:-}" || { echo "pause: repo needs OWNER/REPO" >&2; exit 2; }
+    stop "$(slug "$2")" "${*:3}" ;;
+  resume)
+    case ${2:-} in
+      all) name=all ;;
+      *) valid "${2:-}" || { echo "pause: resume needs all or OWNER/REPO" >&2; exit 2; }; name=$(slug "$2") ;;
+    esac
+    [ -e "$dir/$name.json" ] || { echo "pause: $2 is not stopped" >&2; exit 1; }
+    rm -f "$dir/$name.json"; echo "resumed: $2" ;;
+  status)
+    found=0
+    for f in "$dir"/*.json; do
+      [ -e "$f" ] || continue
+      found=1
+      n=$(basename "$f" .json)
+      printf '%-30s since %s by %s  %s\n' "${n/__//}" "$(jq -r .at "$f")" "$(jq -r .who "$f")" "$(jq -r '.reason // ""' "$f")"
+    done
+    [ "$found" = 1 ] || echo "nothing is stopped" ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

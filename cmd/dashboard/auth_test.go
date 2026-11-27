@@ -232,7 +232,7 @@ func fixture(t *testing.T) (state, root string, targets map[string]map[string]st
 
 func newDash(state, root string, targets map[string]map[string]string, a *authState) *dash {
 	d := &dash{state: state, root: root, awfgh: filepath.Join(root, "awf-gh.yaml"), allow: map[string]bool{"box.ts.net": true},
-		indexed: map[string]bool{}, targets: map[string]targetMemo{}, costs: map[string]costMemo{}, auth: a, wtokens: newWorkerStore(""), queue: jobs.Open("")}
+		indexed: map[string]bool{}, targets: map[string]targetMemo{}, costs: map[string]costMemo{}, auth: a, wtokens: newWorkerStore(""), queue: jobs.Open(state)}
 	for id, in := range targets {
 		d.targets[id] = targetMemo{in: in}
 	}

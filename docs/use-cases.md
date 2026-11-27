@@ -191,7 +191,7 @@ through a server and a worker.
 | Cases | State | Missing | Record |
 | --- | --- | --- | --- |
 | A1 to A3 | work today: health page and alert, one tick timer per machine, backups of the workstation and the server | | 0027, 0031, 0049 |
-| A4 | `autonomy` (observe, propose, act, auto), the circuit breaker, a daily USD cap per repository | one-click pause (emergency stop), dry-run | 0036, 0040 |
+| A4 | `autonomy` (observe is the dry run), the circuit breaker, a daily USD cap per repository, an emergency stop per repository or global (docs/pause.md) | | 0036, 0040 |
 | A5 | outside text is data | first-contribution filters, read log | |
 | A6, B1, B2 | an opt-in identity marker per repository or profile | a dedicated account or bot mode | 0034 |
 | B3 | review charter read from the default branch; reviews run end to end | contesting a comment | |

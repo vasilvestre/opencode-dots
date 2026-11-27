@@ -83,6 +83,19 @@ check "a budget under its cap is posted as an input" \
 check "a budget with decimals is posted as written" \
   test "$(brun 0 'acme/app true autonomy=auto budget=12.5')" = '{"inputs":{"repo":"acme/app","auto_merge":"true","dry_run":"false","autonomy":"auto","budget":"daily_usd=12.5"}}'
 check "the budget check is asked for the repository and the cap" grep -qx 'check acme/app 5' "$tmp/calls"
+# An emergency stop (bin/pause): the whole dot, or this repository, posts nothing.
+mkdir -p "$tmp/state/pause"
+export STATE_DIR=$tmp/state
+echo '{}' >"$tmp/state/pause/acme__app.json"
+check "a stopped repository posts nothing" test -z "$(run 'acme/app false')"
+check "the skip says it is stopped" grep -q 'skip acme/app: stopped' "$tmp/err"
+check "another repository still runs while one is stopped" test -n "$(run 'acme/lib false')"
+rm "$tmp/state/pause/acme__app.json"; echo '{}' >"$tmp/state/pause/all.json"
+check "a global stop posts nothing for any repository" test -z "$(run 'acme/lib false')"
+rm "$tmp/state/pause/all.json"
+check "after resuming the repository posts again" test -n "$(run 'acme/app false')"
+unset STATE_DIR
+
 check "a budget reached skips the repository" test -z "$(brun 3 'acme/app false autonomy=act budget=5')"
 check "the skip says why" grep -q 'skip acme/app: not tended, daily budget' "$tmp/out"
 check "spend that cannot be read skips the repository" test -z "$(brun 1 'acme/app false autonomy=act budget=5')"

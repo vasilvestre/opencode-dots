@@ -174,6 +174,8 @@ func jobError(w http.ResponseWriter, err error) {
 		code = http.StatusConflict
 	case errors.Is(err, jobs.ErrForbidden):
 		code = http.StatusForbidden
+	case errors.Is(err, jobs.ErrPaused):
+		code = http.StatusLocked
 	}
 	writeJSONStatus(w, code, map[string]string{"error": err.Error()})
 }

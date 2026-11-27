@@ -62,6 +62,7 @@ script-tests: ## run bin/test-publish-gate, bin/test-classify, bin/test-sandbox,
 	bin/test-budget
 	bin/test-pickup
 	bin/test-tick
+	bin/test-pause
 	bin/test-dots-units
 
 deploy-offline-test: ## test mcp.sh, skills.sh and the opencode config offline (no docker, no network)
