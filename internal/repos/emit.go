@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -111,11 +112,7 @@ func Render(out *Output, s Settings) (map[string][]byte, error) {
 	for _, rule := range out.Rules {
 		groups[rule.Executor] = append(groups[rule.Executor], rule)
 	}
-	executors := make([]string, 0, len(groups))
-	for name := range groups {
-		executors = append(executors, name)
-	}
-	slices.Sort(executors)
+	executors := slices.Sorted(maps.Keys(groups))
 	for _, name := range executors {
 		file, settings := FileAwfGh, s
 		if name != "" {
@@ -194,11 +191,7 @@ func renderAwfGh(rules []Rule, s Settings) ([]byte, error) {
 		}
 		if len(r.Inputs) > 0 {
 			in := &yaml.Node{Kind: yaml.MappingNode}
-			keys := make([]string, 0, len(r.Inputs))
-			for k := range r.Inputs {
-				keys = append(keys, k)
-			}
-			slices.Sort(keys)
+			keys := slices.Sorted(maps.Keys(r.Inputs))
 			for _, k := range keys {
 				add(in, k, str(r.Inputs[k]))
 			}

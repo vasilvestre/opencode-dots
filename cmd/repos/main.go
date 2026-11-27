@@ -13,6 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -306,11 +307,7 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 			return err
 		}
 		for _, p := range projects {
-			keys := make([]string, 0, len(p.Features))
-			for k := range p.Features {
-				keys = append(keys, k)
-			}
-			slices.Sort(keys)
+			keys := slices.Sorted(maps.Keys(p.Features))
 			fmt.Printf("%s\t%s\n", p.Repo, strings.Join(keys, ","))
 		}
 		return nil

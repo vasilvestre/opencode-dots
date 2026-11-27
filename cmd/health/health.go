@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -117,11 +118,7 @@ func checkAwf(c Config, d Deps) Result {
 }
 
 func checkExecutors(c Config, d Deps) []Result {
-	names := make([]string, 0, len(c.Executors))
-	for n := range c.Executors {
-		names = append(names, n)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(c.Executors))
 	var rs []Result
 	for _, n := range names {
 		u := c.Executors[n]

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -417,11 +418,7 @@ func (w *worker) keepHints(ctx context.Context) {
 
 // writeHints replaces the file atomically with one `owner/*=folder` line per suggestion, sorted.
 func writeHints(path string, hints map[string]string) error {
-	names := make([]string, 0, len(hints))
-	for owner := range hints {
-		names = append(names, owner)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(hints))
 	var b strings.Builder
 	b.WriteString("# Where the team keeps its projects (suggested by the server; ~/.config/dots/paths comes first).\n")
 	for _, owner := range names {

@@ -147,11 +147,7 @@ func str(v any) string {
 // remote serves the executors' runs, tagged with the executor that ran them.
 func (d *dash) remoteRuns(w http.ResponseWriter, r *http.Request) {
 	d.remoteMu.Lock()
-	names := make([]string, 0, len(d.remote))
-	for n := range d.remote {
-		names = append(names, n)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(d.remote))
 	out := struct {
 		Executors  []remoteSnapshot `json:"executors"`
 		Executions []map[string]any `json:"executions"`

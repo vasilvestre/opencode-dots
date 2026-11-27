@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -109,11 +110,7 @@ func Observe(ctx context.Context, st *store.Store, workspace string, ev GitHubEv
 		}
 		res.WorkItem = w
 	default:
-		ids := make([]string, 0, len(owners))
-		for id := range owners {
-			ids = append(ids, id)
-		}
-		slices.Sort(ids)
+		ids := slices.Sorted(maps.Keys(owners))
 		return res, fmt.Errorf("%w: %s", ErrConflict, strings.Join(ids, ", "))
 	}
 	return res, nil

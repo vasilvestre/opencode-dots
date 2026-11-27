@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -150,10 +151,7 @@ func (d *dash) knownRepos() []string {
 			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for name := range seen {
-		out = append(out, name)
-	}
+	out := slices.AppendSeq([]string{}, maps.Keys(seen)) // never nil: it is served as JSON
 	slices.Sort(out)
 	return out
 }

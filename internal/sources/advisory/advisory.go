@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -93,11 +94,7 @@ func (a Adapter) Parse(raw []byte) ([]sources.Envelope, error) {
 	groups := map[string]*Payload{}
 	times := map[string]time.Time{}
 	var errs []error
-	pkgs := make([]string, 0, len(byPackage))
-	for p := range byPackage {
-		pkgs = append(pkgs, p)
-	}
-	slices.Sort(pkgs)
+	pkgs := slices.Sorted(maps.Keys(byPackage))
 	for _, p := range pkgs {
 		for _, e := range byPackage[p] {
 			id := advisoryID(e)
@@ -126,11 +123,7 @@ func (a Adapter) Parse(raw []byte) ([]sources.Envelope, error) {
 			}
 		}
 	}
-	ids := make([]string, 0, len(groups))
-	for id := range groups {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
+	ids := slices.Sorted(maps.Keys(groups))
 	out := make([]sources.Envelope, 0, len(ids))
 	for _, id := range ids {
 		g := groups[id]

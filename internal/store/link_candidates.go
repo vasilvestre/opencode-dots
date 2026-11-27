@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
@@ -70,11 +71,7 @@ func LinkTokens(payload json.RawMessage) []string {
 	if len(set) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(set))
-	for t := range set {
-		out = append(out, t)
-	}
-	slices.Sort(out)
+	out := slices.Sorted(maps.Keys(set))
 	return out
 }
 

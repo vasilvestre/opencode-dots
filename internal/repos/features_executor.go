@@ -3,6 +3,7 @@ package repos
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
 	"slices"
@@ -53,11 +54,7 @@ func knownExecutors(s Settings) string {
 	if len(s.Executors) == 0 {
 		return "none"
 	}
-	names := make([]string, 0, len(s.Executors))
-	for name := range s.Executors {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(s.Executors))
 	return strings.Join(names, ", ")
 }
 

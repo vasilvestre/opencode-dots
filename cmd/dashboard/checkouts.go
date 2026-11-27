@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -71,11 +72,7 @@ func (d *dash) servedRepos() []string {
 			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for r := range seen {
-		out = append(out, r)
-	}
-	slices.Sort(out)
+	out := slices.Sorted(maps.Keys(seen))
 	return out
 }
 

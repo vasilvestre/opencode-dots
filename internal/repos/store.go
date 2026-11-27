@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 
@@ -198,11 +199,7 @@ func settingsNode(s Settings) *yaml.Node {
 // on with no options, which is written as `true`.
 func featureNode(features map[string]any) *yaml.Node {
 	m := &yaml.Node{Kind: yaml.MappingNode}
-	keys := make([]string, 0, len(features))
-	for k := range features {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(features))
 	for _, k := range keys {
 		var v yaml.Node
 		if block, ok := features[k].(map[string]any); ok && len(block) == 0 {
