@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Where a repository lives on this machine, if it does. The workflows reuse an existing checkout
+# instead of cloning (docs/paths.md); with none, they fall back to a private clone under WORK_ROOT.
+#
+#   bin/where OWNER/REPO             print the checkout's path, exit 1 and print nothing if there is none
+#   bin/where --suggest OWNER/REPO   print where it should live (a root of this machine, then the name), exit 1 if no root
+#
+# Looked up, in order:
+#   1. REPOS_MAP        `owner/repo=/abs/path` lines generated from `checkout:` in repos.yaml (explicit)
+#   2. the machine map  ~/.config/dots/paths (DOTS_PATHS): lines `PATTERN=PATH`, where PATTERN is
+#        owner/repo   this exact path
+#        owner/*      a root: the checkout is PATH/<repo>, for every repository of that owner
+#        */*          a root for any owner: PATH/<owner>/<repo>
+#      `~` expands to the home directory; the first match that is a real clone wins.
+# A candidate counts only if it is a Git clone whose `origin` is that repository, so a folder that
+# happens to have the same name is never taken for it. The explicit lines of REPOS_MAP are trusted
+# as written (they are the owner's own configuration).
+set -uo pipefail
+suggest=0
+if [ "${1:-}" = --suggest ]; then suggest=1; shift; fi
+repo=${1:-}
+[[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "usage: bin/where [--suggest] OWNER/REPO" >&2; exit 2; }
+owner=${repo%%/*}; name=${repo##*/}
+# `.` and `..` match the pattern but would walk out of a root.
+case $owner/$name in ./*|../*|*/.|*/..) echo "usage: bin/where [--suggest] OWNER/REPO" >&2; exit 2 ;; esac
+paths=${DOTS_PATHS:-$HOME/.config/dots/paths}
+
+expand() { local p=$1; case $p in "~") p=$HOME ;; "~/"*) p=$HOME/${p#"~/"} ;; esac; printf '%s' "${p%/}"; }
+
+is_clone_of() { # DIR: a git clone whose origin names OWNER/REPO
+  [ -e "$1/.git" ] || return 1
+  local url; url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
+  shopt -s nocasematch
+  [[ $url =~ [:/]$owner/$name(\.git)?/?$ ]]
+}
+
+# Every candidate of the machine map, in file order.
+candidates() {
+  [ -r "$paths" ] || return 0
+  local line pat dir
+  while IFS= read -r line; do
+    line=${line%%#*}; [ -n "${line//[[:space:]]/}" ] || continue
+    pat=${line%%=*}; dir=${line#*=}
+    pat=${pat//[[:space:]]/}; dir=$(expand "$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"$dir")")
+    [ -n "$dir" ] || continue
+    case $pat in
+      "$repo") echo "exact $dir" ;;
+      "$owner/*") echo "root $dir/$name" ;;
+      "*/*") echo "root $dir/$owner/$name" ;;
+    esac
+  done <"$paths"
+}
+
+if [ "$suggest" = 1 ]; then
+  while read -r kind dir; do
+    [ "$kind" = root ] && { echo "$dir"; exit 0; }
+  done < <(candidates)
+  exit 1
+fi
+
+# 1. the explicit map
+if [ -r "${REPOS_MAP:-/work/repos.map}" ]; then
+  src=$(awk -F= -v k="$repo" '!/^[[:space:]]*#/ && $1==k { sub(/^[^=]*=/, ""); print; exit }' "${REPOS_MAP:-/work/repos.map}" 2>/dev/null || true)
+  if [ -n "$src" ] && [ -d "$src/.git" ]; then echo "$src"; exit 0; fi
+fi
+# 2. the machine map
+while read -r kind dir; do
+  if is_clone_of "$dir"; then echo "$dir"; exit 0; fi
+done < <(candidates)
+exit 1

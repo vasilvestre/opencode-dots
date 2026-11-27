@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# bin/where offline: explicit map first, then the machine map by exact path, by owner root and by
+# global root; a folder with the right name but another origin is never taken; the suggestion.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+w=$(mktemp -d); trap 'rm -rf "$w"' EXIT
+export HOME=$w/home REPOS_MAP=$w/repos.map DOTS_PATHS=$w/paths
+mkdir -p "$HOME"
+fail=0
+ok() { echo "ok   $1"; }
+ko() { echo "FAIL $1"; fail=1; }
+mk() { git init -q "$1" && git -C "$1" remote add origin "$2"; }
+where() { bin/where "$@" 2>/dev/null; }
+
+mk "$HOME/example-org/webapp" git@github.com:example-org/webapp.git
+mk "$HOME/example-org/other" https://github.com/example-org/other.git
+mk "$HOME/elsewhere/proc" https://github.com/example-org/webapp
+mk "$HOME/projects/acme/tool" https://github.com/Acme/Tool.git
+mk "$HOME/wrong-origin" https://github.com/someone/else.git
+mk "$w/explicit" https://github.com/example-org/explicit.git
+
+: >"$REPOS_MAP"; : >"$DOTS_PATHS"
+[ -z "$(where example-org/webapp)" ] && ok "nothing configured: no checkout is found" || ko "empty"
+bin/where example-org/webapp >/dev/null 2>&1; [ $? = 1 ] && ok "and the exit code says so" || ko "exit code"
+
+printf 'example-org/*=~/example-org\n' >"$DOTS_PATHS"
+[ "$(where example-org/webapp)" = "$HOME/example-org/webapp" ] && ok "an owner root finds <root>/<repo>" || ko "owner root"
+[ "$(where example-org/other)" = "$HOME/example-org/other" ] && ok "the same root serves every repository of that owner" || ko "owner root 2"
+[ -z "$(where example-org/absent)" ] && ok "a repository not cloned there is not found" || ko "absent"
+
+printf 'example-org/*=~/projects/none\nexample-org/webapp=~/elsewhere/proc\n' >"$DOTS_PATHS"
+[ "$(where example-org/webapp)" = "$HOME/elsewhere/proc" ] && ok "an exact path is used when the root has no clone" || ko "exact path"
+
+printf '*/*=~/projects\n' >"$DOTS_PATHS"
+[ "$(where Acme/Tool)" = "$HOME/projects/acme/tool" ] || [ -z "$(where Acme/Tool)" ] && ok "a global root looks in <root>/<owner>/<repo>" || ko "global root"
+mkdir -p "$HOME/projects/Acme"; mv "$HOME/projects/acme/tool" "$HOME/projects/Acme/Tool" 2>/dev/null
+[ "$(where Acme/Tool)" = "$HOME/projects/Acme/Tool" ] && ok "the origin is compared without regard to case" || ko "case"
+
+printf 'example-org/webapp=~/wrong-origin\n' >"$DOTS_PATHS"
+[ -z "$(where example-org/webapp)" ] && ok "a folder whose origin is another repository is never taken" || ko "wrong origin"
+printf 'example-org/webapp=%s/not-a-clone\n' "$w" >"$DOTS_PATHS"; mkdir -p "$w/not-a-clone"
+[ -z "$(where example-org/webapp)" ] && ok "a folder that is not a clone is never taken" || ko "not a clone"
+
+printf 'example-org/explicit=%s\nexample-org/webapp=%s/example-org/webapp\n' "$w/explicit" "$HOME" >"$REPOS_MAP"
+printf 'example-org/*=~/elsewhere\n' >"$DOTS_PATHS"
+[ "$(where example-org/explicit)" = "$w/explicit" ] && ok "the explicit map is trusted as written" || ko "explicit"
+[ "$(where example-org/webapp)" = "$HOME/example-org/webapp" ] && ok "the explicit map wins over the machine map" || ko "precedence"
+
+printf '# the org keeps its projects here\nexample-org/*=~/example-org   # my choice\n' >"$DOTS_PATHS"; : >"$REPOS_MAP"
+[ "$(where --suggest example-org/new-project)" = "$HOME/example-org/new-project" ] && ok "the suggestion is the owner's root plus the name, comments ignored" || ko "suggest"
+printf 'acme/tool=~/x\n' >"$DOTS_PATHS"
+bin/where --suggest example-org/new-project >/dev/null 2>&1; [ $? = 1 ] && ok "no root for the owner: no suggestion" || ko "no suggestion"
+bin/where 'not a repo' >/dev/null 2>&1; [ $? = 2 ] && ok "a bad name is a usage error" || ko "usage"
+bin/where '../etc' >/dev/null 2>&1; [ $? = 2 ] && ok "a path is not a repository name" || ko "path"
+exit $fail

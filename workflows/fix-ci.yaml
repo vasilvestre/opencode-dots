@@ -80,9 +80,7 @@ states:
       # branch the pull request shows is the one we commit on.
       work_root=${WORK_ROOT:-${STATE_DIR:-/state}/work}
       mkdir -p "$work_root"
-      src=$(awk -F= -v k="$head_repo" \
-        '!/^[[:space:]]*#/ && $1==k { sub(/^[^=]*=/, ""); print; exit }' \
-        "${REPOS_MAP:-/work/repos.map}" 2>/dev/null || true)
+      src=$("${DOTS_HOME:-/work}/bin/where" "$head_repo" 2>/dev/null || true)
       if [ -n "$src" ] && [ -d "$src/.git" ]; then
         echo "reusing checkout $src"
       else
