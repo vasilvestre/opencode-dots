@@ -23,14 +23,17 @@ var importOrder = []string{"checkout", "sync", "provider", "tend", "review", "re
 type awfGhFile struct {
 	Settings `yaml:",inline"`
 	Repos    []struct {
-		Repo          string            `yaml:"repo"`
-		Workflow      string            `yaml:"workflow"`
-		Scope         string            `yaml:"scope"`
-		On            []string          `yaml:"on"`
-		IgnoreAuthors []string          `yaml:"ignore_authors"`
-		OnlyAuthors   []string          `yaml:"only_authors"`
-		Labels        []string          `yaml:"labels"`
-		Inputs        map[string]string `yaml:"inputs"`
+		Repo          string   `yaml:"repo"`
+		Workflow      string   `yaml:"workflow"`
+		Scope         string   `yaml:"scope"`
+		On            []string `yaml:"on"`
+		IgnoreAuthors []string `yaml:"ignore_authors"`
+		OnlyAuthors   []string `yaml:"only_authors"`
+		// IgnoreFirstContribution is a pointer so a rule without the key stays
+		// distinguishable from one that sets it to false.
+		IgnoreFirstContribution *bool             `yaml:"ignore_first_contribution"`
+		Labels                  []string          `yaml:"labels"`
+		Inputs                  map[string]string `yaml:"inputs"`
 	} `yaml:"repos"`
 }
 
@@ -91,6 +94,9 @@ func Import(dir string) ([]byte, error) {
 		}
 		if len(r.OnlyAuthors) > 0 {
 			b["only_authors"] = stringsToAny(r.OnlyAuthors)
+		}
+		if r.IgnoreFirstContribution != nil {
+			b["ignore_first_contribution"] = *r.IgnoreFirstContribution
 		}
 		if r.Scope != "" && r.Scope != "local" {
 			b["scope"] = r.Scope

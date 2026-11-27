@@ -17,7 +17,7 @@ func init() {
 	Register(checkout{})
 	Register(tend{})
 	Register(watch{key: "review", workflow: "review-pr", defaultOn: []string{"pr-opened", "pr-updated", "checks-failed"}, providerAware: true,
-		doc: "review-pr on pull requests: true, a block, or a list of blocks (on, ignore_authors, only_authors, scope, labels, inputs)"})
+		doc: "review-pr on pull requests: true, a block, or a list of blocks (on, ignore_authors, only_authors, ignore_first_contribution, scope, labels, inputs)"})
 	Register(watch{key: "reply", workflow: "reply-pr", defaultOn: []string{"review-comment"},
 		doc: "reply-pr on review comments of my own pull requests (same options as review)"})
 	Register(watch{key: "fix_ci", workflow: "fix-ci", defaultOn: []string{"checks-failed"},
@@ -173,7 +173,7 @@ func (w watch) rules(repo string, v any) ([]Rule, error) {
 
 func (w watch) rule(repo string, block map[string]any) (Rule, error) {
 	rule := Rule{Repo: repo, Workflow: w.workflow, ProviderAware: w.providerAware}
-	known := []string{"on", "ignore_authors", "only_authors", "scope", "labels", "inputs"}
+	known := []string{"on", "ignore_authors", "only_authors", "ignore_first_contribution", "scope", "labels", "inputs"}
 	if w.label {
 		known = append(known, "label")
 	}
@@ -199,6 +199,13 @@ func (w watch) rule(repo string, block map[string]any) (Rule, error) {
 	}
 	if rule.Labels, err = stringList(block, "labels"); err != nil {
 		return rule, err
+	}
+	if first, ok := block["ignore_first_contribution"]; ok {
+		b, isBool := first.(bool)
+		if !isBool {
+			return rule, errors.New("ignore_first_contribution must be true or false")
+		}
+		rule.IgnoreFirstContribution = b
 	}
 	if s, ok := block["scope"]; ok {
 		scope, isString := s.(string)

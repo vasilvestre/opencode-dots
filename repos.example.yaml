@@ -39,6 +39,10 @@ defaults:
     only_authors: ["your-login"]
   fix_issue:
     ignore_authors: ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]
+  # Case A5: drop the events of an author making their first contribution
+  # here, where prompt injection is likeliest. awf-gh must carry the key.
+  # review:
+  #   ignore_first_contribution: true
   # provider: opencode          # opencode (default) or claude, for every repository
   # autonomy: act               # ceiling, ADR 0040: observe, propose (held until released by publish-held), act (default) or auto; auto refused under trust client/strict
 
