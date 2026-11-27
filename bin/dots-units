@@ -36,6 +36,7 @@ dots-breaker.service dots-breaker.timer dots-sync.service dots-sync.timer dots-w
 dots-workspace-sync.timer dots-awf-gh.service dots-awf-gh.timer dots-awf-gh-local.service
 dots-awf-gh-executor@.service dots-awf-gh-executor@.timer dots-executor-tunnel.service
 dots-backup-server.service dots-backup-server.timer dots.service"
+OBSOLETE=$(echo $OBSOLETE) # one line, so a name can be looked up with spaces around it
 
 units_for() { # role -> unit files, one per line
   case $1 in
