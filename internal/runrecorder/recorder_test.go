@@ -29,22 +29,19 @@ func TestIndexSurvivesARestartAndPruneDropsGoneLogs(t *testing.T) {
 	write(t, state, idA, "data: {}\n")
 	write(t, state, idB, "data: {}\n")
 	r := New(state, "", nil)
-	r.Note(idA, "fix-issue", "2026-11-23T09:00:00Z")
-	r.Note(idA, "fix-issue", "2026-11-23T09:00:00Z")
-	r.Note(idB, "reply-pr", "2026-11-23T09:05:00Z")
+	r.note(idA, "fix-issue", "2026-11-23T09:00:00Z")
+	r.note(idA, "fix-issue", "2026-11-23T09:00:00Z")
+	r.note(idB, "reply-pr", "2026-11-23T09:05:00Z")
 	if got := r.Entries(); len(got) != 2 || got[0].WorkflowName != "fix-issue" || got[0].StartedAt != "2026-11-23T09:00:00Z" {
 		t.Fatalf("entries after a duplicate write = %+v", got)
 	}
 	if got := New(state, "", nil).Entries(); len(got) != 2 {
 		t.Fatalf("entries after reload = %+v", got)
 	}
-	if e, ok := r.Entry(idB); !ok || e.WorkflowName != "reply-pr" {
-		t.Fatalf("entry = %+v %v", e, ok)
-	}
 
 	os.Remove(r.Path(idB))
-	r.Prune()
-	if ids := r.IDs(); !slices.Equal(ids, []string{idA}) || r.Has(idB) {
+	r.prune()
+	if ids := r.ids(); !slices.Equal(ids, []string{idA}) {
 		t.Fatalf("ids after prune = %v", ids)
 	}
 	if got := r.Entries(); len(got) != 1 || got[0].ID != idA {

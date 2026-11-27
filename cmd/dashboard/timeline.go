@@ -311,12 +311,12 @@ func completeTarget(in map[string]string) bool {
 	return in["repo"] != "" && (in["pr"] != "" || in["issue"] != "")
 }
 
-// cacheTargets parses the target of every indexed run whose log changed since
+// cacheTargets parses the target of each given run whose log changed since
 // the last pass. A log stops changing once its run ends, cancelled or not, so
 // it is read once however it ended. A partial guess does not settle: a run
 // that names its issue before its repository is read again when the log grows.
-func (d *dash) cacheTargets() {
-	for _, id := range d.rec.IDs() {
+func (d *dash) cacheTargets(ids []string) {
+	for _, id := range ids {
 		path := d.transcriptPath(id)
 		if path == "" {
 			path = filepath.Join(d.state, "logs", id+".jsonl")
@@ -410,8 +410,10 @@ func (d *dash) replay(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, out)
 		return
 	}
-	if entry, ok := d.rec.Entry(id); ok {
-		out.Workflow = entry.WorkflowName
+	for _, e := range d.rec.Entries() {
+		if e.ID == id {
+			out.Workflow = e.WorkflowName
+		}
 	}
 	if out.Workflow == "" {
 		if name := r.URL.Query().Get("workflow"); workflowNameRE.MatchString(name) {

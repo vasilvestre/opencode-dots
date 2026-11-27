@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -168,10 +169,13 @@ func (d *dash) watchRuns() {
 			time.Sleep(time.Second)
 		}
 	}()
-	d.rec.Run(func() {
-		d.cacheTargets()
-		d.targets.prune(d.rec.Has)
-	})
+	d.rec.Run(d.followRuns)
+}
+
+// followRuns caches the target of each indexed run and forgets the targets of the ones that are gone.
+func (d *dash) followRuns(ids []string) {
+	d.cacheTargets(ids)
+	d.targets.prune(func(id string) bool { return slices.Contains(ids, id) })
 }
 
 // notifyRun sends one Discord message for a finished run. It reads the config on every call and

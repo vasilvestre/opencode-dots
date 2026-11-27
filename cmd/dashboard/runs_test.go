@@ -22,9 +22,9 @@ func TestLogIndex(t *testing.T) {
 	for _, id := range []string{"aaaabbbb-1234-1234-1234-123456789012", "ccccdddd-1234-1234-1234-123456789012"} {
 		os.WriteFile(filepath.Join(dir, "logs", id+".jsonl"), []byte("data: {}\n"), 0o644)
 	}
-	d.rec.Note("aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
-	d.rec.Note("aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
-	d.rec.Note("ccccdddd-1234-1234-1234-123456789012", "reply-pr", "2026-11-23T09:05:00Z")
+	noteRun(t, d, "aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
+	noteRun(t, d, "aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
+	noteRun(t, d, "ccccdddd-1234-1234-1234-123456789012", "reply-pr", "2026-11-23T09:05:00Z")
 
 	if n := len(d.rec.Entries()); n != 2 {
 		t.Fatalf("index holds %d ids after a duplicate write, want 2", n)
@@ -43,16 +43,6 @@ func TestLogIndex(t *testing.T) {
 	}
 	if out[0].WorkflowName != "fix-issue" || out[0].StartedAt != "2026-11-23T09:00:00Z" {
 		t.Fatalf("api/logs lost the workflow or start time: %+v", out[0])
-	}
-
-	// Prune drops the line whose log is gone and keeps the other.
-	os.Remove(filepath.Join(dir, "logs", "ccccdddd-1234-1234-1234-123456789012.jsonl"))
-	d.rec.Prune()
-	if n := len(d.rec.IDs()); n != 1 {
-		t.Fatalf("index holds %d ids after prune, want 1", n)
-	}
-	if !d.rec.Has("aaaabbbb-1234-1234-1234-123456789012") {
-		t.Fatal("prune dropped the log that still exists")
 	}
 }
 
@@ -90,8 +80,8 @@ func TestLogTargets(t *testing.T) {
 	os.WriteFile(log, []byte(`data: {"text":"review awf-project/cli#447"}`+"\n"), 0o644)
 
 	d := &dash{state: state, rec: runrecorder.New(state, "", nil)}
-	d.rec.Note(id, "review-pr", "2026-11-23T10:00:00Z")
-	d.cacheTargets()
+	noteRun(t, d, id, "review-pr", "2026-11-23T10:00:00Z")
+	d.cacheTargets(indexedIDs(d))
 
 	rec := httptest.NewRecorder()
 	d.logs(rec, httptest.NewRequest(http.MethodGet, "/api/logs", nil))
@@ -111,13 +101,13 @@ func TestLogTargets(t *testing.T) {
 	part := "dddddddd-1234-1234-1234-123456789012"
 	partLog := filepath.Join(state, "logs", part+".jsonl")
 	os.WriteFile(partLog, []byte("data: {\"text\":\"issue #7\"}\n"), 0o644)
-	d.rec.Note(part, "fix-issue", "2026-11-23T10:02:00Z")
-	d.cacheTargets()
+	noteRun(t, d, part, "fix-issue", "2026-11-23T10:02:00Z")
+	d.cacheTargets(indexedIDs(d))
 	if in := d.target(part); in["repo"] != "" {
 		t.Fatalf("partial target = %v, want no repository yet", in)
 	}
 	os.WriteFile(partLog, []byte("data: {\"text\":\"in awf-project/cli, issue #7\"}\n"), 0o644)
-	d.cacheTargets()
+	d.cacheTargets(indexedIDs(d))
 	if in := d.target(part); in["repo"] != "awf-project/cli" || in["issue"] != "7" {
 		t.Fatalf("target after the log grew = %v, want awf-project/cli#7", in)
 	}
@@ -127,8 +117,8 @@ func TestLogTargets(t *testing.T) {
 	none := "bbbbcccc-1234-1234-1234-123456789012"
 	noneLog := filepath.Join(state, "logs", none+".jsonl")
 	os.WriteFile(noneLog, []byte("data: {\"kind\":\"step.started\"}\n"), 0o644)
-	d.rec.Note(none, "tend-repo", "2026-11-23T10:05:00Z")
-	d.cacheTargets()
+	noteRun(t, d, none, "tend-repo", "2026-11-23T10:05:00Z")
+	d.cacheTargets(indexedIDs(d))
 	if in := d.target(none); len(in) != 0 {
 		t.Fatalf("target = %v, want none", in)
 	}
@@ -143,8 +133,7 @@ func TestLogTargets(t *testing.T) {
 	// Prune drops the cache with the index line it belongs to.
 	os.Remove(log)
 	os.Remove(noneLog)
-	d.rec.Prune()
-	d.targets.prune(d.rec.Has)
+	d.followRuns(nil)
 	_, keptA := d.targets.m[id]
 	_, keptB := d.targets.m[none]
 	if keptA || keptB {
@@ -171,9 +160,9 @@ func TestLogRoundDiffs(t *testing.T) {
 	os.WriteFile(plainLog, []byte(`data: {"text":"review awf-project/cli#7"}`+"\n"), 0o644)
 
 	d := &dash{state: state, rec: runrecorder.New(state, "", nil)}
-	d.rec.Note(id, "review-pr", "2026-11-25T10:00:00Z")
-	d.rec.Note(plain, "review-pr", "2026-11-25T10:05:00Z")
-	d.cacheTargets()
+	noteRun(t, d, id, "review-pr", "2026-11-25T10:00:00Z")
+	noteRun(t, d, plain, "review-pr", "2026-11-25T10:05:00Z")
+	d.cacheTargets(indexedIDs(d))
 
 	rec := httptest.NewRecorder()
 	d.logs(rec, httptest.NewRequest(http.MethodGet, "/api/logs", nil))
@@ -197,4 +186,24 @@ func TestLogRoundDiffs(t *testing.T) {
 	if n := len(out[1].Rounds); n != 0 {
 		t.Fatalf("rounds for a run without a sha = %v, want none", out[1].Rounds)
 	}
+}
+
+// noteRun adds a run to the index the way the recorder writes it.
+func noteRun(t *testing.T, d *dash, id, workflow, started string) {
+	t.Helper()
+	line, _ := json.Marshal(runrecorder.Entry{ID: id, WorkflowName: workflow, StartedAt: started})
+	f, err := os.OpenFile(filepath.Join(d.state, "logs", "index.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	f.Write(append(line, '\n'))
+}
+
+func indexedIDs(d *dash) []string {
+	var ids []string
+	for _, e := range d.rec.Entries() {
+		ids = append(ids, e.ID)
+	}
+	return ids
 }

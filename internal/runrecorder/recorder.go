@@ -81,16 +81,16 @@ func ValidID(id string) bool {
 }
 
 // Run records forever: every second it asks awf for its executions and starts recording the new
-// ones, then calls tick; every six hours it prunes. It does not return.
-func (r *Recorder) Run(tick func()) {
+// ones, then calls tick with the indexed executions; every six hours it prunes. It does not return.
+func (r *Recorder) Run(tick func(ids []string)) {
 	lastPrune := time.Time{}
 	for {
 		r.poll()
 		if tick != nil {
-			tick()
+			tick(r.ids())
 		}
 		if time.Since(lastPrune) > pruneEvery {
-			r.Prune()
+			r.prune()
 			lastPrune = time.Now()
 		}
 		time.Sleep(time.Second)
@@ -123,7 +123,7 @@ func (r *Recorder) poll() {
 			continue
 		}
 		if fileExists(r.Path(e.ID)) {
-			r.Note(e.ID, e.WorkflowName, e.StartedAt)
+			r.note(e.ID, e.WorkflowName, e.StartedAt)
 			r.announce(e.ID, e.WorkflowName)
 			continue
 		}
@@ -169,11 +169,11 @@ func (r *Recorder) record(id, workflow, started string, retry bool) {
 		os.Remove(r.Path(id))
 		return
 	}
-	r.Note(id, workflow, started)
+	r.note(id, workflow, started)
 }
 
-// Note adds a recorded execution to the index, once.
-func (r *Recorder) Note(id, workflow, started string) {
+// note adds a recorded execution to the index, once.
+func (r *Recorder) note(id, workflow, started string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.indexed[id] {
@@ -203,25 +203,8 @@ func (r *Recorder) Entries() []Entry {
 	return out
 }
 
-// Entry is the index line of one execution.
-func (r *Recorder) Entry(id string) (Entry, bool) {
-	for _, e := range r.Entries() {
-		if e.ID == id {
-			return e, true
-		}
-	}
-	return Entry{}, false
-}
-
-// Has says whether an execution is in the index.
-func (r *Recorder) Has(id string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.indexed[id]
-}
-
-// IDs lists the indexed executions, in no order.
-func (r *Recorder) IDs() []string {
+// ids lists the indexed executions, in no order.
+func (r *Recorder) ids() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ids := make([]string, 0, len(r.indexed))
@@ -231,9 +214,9 @@ func (r *Recorder) IDs() []string {
 	return ids
 }
 
-// Prune mirrors the 30 day retention awf keeps for its own history, and drops the index lines
+// prune mirrors the 30 day retention awf keeps for its own history, and drops the index lines
 // whose log is gone.
-func (r *Recorder) Prune() {
+func (r *Recorder) prune() {
 	entries, err := os.ReadDir(r.dir())
 	if err != nil {
 		return
@@ -272,9 +255,9 @@ func (r *Recorder) Prune() {
 	r.mu.Unlock()
 }
 
-// Terminal is the end the recorder saw for an execution: "completed", "failed", or "" while it
+// terminal is the end the recorder saw for an execution: "completed", "failed", or "" while it
 // has not ended. Terminal events are written last, so the tail of the file is enough.
-func (r *Recorder) Terminal(id string) string {
+func (r *Recorder) terminal(id string) string {
 	b, err := os.ReadFile(r.Path(id))
 	if err != nil {
 		return ""
@@ -309,7 +292,7 @@ func (r *Recorder) announce(id, workflow string) {
 	if seen {
 		return
 	}
-	status := r.Terminal(id)
+	status := r.terminal(id)
 	if status == "" {
 		return
 	}
