@@ -8,7 +8,7 @@
 #                         git config maps https://github.com/ onto remotes/, so
 #                         the workflows' own clone/fetch/push URLs hit it.
 #   fake/                 gh.log, agent.log, posted/, canned gh answers (fake/gh)
-#   dots                  DOTS_HOME: the real bin/publish-gate, a fake bin/held
+#   dots                  DOTS_HOME: the real bin/publish-gate, a fake bin/held and bin/budget
 # PATH starts with test/e2e/fakes (gh, opencode, curl). Nothing here reads the
 # network or a credential.
 
@@ -53,6 +53,7 @@ case_new() {
   ln -s "$REPO_ROOT/bin/publish-gate" "$T/dots/bin/publish-gate"
   ln -s "$REPO_ROOT/bin/dot-sign" "$T/dots/bin/dot-sign"
   ln -s "$E2E_DIR/fakes/held" "$T/dots/bin/held"
+  ln -s "$E2E_DIR/fakes/budget" "$T/dots/bin/budget"
   mkdir -p "$T/dots/workflows"
   ln -s "$REPO_ROOT/workflows/data" "$T/dots/workflows/data"
   cat > "$T/gitconfig" <<EOF

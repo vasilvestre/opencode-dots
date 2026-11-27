@@ -47,6 +47,13 @@ inputs:
     description: how the dot marks what it writes out (off, marker, signed); empty means no marking, ADR 0034
     validation:
       pattern: '^(off|marker|signed)?$'
+  - name: budget
+    type: string
+    required: false
+    default: ""
+    description: daily spend cap on autonomous actions, daily_usd=N; empty means no cap, ADR 0036
+    validation:
+      pattern: '^(daily_usd=[0-9]+(\.[0-9]{1,2})?)?$'
   - name: provider
     type: string
     required: false
@@ -101,6 +108,24 @@ states:
         goto: done
       - when: 'states.guard.Output contains "CLOSED:"'
         goto: done
+    on_success: budget_check
+    on_failure: error
+
+  # Daily budget (ADR 0036, docs/budget.md). With no budget input this writes nothing. With one,
+  # the answer of bin/budget is kept in a flag file next to the run directory that the gate
+  # steps below read: reached (or spend unreadable) means push and merge become a note, the
+  # review comment still goes out.
+  budget_check:
+    type: step
+    command: |
+      set -eu
+      [ -n "{{.inputs.budget}}" ] || exit 0
+      flag=${STATE_DIR:-/state}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}.budget
+      mkdir -p "$(dirname "$flag")"
+      rc=0
+      "${DOTS_HOME:-/work}/bin/budget" check "{{.inputs.repo}}" "{{.inputs.budget}}" >&2 || rc=$?
+      if [ "$rc" = 0 ]; then rm -f "$flag"; else echo 1 > "$flag"; fi
+    timeout: 120
     on_success: pick_review_model
     on_failure: error
 
@@ -871,11 +896,12 @@ states:
         esac
       fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ]; then
+      bover=$(cat "$d.budget" 2>/dev/null || true)
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
         grc=0
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
         ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
-        GATE_REPO="{{.inputs.repo}}" GATE_BRANCH="$branch" GATE_PUSH_REPO="$head_repo" \
+        GATE_REPO="{{.inputs.repo}}" GATE_BRANCH="$branch" GATE_PUSH_REPO="$head_repo" GATE_BUDGET_OVER="$bover" \
         GATE_TITLE="$(head -1 "$d/fixmsg.md")" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: fix not pushed (gate $grc)"; exit 0; }
@@ -949,9 +975,10 @@ states:
         esac
       fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ]; then
+      bover=$(cat "$d.budget" 2>/dev/null || true)
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
         grc=0
-        ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/verdict.txt" GATE_REPO="{{.inputs.repo}}" \
+        ITEM_CLASS="$item_class" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/verdict.txt" GATE_REPO="{{.inputs.repo}}" GATE_BUDGET_OVER="$bover" \
         GATE_PR_AUTHOR="$(jq -r '.author.login // empty' "$d/meta.json")" GATE_MERGE_SCOPE="${GATE_MERGE_SCOPE:-}" \
         GATE_IDENTITY="{{.inputs.identity}}" \
         GATE_PR_BODY_MARKED="$(jq -r 'if (.body // "") | contains("<!-- opencode-dots:dot=") then 1 else 0 end' "$d/meta.json")" \

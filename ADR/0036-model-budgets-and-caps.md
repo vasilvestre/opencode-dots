@@ -43,6 +43,20 @@ posting a task, and `review-pr`'s fix loop calls it before each round. The cap i
 in `repos.yaml` (`daily_usd`). A refusal is a note, written like the gate's notes, so the dashboard
 shows it. No store table until a second period or a payer is needed.
 
+### First step built
+
+The recommendation is built, opt-in and off by default (`docs/budget.md`). A `budget: {daily_usd: N}`
+key, allowed in `defaults`, in profiles (where a company sets it) and on a repository, caps the
+autonomous actions of a repository for one UTC day, and is refused unless its effective autonomy is
+`act` or `auto`. `bin/budget check OWNER/REPO CAP` sums the day's `cost_usd` from the run logs the
+dashboard reads (`bin/repos spend`, shared code in `internal/spend`) and exits 3 at or over the cap;
+unreadable spend fails closed unless `BUDGET_FAIL=open`. `bin/tend` skips a capped repository,
+`fix-issue` stops before any agent step, and `bin/publish-gate` turns push, open-pr, merge and
+file-issue into a note when `GATE_BUDGET_OVER=1`, leaving comments alone. Without the key every
+generated file, workflow input and run is unchanged. Still open: the three questions below, the
+payer, a monthly view and a per-person cap, and aborting a run in progress. The record stays
+`proposed`.
+
 ### Options
 
 | Option | What it costs | What it rules out |

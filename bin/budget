@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Daily spend cap per repository (ADR 0036, docs/budget.md). It sums what the runs of
+# one repository cost today (UTC) and compares it with a cap. Only autonomous actions are
+# capped: the callers that read the answer are the ones that publish by themselves.
+#
+#   bin/budget status [OWNER/REPO]       spend today, and the cap when tend.list has one
+#   bin/budget check OWNER/REPO CAP      CAP is N or daily_usd=N (USD)
+#
+# Where the number comes from: `bin/repos spend`, which reads the run index and each run's
+# log under STATE_DIR/logs, the same files the dashboard sums for /api/usage (ADR 0008).
+# No second source, no prompt and no token is ever printed: only repositories and amounts.
+#
+# Environment:
+#   STATE_DIR      the state directory (default /state).
+#   BUDGET_FAIL    closed (default) | open. What check does when the spend cannot be read.
+#                  closed: exit 1, a caller treats it as over. open: a loud warning, exit 0.
+#   BUDGET_DAY     the UTC day to sum, YYYY-MM-DD (default today); for tests and audits.
+#   BUDGET_REPOS   the bin/repos binary (default: next to this script).
+#   TEND_LIST      the list status reads caps from (default tend.list in the repository root).
+#
+# Exit codes of check: 0 under the cap, 3 cap reached (spend >= cap), 1 spend unreadable
+# (and BUDGET_FAIL is not open), 2 bad arguments.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+
+state=${STATE_DIR:-/state}
+repos_bin=${BUDGET_REPOS:-$here/repos}
+
+# One repository's spend today in USD, on stdout; non-zero when it cannot be read.
+spend_of() { # OWNER/REPO
+  [ -x "$repos_bin" ] || { echo "budget: no $repos_bin to read the spend with (make repos builds it)" >&2; return 1; }
+  "$repos_bin" spend -state "$state" ${BUDGET_DAY:+-day "$BUDGET_DAY"} "$1"
+}
+
+valid_repo() { [[ $1 =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; }
+
+case "${1:-}" in
+  check)
+    [ $# -eq 3 ] || { echo "usage: bin/budget check OWNER/REPO CAP" >&2; exit 2; }
+    repo=$2 cap=${3#daily_usd=}
+    valid_repo "$repo" || { echo "budget: '$repo' is not OWNER/REPO" >&2; exit 2; }
+    [[ $cap =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || { echo "budget: cap '$3' is not a number of USD (N or daily_usd=N)" >&2; exit 2; }
+    if ! spent=$(spend_of "$repo") || [[ ! $spent =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+      if [ "${BUDGET_FAIL:-closed}" = open ]; then
+        echo "budget: WARNING: cannot read today's spend for $repo, BUDGET_FAIL=open so the cap is NOT enforced" >&2
+        exit 0
+      fi
+      echo "budget: cannot read today's spend for $repo, treated as over the cap of \$$cap (BUDGET_FAIL=open lets it through)" >&2
+      exit 1
+    fi
+    if awk -v s="$spent" -v c="$cap" 'BEGIN { exit !(s + 0 >= c + 0) }'; then
+      echo "budget: $repo spent \$$spent of \$$cap today (UTC): daily budget reached" >&2
+      exit 3
+    fi
+    echo "budget: $repo spent \$$spent of \$$cap today (UTC): under the cap" >&2
+    ;;
+  status)
+    [ $# -le 2 ] || { echo "usage: bin/budget status [OWNER/REPO]" >&2; exit 2; }
+    list=${TEND_LIST:-$here/../tend.list}
+    cap_of() { # OWNER/REPO -> the budget=N column of its tend.list line, or -
+      local c=
+      [ -r "$list" ] && c=$(awk -v r="$1" '$1 == r { for (i = 3; i <= NF; i++) if ($i ~ /^budget=/) { sub(/^budget=/, "", $i); print $i } }' "$list")
+      printf '%s' "${c:--}"
+    }
+    day=${BUDGET_DAY:-$(date -u +%F)}
+    echo "budget: spend on $day (UTC)" >&2
+    if [ -n "${2:-}" ]; then
+      valid_repo "$2" || { echo "budget: '$2' is not OWNER/REPO" >&2; exit 2; }
+      spent=$(spend_of "$2") || exit 1
+      printf '%s\t%s\tcap %s\n' "$2" "$spent" "$(cap_of "$2")"
+    else
+      [ -x "$repos_bin" ] || { echo "budget: no $repos_bin to read the spend with (make repos builds it)" >&2; exit 1; }
+      rows=$("$repos_bin" spend -state "$state" ${BUDGET_DAY:+-day "$BUDGET_DAY"}) || exit 1
+      [ -n "$rows" ] || { echo "no priced run on $day"; exit 0; }
+      while IFS=$'\t' read -r name amount; do
+        printf '%s\t%s\tcap %s\n' "$name" "$amount" "$(cap_of "$name")"
+      done <<<"$rows"
+    fi
+    ;;
+  *)
+    echo "usage: bin/budget status [OWNER/REPO] | check OWNER/REPO CAP" >&2
+    exit 2
+    ;;
+esac

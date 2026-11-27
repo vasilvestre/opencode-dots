@@ -4,6 +4,7 @@
 //	repos generate   write the generated files (only the ones that changed)
 //	repos check      exit 1 when a generated file is out of date, write nothing
 //	repos import     build a first repos.yaml from the three existing files
+//	repos spend      what the runs of one UTC day cost, per repository (ADR 0036)
 //	repos features   list the keys a repository accepts
 //	repos db         the database side of repos.yaml: import, export, check, list (ADR 0024)
 package main
@@ -56,6 +57,8 @@ func main() {
 	dbPath := fs.String("db", "", "db: the database file (default: $STATE_DIR/dots.db, else <dir>/state/dots.db)")
 	workspace := fs.String("workspace", "default", "db: the workspace of the projects")
 	prune := fs.Bool("prune", false, "db import: delete the projects the file omits, unless work items name them")
+	stateDir := fs.String("state", "", "spend: the state directory (default: $STATE_DIR, else <dir>/state)")
+	day := fs.String("day", "", "spend: the UTC day, YYYY-MM-DD (default: today)")
 	fromDB := fs.Bool("from-db", false, "generate, check: build the files from the database instead of repos.yaml (ADR 0024, step 2)")
 	ev := workitem.GitHubEvent{}
 	linked := fs.String("linked", "", "db observe: issue numbers GitHub links to the pull request, comma separated")
@@ -103,6 +106,8 @@ func main() {
 		fail(generate(*dir, override, cmd == "check", *fromDB, *dbPath, *workspace))
 	case "import":
 		fail(importFiles(*dir, *force))
+	case "spend":
+		fail(spendCommand(os.Stdout, *dir, *stateDir, *day, fs.Arg(0)))
 	case "events":
 		fail(eventsCommand(sub, fs.Args()))
 	case "db":
@@ -132,6 +137,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: repos generate|check|import|features [-dir DIR] [-awf-url URL] [-state-path PATH] [-force]")
+	fmt.Fprintln(os.Stderr, "       repos spend [-state DIR] [-day YYYY-MM-DD] [OWNER/REPO]")
 	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list|work-items [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
 	fmt.Fprintln(os.Stderr, "       repos db observe -repo R -kind K -number N -actor LOGIN [-branch B] [-linked 12,13] [-title T]")
 	fmt.Fprintln(os.Stderr, "       repos db ingest -source advisory -repo R [-lock composer.lock] [-json] < composer-audit.json")

@@ -28,6 +28,13 @@ inputs:
     description: how the dot marks what it writes out (off, marker, signed); empty means no marking, ADR 0034
     validation:
       pattern: '^(off|marker|signed)?$'
+  - name: budget
+    type: string
+    required: false
+    default: ""
+    description: daily spend cap on autonomous actions, daily_usd=N; empty means no cap, ADR 0036
+    validation:
+      pattern: '^(daily_usd=[0-9]+(\.[0-9]{1,2})?)?$'
   - name: upstream
     type: string
     required: false
@@ -49,7 +56,24 @@ inputs:
       pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
 
 states:
-  initial: survey
+  initial: budget_check
+
+  # Daily budget (ADR 0036, docs/budget.md). With no budget input this writes nothing. With one,
+  # the answer of bin/budget is kept in a flag file that the gate steps below read: reached (or
+  # spend unreadable) means push, open-pr and merge become a note; comments still go out.
+  budget_check:
+    type: step
+    command: |
+      set -eu
+      [ -n "{{.inputs.budget}}" ] || exit 0
+      d=${STATE_DIR:-/state}/tend/{{.inputs.repo}}
+      mkdir -p "$d"
+      rc=0
+      "${DOTS_HOME:-/work}/bin/budget" check "{{.inputs.repo}}" "{{.inputs.budget}}" >&2 || rc=$?
+      if [ "$rc" = 0 ]; then rm -f "$d/budget_over"; else echo 1 > "$d/budget_over"; fi
+    timeout: 120
+    on_success: survey
+    on_failure: error
 
   survey:
     type: step
@@ -412,10 +436,11 @@ states:
         esac
       fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ]; then
+      bover=$(cat "$d/budget_over" 2>/dev/null || true)
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
         grc=0
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/held.patch" GATE_REPO="$repo" \
+        GATE_BUDGET_OVER="$bover" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/held.patch" GATE_REPO="$repo" \
         GATE_BRANCH="$branch" GATE_BASE="$(cat "$d/default_branch")" GATE_TITLE="$title" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; git -C "$work" checkout -- .; git -C "$work" clean -fdq; exit 0; }
@@ -443,9 +468,9 @@ states:
         mv "$d/pr.signed.md" "$d/pr.md"
       fi
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ]; then
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
         grc=0
-        AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" GATE_REPO="$repo" \
+        GATE_BUDGET_OVER="$bover" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" GATE_REPO="$repo" \
         GATE_BRANCH="$branch" GATE_BASE="$(cat "$d/default_branch")" \
           "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; exit 0; }
@@ -460,15 +485,16 @@ states:
         sha=$(git -C "$work" rev-parse HEAD)
         aut="{{.inputs.autonomy}}"
         idn="{{.inputs.identity}}"
+        bud="{{.inputs.budget}}"
         awf run review-pr --input repo="$repo" --input pr="$num" \
-          --input sha="$sha" --input event=tend ${aut:+--input "autonomy=$aut"} ${idn:+--input "identity=$idn"} \
+          --input sha="$sha" --input event=tend ${aut:+--input "autonomy=$aut"} ${idn:+--input "identity=$idn"} ${bud:+--input "budget=$bud"} \
           || echo "review failed, the pull request waits"
         verdict=$(cat "${STATE_DIR:-/state}/reviews/pr$num-$sha/verdict.txt" 2>/dev/null || echo hold)
         if [ "$verdict" = "merge" ]; then
           # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
           grc=0
-          if [ -n "{{.inputs.autonomy}}" ]; then
-            AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" GATE_REPO="$repo" \
+          if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
+            GATE_BUDGET_OVER="$bover" AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo" GATE_ARTIFACT="$d/pr.md" GATE_REPO="$repo" \
             GATE_PR_AUTHOR="$(gh pr view "$num" --repo "$repo" --json author --jq .author.login 2>/dev/null || true)" \
             GATE_MERGE_SCOPE="${GATE_MERGE_SCOPE:-}" GATE_IDENTITY="{{.inputs.identity}}" \
             GATE_PR_BODY_MARKED="$(gh pr view "$num" --repo "$repo" --json body --jq '(.body // "") | if contains("<!-- opencode-dots:dot=") then 1 else 0 end' 2>/dev/null || echo 0)" \

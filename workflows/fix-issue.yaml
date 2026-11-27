@@ -33,6 +33,13 @@ inputs:
     description: how the dot marks what it writes out (off, marker, signed); empty means no marking, ADR 0034
     validation:
       pattern: '^(off|marker|signed)?$'
+  - name: budget
+    type: string
+    required: false
+    default: ""
+    description: daily spend cap on autonomous actions, daily_usd=N; empty means no cap, ADR 0036
+    validation:
+      pattern: '^(daily_usd=[0-9]+(\.[0-9]{1,2})?)?$'
   - name: label
     type: string
     required: false
@@ -41,7 +48,29 @@ inputs:
     required: false
 
 states:
-  initial: fetch
+  initial: budget_check
+
+  # Daily budget (ADR 0036, docs/budget.md). With no budget input this prints LEGACY and the run
+  # goes to fetch as before. With one, a reached cap (or spend that cannot be read) stops the run
+  # here, before any checkout or agent step, and leaves a note under STATE_DIR/notes.
+  budget_check:
+    type: step
+    command: |
+      set -eu
+      if [ -z "{{.inputs.budget}}" ]; then printf LEGACY; exit 0; fi
+      rc=0
+      "${DOTS_HOME:-/work}/bin/budget" check "{{.inputs.repo}}" "{{.inputs.budget}}" >&2 || rc=$?
+      if [ "$rc" = 0 ]; then printf BUDGET_OK; exit 0; fi
+      AUTONOMY="{{.inputs.autonomy}}" GATE_BUDGET_OVER=1 GATE_REF="{{.inputs.repo}}#{{.inputs.issue}}" GATE_REPO="{{.inputs.repo}}" \
+        "${DOTS_HOME:-/work}/bin/publish-gate" push || true
+      echo "budget: issue #{{.inputs.issue}} not worked on, the daily budget is reached (budget exit $rc)" >&2
+      printf BUDGET_STOP
+    timeout: 120
+    transitions:
+      - when: 'states.budget_check.Output contains "BUDGET_STOP"'
+        goto: done
+    on_success: fetch
+    on_failure: error
 
   fetch:
     type: step
@@ -224,6 +253,12 @@ states:
       iss={{.inputs.issue}}
       d=${STATE_DIR:-/state}/fix/$repo/issue-$iss
       work="$d/work"
+      # Daily budget (ADR 0036): asked again now, the agent step ran for minutes. Over the cap
+      # (or spend unreadable) the gate turns push and open-pr into a note. No input: legacy.
+      bover=
+      if [ -n "{{.inputs.budget}}" ]; then
+        "${DOTS_HOME:-/work}/bin/budget" check "$repo" "{{.inputs.budget}}" >&2 || bover=1
+      fi
       # Say what was compared: a push step that finds nothing must be readable
       # after the fact, not a silent `completed`.
       head=$(git -C "$work" rev-parse --short HEAD)
@@ -310,12 +345,12 @@ states:
       fi
 
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ]; then
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
         grc=0
         git -C "$work" format-patch --stdout HEAD~1 > "$d/held.patch"
         ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/held.patch" GATE_REPO="$repo" \
-        GATE_BRANCH="$branch" GATE_BASE="$base" GATE_TITLE="$title" \
+        GATE_BRANCH="$branch" GATE_BASE="$base" GATE_TITLE="$title" GATE_BUDGET_OVER="$bover" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
         if [ "$grc" != 0 ]; then
           echo "autonomy: change not pushed (gate $grc)"
@@ -374,11 +409,11 @@ states:
       echo "pushing $branch to $push_url" | tee -a "$d/push.log"
       git -C "$work" push --quiet "$push_url" "HEAD:$branch"
       # Autonomy ceiling (ADR 0040): bin/publish-gate decides, an empty input is legacy.
-      if [ -n "{{.inputs.autonomy}}" ]; then
+      if [ -n "{{.inputs.autonomy}}" ] || [ -n "$bover" ]; then
         grc=0
         ITEM_CLASS=$(cat "$d/item_class" 2>/dev/null || echo 3) \
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="$repo#$iss" GATE_ARTIFACT="$d/fix.md" GATE_REPO="$repo" \
-        GATE_BRANCH="$branch" GATE_BASE="$base" GATE_CLOSES="$iss" \
+        GATE_BRANCH="$branch" GATE_BASE="$base" GATE_CLOSES="$iss" GATE_BUDGET_OVER="$bover" \
           "${DOTS_HOME:-/work}/bin/publish-gate" open-pr || grc=$?
         [ "$grc" = 0 ] || { echo "autonomy: pull request not opened (gate $grc)"; exit 0; }
       fi

@@ -57,19 +57,34 @@ while read -r repo auto rest; do
   auto=${auto:-false}
   case "$auto" in true|false) ;; *) echo "skip $repo: auto_merge must be true or false" >&2; continue ;; esac
 
-  # Optional key=value columns after auto_merge: the ceiling and the upstream
-  # list the repository sets. A line with only two columns sends neither.
-  autonomy="" upstream="" identity="" bad=""
+  # Optional key=value columns after auto_merge: the ceiling, the upstream
+  # list, the identity mode and the daily budget the repository sets. A line with
+  # only two columns sends none of them.
+  autonomy="" upstream="" identity="" budget="" bad=""
   for field in $rest; do
     case "$field" in
       autonomy=observe|autonomy=propose|autonomy=act|autonomy=auto) autonomy=${field#autonomy=} ;;
       upstream=*) upstream=${field#upstream=}
         [[ $upstream =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=[0-9]+)*$ ]] || bad=$field ;;
       identity=off|identity=marker|identity=signed) identity=${field#identity=} ;;
+      budget=*) budget=${field#budget=}
+        [[ $budget =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || bad=$field ;;
       *) bad=$field ;;
     esac
   done
   if [ -n "$bad" ]; then echo "skip $repo: bad field $bad" >&2; continue; fi
+
+  # A repository whose daily budget (ADR 0036, docs/budget.md) is reached is not
+  # tended: the pass would spend more. Spend that cannot be read counts as reached
+  # unless BUDGET_FAIL=open. No budget column: nothing here runs.
+  if [ -n "$budget" ]; then
+    brc=0
+    msg=$(STATE_DIR=${STATE_DIR:-$state} "${BUDGET_BIN:-bin/budget}" check "$repo" "$budget" 2>&1 </dev/null) || brc=$?
+    if [ "$brc" != 0 ]; then
+      echo "skip $repo: not tended, daily budget \$$budget (exit $brc): $msg"
+      continue
+    fi
+  fi
 
   # The cursor the workflow writes on a successful pass. A failed pass leaves
   # the old one, so the same window is replayed.
@@ -89,11 +104,12 @@ while read -r repo auto rest; do
   # Dispatch through awf serve so the run lands in its history and the
   # dashboard records its log. Running `awf run` directly left no trace.
   body=$(jq -nc --arg repo "$repo" --arg auto "$auto" --arg dry "$dry_run" \
-    --arg autonomy "$autonomy" --arg upstream "$upstream" --arg identity "$identity" \
+    --arg autonomy "$autonomy" --arg upstream "$upstream" --arg identity "$identity" --arg budget "$budget" \
     '{inputs:({repo:$repo,auto_merge:$auto,dry_run:$dry}
       + (if $autonomy != "" then {autonomy:$autonomy} else {} end)
       + (if $upstream != "" then {upstream:$upstream} else {} end)
-      + (if $identity != "" then {identity:$identity} else {} end))}')
+      + (if $identity != "" then {identity:$identity} else {} end)
+      + (if $budget != "" then {budget:("daily_usd=" + $budget)} else {} end))}')
   # No -f: an HTTP error must reach us with its body, so "awf answered 422" is not
   # reported as "cannot reach awf".
   if ! resp=$(curl -s -w '\n%{http_code}' -X POST "$awf_api/api/workflows/local/tend-repo/run" \

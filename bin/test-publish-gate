@@ -218,6 +218,30 @@ rm -rf "$state/held"
 AUTONOMY=propose STATE_DIR=$state GATE_REF=up/tool GATE_ARTIFACT=/x "$gate" file-issue 2>/dev/null
 ! grep -Eq '^(repo|upstream):' "$state"/held/*file-issue* || { echo "FAIL unset repo/upstream written"; fail=1; }
 
+# Daily budget (ADR 0036): GATE_BUDGET_OVER=1 turns push, open-pr, merge and file-issue into a
+# note, at every ceiling and with none; a comment goes on. 0 or empty change nothing.
+budget_cell() { # AUTONOMY ACTION WANT [OVER]
+  rm -rf "$state/held" "$state/notes"
+  AUTONOMY=$1 STATE_DIR=$state GATE_REF=o/r#1 GATE_ARTIFACT=/x GATE_BUDGET_OVER=${4-1} DOT_LOGIN=me GATE_PR_AUTHOR=me "$gate" "$2" 2>"$state/err"
+  got=$?
+  [ "$got" = "$3" ] || { echo "FAIL budget autonomy='$1' $2 over='${4-1}': want $3, got $got"; fail=1; }
+  if [ "$3" = 4 ]; then
+    grep -q 'daily budget reached' "$state/err" || { echo "FAIL budget $1/$2: reason does not say the budget"; fail=1; }
+    grep -q 'reason: daily budget reached' "$state"/notes/* 2>/dev/null || { echo "FAIL budget $1/$2: no note written"; fail=1; }
+  fi
+}
+for lvl in "" act auto; do
+  for a in push open-pr merge file-issue; do budget_cell "$lvl" $a 4; done
+  budget_cell "$lvl" comment 0
+done
+budget_cell "" push 0 0
+budget_cell act push 0 ""
+budget_cell act merge 5 0     # not over: the old rules, act never merges
+AUTONOMY=act STATE_DIR=$state GATE_REF=o/r#1 GATE_BUDGET_OVER=yes "$gate" push 2>/dev/null
+[ $? = 5 ] || { echo "FAIL an unknown GATE_BUDGET_OVER is not refused"; fail=1; }
+budget_cell propose push 4    # a note, not a held record, so nothing waits for a release
+[ -z "$(ls "$state/held" 2>/dev/null)" ] || { echo "FAIL a budget note left a held record"; fail=1; }
+
 # An unwritable state dir never turns a hold into an allow.
 AUTONOMY=propose STATE_DIR=/proc/nope GATE_REF=o/r#7 "$gate" comment 2>/dev/null
 [ $? = 3 ] || { echo "FAIL unwritable state dir changed the exit code"; fail=1; }

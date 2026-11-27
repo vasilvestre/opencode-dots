@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"opencode-dots/internal/spend"
 )
 
 // runStep is one step of a run with what it cost in wall time. Agent steps
@@ -179,14 +181,7 @@ func (d *dash) transcriptDirs() []string {
 	if d.transcripts != "" {
 		return []string{d.transcripts}
 	}
-	dirs := []string{filepath.Join(d.state, "awf", "transcripts")}
-	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-		dirs = append(dirs, filepath.Join(xdg, "awf", "transcripts"))
-	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		dirs = append(dirs, filepath.Join(home, ".local", "share", "awf", "transcripts"))
-	}
-	return dirs
+	return spend.TranscriptDirs(d.state)
 }
 
 // runModels reports the model inputs awf recorded for a run. awf writes the
@@ -294,49 +289,13 @@ func (d *dash) runInfo(id string, children map[string]runState) runInfo {
 
 // replayRun answers /api/replay: what a finished run was asked to do, so the
 // page can offer the same run again. awf keeps no copy of the inputs, so the
-// values come either from the run log (see replayInputs) or from the page's own
+// values come either from the run log (see spend.ReplayInputs) or from the page's own
 // record written when it started the run (state/runs/<id>.json).
 type replayRun struct {
 	Workflow string            `json:"workflow"`
 	Scope    string            `json:"scope"`
 	Inputs   map[string]string `json:"inputs"`
 	Source   string            `json:"source"`
-}
-
-// replayInputs reads the inputs back from a run log. Every workflow spells the
-// target in its prompts ("owner/repo#123", "issue #7") and review runs also
-// write the head commit as "pr123-<sha>", so the log holds what the run was
-// given. It is a guess: the page shows it as one and the operator can correct it.
-func replayInputs(text string) map[string]string {
-	// Transcript lines are JSON: the prompt keeps its escapes, and a bare `\n`
-	// would glue an `n` onto the repository name.
-	text = strings.NewReplacer(`\n`, " ", `\t`, " ", `\"`, `"`).Replace(text)
-	out := map[string]string{}
-	if m := repoIssueRE.FindStringSubmatch(text); m != nil {
-		out["repo"] = m[1] + "/" + m[2]
-		out["pr"] = m[3]
-	}
-	if m := prShaRE.FindStringSubmatch(text); m != nil {
-		out["sha"] = m[2]
-		if out["pr"] == "" {
-			out["pr"] = m[1]
-		}
-	}
-	if idx := issueRE.FindStringSubmatchIndex(text); idx != nil {
-		out["issue"] = text[idx[2]:idx[3]]
-		// fix-issue names the repository before the issue ("in owner/repo,
-		// issue #7") instead of as owner/repo#7.
-		if out["repo"] == "" {
-			from := idx[0] - 200
-			if from < 0 {
-				from = 0
-			}
-			if r := namedRepoRE.FindStringSubmatch(text[from:idx[0]]); r != nil {
-				out["repo"] = r[1]
-			}
-		}
-	}
-	return out
 }
 
 // targetMemo keeps the last answer for one run log, keyed by its size and
@@ -387,7 +346,7 @@ func (d *dash) cacheTargets() {
 		if completeTarget(memo.in) || (memo.size == st.Size() && memo.mod.Equal(st.ModTime())) {
 			continue
 		}
-		in := replayInputs(readFile(path, 4<<20))
+		in := spend.ReplayInputs(readFile(path, 4<<20))
 		d.targetMu.Lock()
 		d.targets[id] = targetMemo{size: st.Size(), mod: st.ModTime(), in: in}
 		d.targetMu.Unlock()
@@ -396,10 +355,6 @@ func (d *dash) cacheTargets() {
 
 var (
 	workflowNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	repoIssueRE    = regexp.MustCompile(`([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([0-9]+)`)
-	prShaRE        = regexp.MustCompile(`\bpr([0-9]+)-([0-9a-f]{7,40})\b`)
-	namedRepoRE    = regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*)`)
-	issueRE        = regexp.MustCompile(`\bissue #([0-9]+)`)
 )
 
 // runText returns the log of a run: the transcript first, since only it holds
@@ -458,7 +413,7 @@ func (d *dash) replay(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Scope = d.scopeOf(out.Workflow)
 	if id != "" {
-		if guess := replayInputs(d.runText(id)); len(guess) > 0 {
+		if guess := spend.ReplayInputs(d.runText(id)); len(guess) > 0 {
 			out.Inputs = guess
 			out.Source = "log"
 		}

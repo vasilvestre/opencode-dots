@@ -19,6 +19,9 @@ func tendLine(t TendEntry) string {
 	if t.Identity != "" {
 		line += " identity=" + t.Identity
 	}
+	if t.Budget != "" {
+		line += " budget=" + t.Budget
+	}
 	return line
 }
 

@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# bin/budget against run logs written to a temporary state directory (ADR 0036). Real
+# bin/repos spend, real logs layout, no network, never the live state.
+#
+#   bin/test-budget
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+fail=0
+ok() { echo "ok    $1"; }
+bad() { echo "FAIL  $1"; fail=1; }
+
+command -v go >/dev/null || { echo "test-budget: go is needed to build bin/repos" >&2; exit 1; }
+go build -o "$tmp/repos" ./cmd/repos || { echo "test-budget: cannot build bin/repos" >&2; exit 1; }
+
+# A home with no awf transcripts, so only the fixture is read.
+export HOME=$tmp/home XDG_DATA_HOME=$tmp/home/share
+mkdir -p "$HOME"
+state=$tmp/state
+mkdir -p "$state/logs"
+export BUDGET_REPOS=$tmp/repos
+unset BUDGET_FAIL BUDGET_DAY TEND_LIST
+export TEND_LIST=$tmp/none.list
+
+day=2026-11-23
+# run ID WORKFLOW STARTED PROMPT COSTS...: one index line and one log
+run() {
+  local id=$1 wf=$2 at=$3 prompt=$4
+  shift 4
+  printf '{"execution_id":"%s","workflow_name":"%s","started_at":"%s"}\n' "$id" "$wf" "$at" >>"$state/logs/index.jsonl"
+  {
+    printf '{"kind":"message.user","text":"%s"}\n' "$prompt"
+    local c
+    for c in "$@"; do printf '{"kind":"agent","cost_usd":%s}\n' "$c"; done
+  } >"$state/logs/$id.jsonl"
+}
+run aaaaaaa1 review-pr "${day}T01:00:00Z" "Review acme/app#7 now, token ghp_NOTAREALTOKEN" 0.03
+run aaaaaaa2 review-pr "${day}T23:59:59Z" "Review acme/app#8 now" 0.01 0.01
+run aaaaaaa3 review-pr "${day}T10:00:00Z" "Review acme/lib#2 now" 0.40
+run aaaaaaa4 review-pr "2026-11-22T23:59:59Z" "Review acme/app#9 now" 9.00
+run aaaaaaa5 review-pr "2026-11-24T00:00:00Z" "Review acme/app#10 now" 9.00
+run aaaaaaa6 review-pr "${day}T05:00:00+02:00" "Review acme/app#11 now" 0.10
+# aaaaaaa6 started 03:00 UTC on the same day: the spend is dated in UTC. acme/app today: 0.15.
+
+export STATE_DIR=$state BUDGET_DAY=$day
+b() { bin/budget "$@" 2>"$tmp/err" >"$tmp/out"; }
+
+check_rc() { # DESCRIPTION WANT ARGS...
+  local d=$1 want=$2 got
+  shift 2
+  b "$@"
+  got=$?
+  if [ "$got" = "$want" ]; then ok "$d"; else bad "$d: want $want, got $got ($(cat "$tmp/err"))"; fi
+}
+
+check_rc "under the cap" 0 check acme/app 1
+check_rc "the cap in the rule input form" 0 check acme/app daily_usd=1
+check_rc "just over the spend is still under" 0 check acme/app 0.16
+check_rc "exactly at the cap is reached" 3 check acme/app 0.15
+check_rc "over the cap" 3 check acme/app 0.10
+check_rc "another repository is summed on its own" 0 check acme/lib 0.41
+check_rc "another repository over its cap" 3 check acme/lib 0.40
+check_rc "a repository with no run today spends nothing" 0 check acme/none 0.01
+grep -q 'daily budget reached' "$tmp/err" && bad "a clean repository says the budget is reached" || ok "a clean repository does not say reached"
+b check acme/app 0.10
+grep -q 'daily budget reached' "$tmp/err" && ok "the refusal says the budget is reached" || bad "the refusal does not say so"
+grep -q 'NOTAREALTOKEN' "$tmp/err" "$tmp/out" && bad "a token from a prompt was printed" || ok "no prompt or token is printed"
+
+check_rc "no arguments is a usage error" 2 check
+check_rc "a bad repository is a usage error" 2 check not-a-repo 5
+check_rc "a bad cap is a usage error" 2 check acme/app lots
+check_rc "an unknown command is a usage error" 2 frob
+
+# Today, without BUDGET_DAY: a run that started a minute ago counts.
+fresh=$tmp/fresh
+mkdir -p "$fresh/logs"
+printf '{"execution_id":"bbbbbbb1","workflow_name":"x","started_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$fresh/logs/index.jsonl"
+printf '{"kind":"message.user","text":"Fix acme/app#3"}\n{"kind":"agent","cost_usd":2.5}\n' >"$fresh/logs/bbbbbbb1.jsonl"
+(unset BUDGET_DAY; STATE_DIR=$fresh bin/budget check acme/app 2 2>/dev/null)
+[ $? = 3 ] && ok "today is the default day" || bad "today is not the default day"
+mkdir -p "$tmp/empty/logs"
+(unset BUDGET_DAY; STATE_DIR=$tmp/empty bin/budget check acme/app 2 2>/dev/null)
+[ $? = 0 ] && ok "a state with no index yet is no spend" || bad "an empty index is not zero"
+
+# Spend that cannot be read: closed by default, open only when asked.
+export STATE_DIR=$tmp/missing
+check_rc "unreadable spend fails closed" 1 check acme/app 5
+BUDGET_FAIL=open b check acme/app 5
+rc=$?
+if [ "$rc" = 0 ] && grep -q 'WARNING' "$tmp/err" && grep -q 'NOT enforced' "$tmp/err"; then ok "BUDGET_FAIL=open lets it through with a warning"; else bad "BUDGET_FAIL=open: rc $rc, $(cat "$tmp/err")"; fi
+BUDGET_FAIL=closed b check acme/app 5
+[ $? = 1 ] && ok "BUDGET_FAIL=closed fails closed" || bad "BUDGET_FAIL=closed does not fail closed"
+(BUDGET_REPOS=$tmp/nobinary STATE_DIR=$state bin/budget check acme/app 5 2>/dev/null)
+[ $? = 1 ] && ok "no spend reader fails closed" || bad "a missing reader does not fail closed"
+(BUDGET_REPOS=$tmp/nobinary BUDGET_FAIL=open STATE_DIR=$state bin/budget check acme/app 5 2>/dev/null)
+[ $? = 0 ] && ok "no spend reader and BUDGET_FAIL=open lets it through" || bad "BUDGET_FAIL=open with no reader"
+printf '#!/bin/sh\necho garbage\n' >"$tmp/liar"
+chmod +x "$tmp/liar"
+(BUDGET_REPOS=$tmp/liar STATE_DIR=$state bin/budget check acme/app 5 2>/dev/null)
+[ $? = 1 ] && ok "a spend that is not a number fails closed" || bad "a garbled spend is not refused"
+
+# status
+export STATE_DIR=$state
+printf 'acme/app false autonomy=act budget=0.20\nacme/lib false\n' >"$tmp/tend.list"
+TEND_LIST=$tmp/tend.list b status
+if grep -qx $'acme/lib\t0.4000\tcap -' "$tmp/out" && grep -qx $'acme/app\t0.1500\tcap 0.20' "$tmp/out"; then ok "status lists spend and caps"; else bad "status output: $(cat "$tmp/out")"; fi
+b status acme/app
+grep -qx $'acme/app\t0.1500\tcap -' "$tmp/out" && ok "status of one repository" || bad "status of one repository: $(cat "$tmp/out")"
+grep -q NOTAREALTOKEN "$tmp/out" && bad "status printed a token" || ok "status prints no token"
+STATE_DIR=$tmp/missing b status
+[ $? = 1 ] && ok "status with unreadable spend fails" || bad "status with unreadable spend"
+
+if [ "$fail" = 0 ]; then echo "budget: all checks pass"; else echo "budget: failures above" >&2; fi
+exit "$fail"

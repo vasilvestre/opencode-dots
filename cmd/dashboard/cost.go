@@ -2,14 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"opencode-dots/internal/spend"
 )
 
 // cost reports what one run spent. Since awf v0.12.0 the provider price of an
@@ -70,7 +70,7 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[e.ID] = true
-		in := replayInputs(d.runText(e.ID))
+		in := spend.ReplayInputs(d.runText(e.ID))
 		repo, pr, issue := in["repo"], in["pr"], in["issue"]
 		if pr == "" && issue != "" {
 			pr = "issue " + issue
@@ -136,8 +136,6 @@ type costMemo struct {
 	steps int
 }
 
-var costUSDRE = regexp.MustCompile(`"cost_usd":\s*([0-9.eE+-]+)`)
-
 // runCost sums the prices recorded in a run's log. The transcript carries them;
 // the recorder file is the fallback, and it carries them too once awf puts the
 // field on the stream. A run started by an older awf has no price and reports
@@ -157,17 +155,7 @@ func (d *dash) runCost(id string) (float64, int) {
 	if ok && memo.size == st.Size() && memo.mod.Equal(st.ModTime()) {
 		return memo.usd, memo.steps
 	}
-	var usd float64
-	var steps int
-	for _, line := range strings.Split(readFile(path, 8<<20), "\n") {
-		for _, m := range costUSDRE.FindAllStringSubmatch(line, -1) {
-			var v float64
-			if _, err := fmt.Sscanf(m[1], "%g", &v); err == nil && v > 0 {
-				usd += v
-				steps++
-			}
-		}
-	}
+	usd, steps := spend.SumCost(readFile(path, 8<<20))
 	d.costMu.Lock()
 	if d.costs == nil {
 		d.costs = map[string]costMemo{}

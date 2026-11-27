@@ -5,7 +5,7 @@
 # repository. See docs/e2e.md for the matrix, the fakes and the known defects.
 #
 #   bin/test-e2e                 everything
-#   bin/test-e2e fix-issue       one section: fix-issue review classify held baseline upstream identity
+#   bin/test-e2e fix-issue       one section: fix-issue review classify held baseline upstream identity budget
 #   E2E_KEEP=1 bin/test-e2e ...  keep the scratch trees (their paths are printed)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -1057,6 +1057,160 @@ SHIM
   done
 }
 
+# ------------------------------------------------------------------ budget ---
+# The daily cap (ADR 0036, docs/budget.md): a fake bin/budget answers the exit code, the real
+# gate and workflows act on it. With no budget input nothing changes, byte for byte.
+BUDGET=daily_usd=5
+budget_called() { [ -s "$T/fake/budget.log" ]; }
+budget_calls() { wc -l < "$T/fake/budget.log" 2>/dev/null || echo 0; }
+
+# budget_record SCENARIO [INPUT...]: a legacy-shaped run, its calls and bodies, for cmp.
+budget_record() {
+  local scen=$1
+  shift
+  case_new "budget $scen $*"
+  case "$scen" in
+    fix-patch) FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 "$@" ;;
+    fix-act) FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 autonomy=act "$@" ;;
+    review) seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+            FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" "$@" ;;
+    review-auto) seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+            FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto "$@" ;;
+    tend) FAKE_TEND_FINDING='[{"title":"Own bug","body":"b","confidence":"high","evidence":"x","issue":true}]' \
+            run_wf tend-repo repo=$REPO auto_merge=false autonomy=act "$@" ;;
+  esac
+  {
+    echo "rc=$RC"
+    norm_log | sed -E 's/[0-9a-f]{40}/<sha>/g'
+    echo "--- posted"
+    for f in "$T/fake/posted/"*; do [ -f "$f" ] && { basename "$f" | sed 's/^[0-9]*-//'; cat "$f"; }; done
+    echo "--- state"
+    (cd "$T/state" && find . -type f ! -name '*.lock' | grep -vE '\.fake-|/work/|\.json$|push\.log' | sed -E 's#(pr[0-9]+-)[0-9a-f]{40}#\1<sha>#' | sort)
+    echo "--- agents"
+    sort "$T/fake/agent.steps"
+  } > "$E2E_TMP/bg.rec"
+}
+
+section_budget() {
+  say "== budget: the daily cap stops autonomous work, nothing changes without it =="
+  local rc label ceil a
+
+  # fix-issue: a reached cap stops the run before the checkout and every agent step.
+  for rc in 3 1; do
+    for ceil in legacy act; do
+      label="budget fix-issue, cap reached (budget exit $rc), $ceil"
+      case_new "$label"
+      a=(repo=$REPO issue=7 "budget=$BUDGET")
+      [ "$ceil" = legacy ] || a+=("autonomy=$ceil")
+      FAKE_BUDGET_RC=$rc FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue "${a[@]}"
+      check "$label: the run succeeds" test "$RC" = 0
+      check "$label: no agent step ran, nothing was spent" test ! -s "$T/fake/agent.steps"
+      check "$label: no checkout was made" test ! -e "$T/state/fix/$REPO/issue-7"
+      check "$label: nothing pushed, no pull request, no comment" bash -c "source $E2E_DIR/lib.sh; T=$T; no_push_no_pr && ! grep -q '^gh issue comment' $T/fake/gh.log"
+      check "$label: no gh call at all" test ! -s "$T/fake/gh.log"
+      check "$label: one note says the budget is reached" bash -c "[ $(note_of push) = 1 ] && grep -q 'reason: daily budget reached' $T/state/notes/*"
+      check "$label: bin/budget was asked once with the repository and the cap" bash -c "[ $(budget_calls) = 1 ] && grep -qx 'budget check $REPO $BUDGET' $T/fake/budget.log"
+      case_done
+    done
+  done
+
+  # fix-issue: under the cap the run goes on and publishes; the cap is read again before the push.
+  for ceil in legacy act auto; do
+    label="budget fix-issue, under the cap, $ceil"
+    case_new "$label"
+    a=(repo=$REPO issue=7 "budget=$BUDGET")
+    [ "$ceil" = legacy ] || a+=("autonomy=$ceil")
+    FAKE_BUDGET_RC=0 FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue "${a[@]}"
+    check "$label: the run succeeds" test "$RC" = 0
+    check "$label: branch pushed, one pull request" bash -c "source $E2E_DIR/lib.sh; T=$T; has_branch 'fix/7-*' && gh_once '^gh pr create'"
+    check "$label: no note" test "$(n_files "$T/state/notes" '*')" = 0
+    check "$label: asked at the start and again before the push" test "$(budget_calls)" = 2
+    case_done
+  done
+
+  case_new "budget fix-issue, reached during the run"
+  FAKE_BUDGET_RCS="0 3" FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 "budget=$BUDGET" autonomy=act
+  check "budget fix-issue mid-run: the run succeeds" test "$RC" = 0
+  check "budget fix-issue mid-run: the agent ran (the cap was open at the start)" agent_ran fix
+  check "budget fix-issue mid-run: nothing pushed, no pull request" no_push_no_pr
+  check "budget fix-issue mid-run: the push is a note, daily budget reached" bash -c "[ $(note_of push) = 1 ] && grep -q 'reason: daily budget reached' $T/state/notes/*"
+  case_done
+
+  case_new "budget fix-issue, reached during the run, no ceiling"
+  FAKE_BUDGET_RCS="0 3" FAKE_FIX=patch FAKE_CLASS=1 run_wf fix-issue repo=$REPO issue=7 "budget=$BUDGET"
+  check "budget fix-issue mid-run, no ceiling: the cap holds without a ceiling" no_push_no_pr
+  check "budget fix-issue mid-run, no ceiling: one note" test "$(note_of push)" = 1
+  case_done
+
+  # review-pr: the review comment still goes out; push and merge become notes.
+  for ceil in legacy auto; do
+    label="budget review-pr merge, cap reached, $ceil"
+    case_new "$label"
+    seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+    a=(repo=$REPO pr=7 "sha=$PR_SHA" "budget=$BUDGET")
+    [ "$ceil" = legacy ] || a+=("autonomy=$ceil")
+    FAKE_BUDGET_RC=3 FAKE_REVIEW=clean-merge run_wf review-pr "${a[@]}"
+    check "$label: the run succeeds" test "$RC" = 0
+    check "$label: the review is still commented" gh_once '^gh pr comment 7'
+    check "$label: no merge" gh_none '^gh pr merge'
+    check "$label: the merge is a note, daily budget reached" bash -c "[ $(note_of merge) = 1 ] && grep -q 'reason: daily budget reached' $T/state/notes/*merge*"
+    case_done
+  done
+
+  case_new "budget review-pr fix round, cap reached, act"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_BUDGET_RC=3 FAKE_REVIEW=finding-then-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=act "budget=$BUDGET"
+  check "budget review-pr fix round: the fix is not pushed" bash -c "! git -C $T/remotes/tester/demo.git show fix/7-20260101-0000:src.txt | grep -q cleared"
+  check "budget review-pr fix round: the push is a note" test "$(note_of push)" = 1
+  check "budget review-pr fix round: the review comment is not held, it goes out" gh_some '^gh pr comment 7'
+  case_done
+
+  label="budget review-pr merge, under the cap, auto"
+  case_new "$label"
+  seed_pr 7 fix/7-20260101-0000 "$LOGIN"
+  FAKE_BUDGET_RC=0 FAKE_REVIEW=clean-merge run_wf review-pr repo=$REPO pr=7 "sha=$PR_SHA" autonomy=auto "budget=$BUDGET"
+  check "$label: merged once" gh_once '^gh pr merge 7'
+  check "$label: no note" test "$(n_files "$T/state/notes" '*')" = 0
+  case_done
+
+  # tend-repo: an own issue is still filed (a comment, allowed); the flag is kept for the gate steps.
+  local tf='[{"title":"Own bug","body":"b","confidence":"high","evidence":"x","issue":true}]'
+  case_new "budget tend-repo, cap reached"
+  FAKE_BUDGET_RC=3 FAKE_TEND_FINDING="$tf" run_wf tend-repo repo=$REPO auto_merge=false autonomy=act "budget=$BUDGET"
+  check "budget tend-repo: the run succeeds" test "$RC" = 0
+  check "budget tend-repo: the issue is still filed" gh_once "^gh issue create --repo $REPO"
+  check "budget tend-repo: the flag is written" test "$(cat "$T/state/tend/$REPO/budget_over")" = 1
+  check "budget tend-repo: asked once" test "$(budget_calls)" = 1
+  case_done
+  case_new "budget tend-repo, under the cap"
+  FAKE_BUDGET_RC=0 FAKE_TEND_FINDING="$tf" run_wf tend-repo repo=$REPO auto_merge=false autonomy=act "budget=$BUDGET"
+  check "budget tend-repo under: no flag" test ! -e "$T/state/tend/$REPO/budget_over"
+  case_done
+
+  say "-- budget: an unset or empty budget input is byte-identical, and bin/budget is never run --"
+  local scen
+  for scen in fix-patch fix-act review review-auto tend; do
+    budget_record "$scen"
+    cp "$E2E_TMP/bg.rec" "$E2E_TMP/bg.$scen.none"
+    check "budget $scen, no input: bin/budget never ran" bash -c "[ ! -e $T/fake/budget.log ]"
+    case_done
+    FAKE_BUDGET_RC=3 budget_record "$scen" budget=
+    cp "$E2E_TMP/bg.rec" "$E2E_TMP/bg.$scen.empty"
+    check "budget $scen, empty input: bin/budget never ran even where it would say reached" bash -c "[ ! -e $T/fake/budget.log ]"
+    case_done
+    check "budget $scen: budget= is byte-identical to no input (calls, bodies, state, agents)" cmp -s "$E2E_TMP/bg.$scen.none" "$E2E_TMP/bg.$scen.empty"
+    check "budget $scen: the compared record is not empty" test "$(wc -l < "$E2E_TMP/bg.$scen.none")" -gt 5
+    cmp -s "$E2E_TMP/bg.$scen.none" "$E2E_TMP/bg.$scen.empty" || diff "$E2E_TMP/bg.$scen.none" "$E2E_TMP/bg.$scen.empty" | head -20
+  done
+
+  say "-- budget: a malformed input is rejected by awf --"
+  case_new "budget bad input"
+  run_wf fix-issue repo=$REPO issue=7 "budget=daily_usd=lots"
+  check "budget bad input: awf rejects it" test "$RC" != 0
+  check "budget bad input: nothing ran" test ! -s "$T/fake/gh.log"
+  case_done
+}
+
 want fix-issue && section_fix_issue
 want race && section_race
 want classify && section_classify
@@ -1065,4 +1219,5 @@ want held && section_held
 want baseline && section_baseline
 want upstream && section_upstream
 want identity && section_identity
+want budget && section_budget
 summary

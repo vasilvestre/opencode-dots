@@ -211,7 +211,7 @@ type dash struct {
 	costMu sync.Mutex
 	costs  map[string]costMemo
 
-	// replayInputs is a regexp pass over up to 4 MB of log, so the target per
+	// spend.ReplayInputs is a regexp pass over up to 4 MB of log, so the target per
 	// run is parsed off the request path and kept by log version.
 	targetMu sync.Mutex
 	targets  map[string]targetMemo

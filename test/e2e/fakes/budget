@@ -1,0 +1,16 @@
+#!/bin/sh
+# Fake bin/budget (the daily cap): logs each call to $FAKE_DIR/budget.log and answers
+# $FAKE_BUDGET_RC (default 0), or, one per call with the last repeating, the words of
+# $FAKE_BUDGET_RCS ("0 3": under on the first call, reached from the second on).
+log="$FAKE_DIR/budget.log"
+echo "budget $*" >> "$log"
+n=$(wc -l < "$log")
+rc=${FAKE_BUDGET_RC:-0}
+if [ -n "${FAKE_BUDGET_RCS:-}" ]; then
+  # shellcheck disable=SC2086
+  set -- $FAKE_BUDGET_RCS
+  [ "$n" -le "$#" ] || n=$#
+  eval "rc=\${$n}"
+fi
+echo "budget: fake answers $rc" >&2
+exit "$rc"

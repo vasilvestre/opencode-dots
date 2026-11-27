@@ -54,7 +54,7 @@ allows everything, exactly as before the gate existed.
 | --- | --- | --- |
 | 0 | allow | none |
 | 3 | hold (propose) | a file under `$STATE_DIR/held/` names the artifact |
-| 4 | note only (observe, class 3) | a file under `$STATE_DIR/notes/` |
+| 4 | note only (observe, class 3, a reached daily budget) | a file under `$STATE_DIR/notes/` |
 | 5 | refused (merge below `auto`, class 2 merge, unknown value or action) | none |
 
 The reason is always printed on stderr. A bad `AUTONOMY`, `ITEM_CLASS` or action
@@ -67,12 +67,14 @@ is refused (5), never allowed.
 `GATE_REPO` (`owner/repo`) is exported at every call so the circuit breaker finds its
 file. `GATE_PR_AUTHOR`, `DOT_LOGIN`, `GATE_MERGE_SCOPE` decide the merge scope, with
 `GATE_IDENTITY` and `GATE_PR_BODY_MARKED` when the repository marks the dot's work.
+`GATE_BUDGET_OVER=1` (set by a step after `bin/budget check`, `docs/budget.md`) turns push, open-pr, merge
+and file-issue into a note, "daily budget reached", with any ceiling or none; comments are unaffected.
 `GATE_REPO_SOURCE` and `GATE_UPSTREAM` (file-issue only) end up in a held record as
 `repo:` and `upstream:`.
 `GATE_BRANCH`, `GATE_BASE`, `GATE_PUSH_REPO`, `GATE_TITLE`, `GATE_CLOSES` are optional
 and only end up in a held record (`docs/publish-held.md`), one line each, control
 characters dropped, a line omitted when unset. Every workflow call passes the ones it
-knows at that point. With `autonomy` empty the gate is not called, so none of this
+knows at that point. With `autonomy` empty the gate is not called (except when a daily budget is reached), so none of this
 exists.
 
 ## How a step calls it
@@ -146,6 +148,7 @@ an outside item. Its gate calls still carry no class, only the ceiling counts.
 
 - `docs/breaker.md`: the optional circuit breaker that lowers `auto` to `act` after a revert
   or a red default branch.
+- `docs/budget.md`: the optional daily spend cap per repository, which turns push, open-pr and merge into a note.
 - `docs/publish-held.md`: the `publish-held` workflow that releases a record held at `propose`.
   `propose` is accepted by the config now that this workflow exists.
 - `docs/autonomy-view.md`: the read-only dashboard page for notes and held records.

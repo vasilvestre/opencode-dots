@@ -35,6 +35,8 @@ type TendEntry struct {
 	Upstream string
 	// Identity is empty unless the repository sets the key.
 	Identity string
+	// Budget is the daily cap in USD, empty unless the repository sets the budget key.
+	Budget string
 }
 
 // Output is everything the features add up to. Files carries extra generated

@@ -101,7 +101,7 @@ func (tend) Check(v any) error {
 func (tend) Emit(r *Resolved, out *Output) error {
 	auto, _ := r.Values["tend"].(map[string]any)["auto_merge"].(bool)
 	level, up, idn := tendExtras(r)
-	out.Tend = append(out.Tend, TendEntry{Repo: r.Name, AutoMerge: auto, Autonomy: level, Upstream: up, Identity: idn})
+	out.Tend = append(out.Tend, TendEntry{Repo: r.Name, AutoMerge: auto, Autonomy: level, Upstream: up, Identity: idn, Budget: budgetCap(r)})
 	return nil
 }
 

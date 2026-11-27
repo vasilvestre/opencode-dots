@@ -30,6 +30,10 @@
 #   GATE_MERGE_SCOPE  own (default) | all. At auto a merge is allowed for pull requests the dot
 #                  wrote or a dependency bot wrote (dependabot, renovate, github-actions);
 #                  `all` widens it to every author. An unknown author is not `own`.
+#   GATE_BUDGET_OVER  1 when the repository's daily budget is reached (a caller sets it after
+#                  bin/budget check, docs/budget.md): push, open-pr, merge and file-issue become a
+#                  note ("daily budget reached", exit 4) whatever the ceiling, even with none;
+#                  comment is unaffected. Empty or 0: nothing changes.
 #   GATE_IDENTITY  off (or empty) | marker | signed: the repository's marking mode (ADR 0034,
 #                  docs/identity.md). With marking on, a pull request by DOT_LOGIN is the dot's own
 #                  only if its body carries the dot marker, which the caller checks and reports
@@ -39,7 +43,7 @@
 # Exit codes, the reason always goes to stderr:
 #   0 allow      the step goes on.
 #   3 hold       propose: the artifact reference is written under $STATE_DIR/held/.
-#   4 note only  observe or class 3: an internal note is written under $STATE_DIR/notes/.
+#   4 note only  observe, class 3 or a reached daily budget: an internal note is written under $STATE_DIR/notes/.
 #   5 refused    the action is never allowed here (a merge below auto, a class 2 merge,
 #                a merge of someone else's pull request, file-issue below auto, an unknown value).
 # The caller treats every non-zero code as "do not publish" and exits 0 itself.
@@ -57,13 +61,25 @@ ref=${GATE_REF:-unknown}
 artifact=${GATE_ARTIFACT:-}
 state=${STATE_DIR:-/state}
 
-if [ -z "$level" ]; then
+budget_over=${GATE_BUDGET_OVER:-}
+case "$budget_over" in
+  ""|0|1) ;;
+  *) echo "publish-gate: unknown GATE_BUDGET_OVER '$budget_over', $action refused" >&2; exit 5 ;;
+esac
+# A reached daily budget (bin/budget, docs/budget.md) stops what spends or publishes
+# code; a comment still goes out.
+budget_blocks=0
+if [ "$budget_over" = 1 ]; then
+  case "$action" in push|open-pr|merge|file-issue) budget_blocks=1 ;; esac
+fi
+
+if [ -z "$level" ] && [ "$budget_blocks" = 0 ]; then
   echo "publish-gate: no autonomy ceiling set, $action allowed" >&2
   exit 0
 fi
 
 case "$level" in
-  observe|propose|act|auto) ;;
+  observe|propose|act|auto|"") ;;
   *) echo "publish-gate: unknown autonomy '$level', $action refused" >&2; exit 5 ;;
 esac
 case "$class" in
@@ -99,7 +115,7 @@ record() { # DIR REASON
   fi
   if mkdir -p "$dir" 2>/dev/null && {
     printf 'action: %s\nref: %s\nautonomy: %s\nclass: %s\nartifact: %s\n' \
-      "$action" "$ref" "$level" "${class:-none}" "$shown"
+      "$action" "$ref" "${level:-none}" "${class:-none}" "$shown"
     [ -z "$src" ] || printf 'source: %s\n' "$src"
     printf 'reason: %s\n' "$2"
     if [ "$1" = held ]; then
@@ -123,6 +139,10 @@ note() { # REASON
   record notes "$1"
   exit 4
 }
+
+if [ "$budget_blocks" = 1 ]; then
+  note "daily budget reached"
+fi
 
 # A tripped circuit breaker (bin/breaker, docs/breaker.md) lowers auto to act for this call.
 if [ "$level" = auto ]; then
