@@ -10,7 +10,7 @@
 # also removes the units this one replaces (see OBSOLETE). status compares the machine with the
 # manifest and lists what is missing, not enabled, not running, or extra. prune only removes.
 #
-# Roles:   workstation  awf, dashboard, opencode, tick, tend (when tend.list has a repository)
+# Roles:   workstation  awf, dashboard, opencode, tick, worker (once worker.env exists), tend (opt-in)
 #          server       awf, dashboard, hub, opencode, tick, tend
 #          worker       awf, worker, tick
 # Settings of a unit (client ids, the hub URL...) stay in drop-ins or env files, never here.
@@ -40,7 +40,7 @@ OBSOLETE=$(echo $OBSOLETE) # one line, so a name can be looked up with spaces ar
 
 units_for() { # role -> unit files, one per line
   case $1 in
-    workstation) echo "dots-awf.service dots-dashboard.service dots-opencode.service dots-tick.service dots-tick.timer" ;;
+    workstation) echo "dots-awf.service dots-dashboard.service dots-opencode.service dots-worker.service dots-tick.service dots-tick.timer" ;;
     server) echo "dots-awf.service dots-dashboard.service dots-hub.service dots-opencode.service dots-tick.service dots-tick.timer" ;;
     worker) echo "dots-awf.service dots-worker.service dots-tick.service dots-tick.timer" ;;
     *) echo "dots-units: the role is workstation, server or worker, not '$1'" >&2; return 1 ;;

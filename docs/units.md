@@ -10,7 +10,7 @@ bin/dots-units status                               # what is missing, off, extr
 
 | Role | Services | Timers |
 | --- | --- | --- |
-| `workstation` | `dots-awf`, `dots-dashboard`, `dots-opencode` | `dots-tick`; `dots-tend` only with `DOTS_ENABLE_TEND=1` (or if already on) |
+| `workstation` | `dots-awf`, `dots-dashboard`, `dots-opencode`, `dots-worker` (once `worker.env` exists: this machine then also works for a server) | `dots-tick`; `dots-tend` only with `DOTS_ENABLE_TEND=1` (or if already on) |
 | `server` | the same, and `dots-hub` once `mercure` and `hub.env` exist | `dots-tick`; `dots-tend` only with `DOTS_ENABLE_TEND=1` (or if already on) |
 | `worker` | `dots-awf`, `dots-worker` (once `~/.config/dots/worker.env` sets `DOTS_WORKER_URL`) | `dots-tick` |
 
