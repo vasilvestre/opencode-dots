@@ -54,6 +54,16 @@ records page. Accepting calls one store operation that moves the references of o
 other, with the old item kept as `merged`. A workflow writes the proposal as a file and a shell
 step inserts it, as ADR 0002 requires.
 
+### First step built
+
+The record stays `proposed`. Option A's smallest step exists, and nothing changes for a deployment
+that does not use it: migration 6 (`link_proposal`, and `merged_into` on `work_item`), the store
+operations `ProposeLink`, `ListLinkProposals`, `DeclineLink` and `AcceptLink`, `bin/repos db link`,
+`GET /api/links` with accept and decline endpoints, and a Links page. Accepting refuses, leaving the
+proposal open, across workspaces and across trust levels: a link that holds references and state only
+(question 3) is not built, so the answer in code is "refuse". `SplitLink` is not built; the merged item
+and the events keep what it needs. No workflow proposes yet. See `docs/links.md`.
+
 ### Options
 
 | Option | What it costs | What it rules out |

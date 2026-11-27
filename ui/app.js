@@ -12,6 +12,7 @@ import { mountMemory } from "./views/memory.js";
 import { mountAutonomy } from "./views/autonomy.js";
 import { mountHealth } from "./views/health.js";
 import { mountAudit } from "./views/audit.js";
+import { mountLinks } from "./views/links.js";
 import { startNotifications } from "./notifications.js";
 import { openPalette } from "./palette.js";
 
@@ -25,6 +26,7 @@ const VIEWS = {
   autonomy: { mount: (el) => mountAutonomy(el), title: "Autonomy" },
   health: { mount: (el) => mountHealth(el), title: "Health" },
   audit: { mount: (el) => mountAudit(el), title: "Audit" },
+  links: { mount: (el) => mountLinks(el), title: "Links" },
 };
 
 const viewEl = $("#view");
@@ -92,7 +94,7 @@ document.addEventListener("keydown", (ev) => {
     openModal({
       title: "Keyboard shortcuts",
       body: h("dl", { class: "kbd-help" },
-        h("dt", {}, h("kbd", {}, "1"), "–", h("kbd", {}, "8")),
+        h("dt", {}, h("kbd", {}, "1"), "–", h("kbd", {}, "9"), ", ", h("kbd", {}, "0")),
         h("dd", {}, "switch section"),
         h("dt", {}, h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "K")),
         h("dd", {}, "go to a section, workflow or file"),
@@ -105,8 +107,8 @@ document.addEventListener("keydown", (ev) => {
       ),
     });
   }
-  if (!typing && /^[1-9]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-    const view = ["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit"][Number(ev.key) - 1];
+  if (!typing && /^[0-9]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    const view = ["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit", "links"][(Number(ev.key) + 9) % 10];
     location.hash = `#${view}`;
   }
 });

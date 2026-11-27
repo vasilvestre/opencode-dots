@@ -43,6 +43,10 @@ func main() {
 			// `repos db worker register -name x`: the action, then its flags.
 			sub, args = "worker-"+args[0], args[1:]
 		}
+		if cmd == "db" && sub == "link" && len(args) > 0 {
+			// `repos db link propose -a X -b Y`: the action, then its flags.
+			sub, args = "link-"+args[0], args[1:]
+		}
 	}
 	fs := flag.NewFlagSet("repos "+cmd, flag.ExitOnError)
 	dir := fs.String("dir", ".", "repository root: holds repos.yaml and receives the generated files")
@@ -74,10 +78,20 @@ func main() {
 	fs.DurationVar(&cl.TTL, "ttl", 0, "db claim, db heartbeat, db worker: time to live (default 90s, at most 1h)")
 	fs.StringVar(&cl.Name, "name", "", "db worker: the worker name")
 	fs.StringVar(&cl.Capabilities, "capabilities", "", "db worker register: what the worker offers, a JSON object")
+	var lk dbLink
+	fs.StringVar(&lk.File, "file", "", "db link propose: a JSON file with a, b, confidence, reason, evidence")
+	fs.StringVar(&lk.A, "a", "", "db link propose: the work item that keeps the references")
+	fs.StringVar(&lk.B, "b", "", "db link propose: the work item whose references would move onto it")
+	fs.Float64Var(&lk.Confidence, "confidence", 0, "db link propose: 0 to 1")
+	fs.StringVar(&lk.Reason, "reason", "", "db link propose: why, one short paragraph")
+	fs.StringVar(&lk.Evidence, "evidence", "", "db link propose: a small JSON object")
+	fs.StringVar(&lk.ID, "id", "", "db link accept, db link decline: the proposal id")
+	fs.StringVar(&lk.By, "by", "", "db link: who proposes or decides (default dot, cli)")
 	fs.Usage = func() { usage(); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
+	fs.Visit(func(f *flag.Flag) { lk.ConfidenceSet = lk.ConfidenceSet || f.Name == "confidence" })
 	override := repos.Settings{AwfURL: *awfURL, StatePath: *statePath}
 
 	switch cmd {
@@ -97,7 +111,7 @@ func main() {
 		ev.LinkedIssues = nums
 		cl.Branch, cl.Actor, cl.Repo = ev.Branch, ev.Actor, ev.Repo
 		ing.Repo = ev.Repo
-		err = dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev, cl, ing)
+		err = dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev, cl, ing, lk)
 		var held heldError
 		if errors.As(err, &held) {
 			fmt.Println(held.Error())
@@ -118,6 +132,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       repos db claim -actor LOGIN -machine M (-work-item ID | -ref REF) [-branch B] [-ttl 90s]")
 	fmt.Fprintln(os.Stderr, "       repos db heartbeat|release -claim ID    repos db claims -work-item ID")
 	fmt.Fprintln(os.Stderr, "       repos db worker register -name N -machine M [-capabilities JSON] [-ttl 90s]   heartbeat|expire -name N   list")
+	fmt.Fprintln(os.Stderr, "       repos db link propose -a ID -b ID -confidence 0.8 -reason T [-evidence JSON] [-by NAME] | -file F.json   list   accept|decline -id ID [-by NAME]")
 	fmt.Fprintln(os.Stderr, "       repos db claimed -repo R -branch B      exit 0 when free, 10 when a human holds the branch")
 	fmt.Fprintln(os.Stderr, "       repos events publish TOPIC DATA | subscribe TOPIC...   (DOTS_MERCURE_URL, DOTS_MERCURE_SECRET)")
 	fmt.Fprintln(os.Stderr, "       repos generate|check -from-db   build the files from the database (ADR 0024, step 2)")
@@ -214,7 +229,7 @@ func warnStaleWatchers(dir string, files map[string][]byte) {
 // dbCommand is the database side of repos.yaml (ADR 0024, step 1). repos.yaml stays the
 // source: `import` loads it, `check` compares what the database would generate with what
 // the file generates, `export` and `list` read the database back.
-func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHubEvent, cl dbClaim, ing dbIngest) error {
+func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHubEvent, cl dbClaim, ing dbIngest, lk dbLink) error {
 	dbPath = resolveDB(dir, dbPath)
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -297,6 +312,8 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 	case "worker-register", "worker-heartbeat", "worker-list", "worker-expire":
 		return workerCommand(ctx, st, os.Stdout, strings.TrimPrefix(sub, "worker-"),
 			dbWorker{Name: cl.Name, Machine: cl.Machine, Capabilities: cl.Capabilities, TTL: cl.TTL})
+	case "link-propose", "link-list", "link-accept", "link-decline":
+		return linkCommand(ctx, st, os.Stdout, strings.TrimPrefix(sub, "link-"), lk)
 	case "list":
 		projects, err := st.Projects(ctx, workspace)
 		if err != nil {

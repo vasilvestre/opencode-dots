@@ -8,8 +8,9 @@
 //   #autonomy
 //   #health
 //   #audit
+//   #links
 
-const VIEWS = new Set(["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit"]);
+const VIEWS = new Set(["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit", "links"]);
 
 export function parseRoute(hash = location.hash) {
   const [view = "activity", ...rest] = hash.replace(/^#\/?/, "").split("/");
