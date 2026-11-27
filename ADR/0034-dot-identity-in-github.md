@@ -1,6 +1,6 @@
 # 0034. The dot says who it is in GitHub, and the identity is a per-repository choice
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none

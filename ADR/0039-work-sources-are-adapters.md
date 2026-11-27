@@ -1,6 +1,6 @@
 # 0039. Work sources are adapters that feed work items
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none
