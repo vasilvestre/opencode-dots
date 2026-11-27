@@ -1,6 +1,6 @@
 # 0049. One tick timer per machine, installed by role
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-27
 - Supersedes: none
 - Superseded by: none

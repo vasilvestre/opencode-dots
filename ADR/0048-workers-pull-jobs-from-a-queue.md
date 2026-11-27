@@ -1,6 +1,6 @@
 # 0048. Workers pull jobs from a queue, through one public entry
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-27
 - Supersedes: 0033
 - Superseded by: none

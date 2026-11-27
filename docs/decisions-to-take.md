@@ -1,13 +1,12 @@
 # Decisions to take
 
-State on 2026-11-27. Every ADR is accepted or superseded except two that wait for a reading:
+State on 2026-11-27. Every ADR is accepted or superseded, including
 [0048](../ADR/0048-workers-pull-jobs-from-a-queue.md) (workers pull jobs from a queue, through one public
-entry) and [0049](../ADR/0049-one-tick-timer-per-machine.md) (one tick timer per machine). Both describe what is
-built and running; they stay `proposed` until the owner accepts them.
+entry) and [0049](../ADR/0049-one-tick-timer-per-machine.md) (one tick timer per machine).
 
 ## Accepted on 2026-11-27
 
-0029 (independent servers and contexts), 0036 (a daily USD cap per repository, first step; payer, monthly
+0048, 0049, 0029 (independent servers and contexts), 0036 (a daily USD cap per repository, first step; payer, monthly
 view and per-person cap are out of this record), 0043 (the dot files issues upstream at `auto`, with a mandatory
 visible line), 0047 (the owner is whoever reaches the dashboard on loopback). 0033 (hybrid executors) is
 superseded by 0048.

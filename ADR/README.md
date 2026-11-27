@@ -55,8 +55,8 @@ your mind by writing a new one that supersedes it.
 | [0045](0045-dots-do-not-talk-to-each-other.md) | Dots do not talk to each other; the owner keeps a repository on one dot | accepted | 2026-11-27 |
 | [0046](0046-the-visitor-brings-their-own-token.md) | The dashboard reads a visitor's rights with the visitor's own token | accepted | 2026-11-27 |
 | [0047](0047-owner-is-whoever-reaches-loopback.md) | The owner is whoever reaches the dashboard on loopback; an identity-based owner waits | accepted | 2026-11-27 |
-| [0048](0048-workers-pull-jobs-from-a-queue.md) | Workers pull jobs from a queue, through one public entry | proposed | 2026-11-27 |
-| [0049](0049-one-tick-timer-per-machine.md) | One tick timer per machine, installed by role | proposed | 2026-11-27 |
+| [0048](0048-workers-pull-jobs-from-a-queue.md) | Workers pull jobs from a queue, through one public entry | accepted | 2026-11-27 |
+| [0049](0049-one-tick-timer-per-machine.md) | One tick timer per machine, installed by role | accepted | 2026-11-27 |
 
 ## When to write one
 
