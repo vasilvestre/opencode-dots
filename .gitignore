@@ -18,6 +18,7 @@ sync.map
 breaker.list
 advisory.list
 jira.list
+sentry.list
 tend.list
 # The round trip fixtures of internal/repos carry the same names, with fake repos.
 !internal/repos/testdata/*

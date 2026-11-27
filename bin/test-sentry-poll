@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# bin/sentry-poll against a fake curl and the list fixture of internal/sources/sentry. No network,
+# no Sentry: the repos.yaml, the state and the database live in a temporary directory.
+#
+#   bin/test-sentry-poll
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+fx=$root/internal/sources/sentry/testdata
+command -v jq >/dev/null || { echo "bin/test-sentry-poll: jq is required" >&2; exit 2; }
+command -v go >/dev/null || { echo "bin/test-sentry-poll: go is required to build bin/repos" >&2; exit 2; }
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+fail=0
+check() { local name=$1; shift; if "$@"; then echo "ok   $name"; else echo "FAIL $name"; fail=1; fi; }
+
+go build -o "$work/repos" ./cmd/repos || { echo "FAIL cannot build cmd/repos"; exit 1; }
+
+# A fake curl: logs its arguments and stdin (the credential config), then answers.
+mkdir -p "$work/fake"
+cat > "$work/curl" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE/argv"
+cat >> "$FAKE/stdin"
+if [ -f "$FAKE/fail" ]; then echo "curl: (22) denied https://user:hunter2@acme.atlassian.net" >&2; exit 22; fi
+cat "$FAKE/list.json"
+FAKE
+chmod +x "$work/curl"
+export FAKE=$work/fake SENTRY_CURL=$work/curl
+
+proj=$work/proj; mkdir -p "$proj"
+cat > "$proj/repos.yaml" <<YAML
+version: 1
+repos:
+  acme/app:
+    sentry: acme/web
+  acme/plain:
+    review: true
+YAML
+"$work/repos" generate -dir "$proj" > "$work/generate.out" 2>&1 || { cat "$work/generate.out"; echo "FAIL generate"; exit 1; }
+check "sentry.list maps the project to its repository" grep -qx 'acme/web acme/app' "$proj/sentry.list"
+! grep -q 'acme/plain' "$proj/sentry.list" || { echo "FAIL plain repository listed"; fail=1; }
+
+export STATE_DIR=$work/state SENTRY_LIST=$proj/sentry.list REPOS_BIN=$work/repos \
+  SENTRY_URL=https://sentry.example.com SENTRY_AUTH_TOKEN=tok_notforprinting
+"$work/repos" db import -dir "$proj" > /dev/null || { echo "FAIL db import"; exit 1; }
+run() { out=$(bin/sentry-poll 2>&1); rc=$?; }
+
+cp "$fx/list.json" "$FAKE/list.json"
+run
+check "first poll exits 0" test "$rc" = 0
+check "first poll: two new issues" grep -q 'acme/web -> acme/app: 2 new, 0 changed, 0 seen' <<<"$out"
+check "the issue without a usable id is named and left out" grep -q 'left out' <<<"$out"
+check "the query is for the mapped project" grep -q 'api/0/projects/acme/web/issues' "$FAKE/argv"
+check "the token went through stdin, not argv" bash -c '! grep -q tok_notforprinting "$1"' _ "$FAKE/argv"
+check "the token did reach curl" grep -q tok_notforprinting "$FAKE/stdin"
+check "no token is printed" bash -c '! grep -q tok_notforprinting <<<"$1"' _ "$out"
+
+run
+check "repeat: seen, nothing new" grep -q '0 new, 0 changed, 2 seen' <<<"$out"
+
+sed -i 's/"count":"42"/"count":"90"/; s/2024-06-10T12:00:00Z/2024-06-11T12:00:00Z/' "$FAKE/list.json"
+run
+check "a higher count and a later last-seen are not a change" grep -q '0 new, 0 changed, 2 seen' <<<"$out"
+sed -i 's/"status":"unresolved","firstSeen":"2024-05-02/"status":"resolved","firstSeen":"2024-05-02/' "$FAKE/list.json"
+run
+check "a new status is a change" grep -q '0 new, 1 changed, 1 seen' <<<"$out"
+
+touch "$FAKE/fail"
+run
+check "a failing search exits 1" test "$rc" = 1
+check "a failing search names the project and masks credentials" bash -c 'grep -q "acme/web: fetch failed" <<<"$1" && ! grep -q hunter2 <<<"$1"' _ "$out"
+rm -f "$FAKE/fail"
+
+check "no credentials: exit 1" bash -c 'unset SENTRY_AUTH_TOKEN; ! bin/sentry-poll >/dev/null 2>&1'
+check "no list: exit 0" bash -c 'SENTRY_LIST=/nonexistent bin/sentry-poll >/dev/null 2>&1'
+
+[ "$fail" = 0 ] && echo "all ok" || { echo "FAILED"; exit 1; }

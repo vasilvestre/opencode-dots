@@ -20,7 +20,8 @@ const maxIngest = 16 << 20
 // dbIngest holds the flags of `repos db ingest`.
 type dbIngest struct {
 	Source  string // "advisory" or "jira"
-	Project string // jira: the Jira project key of the report
+	Project string // jira: the project key; sentry: the project slug
+	Org     string // sentry: the organization slug
 	Repo    string
 	Lock    string // optional composer.lock, for the installed versions
 	Floor   string // optional classify-floor.txt (default: <dir>/workflows/data/classify-floor.txt)
@@ -31,8 +32,8 @@ type dbIngest struct {
 // (ADR 0039). It prints one line per advisory: status (new, seen, changed), reference,
 // level, severity and package names, or the JSON of the result with -json.
 func ingestCommand(ctx context.Context, st *store.Store, in io.Reader, out, errOut io.Writer, dir, workspace string, f dbIngest) error {
-	if f.Source != "advisory" && f.Source != "jira" {
-		return fmt.Errorf("repos db ingest: -source must be advisory or jira, got %q", f.Source)
+	if f.Source != "advisory" && f.Source != "jira" && f.Source != "sentry" {
+		return fmt.Errorf("repos db ingest: -source must be advisory, jira or sentry, got %q", f.Source)
 	}
 	if f.Repo == "" {
 		return errors.New("repos db ingest: -repo OWNER/REPO is required")
@@ -46,6 +47,9 @@ func ingestCommand(ctx context.Context, st *store.Store, in io.Reader, out, errO
 	}
 	if f.Source == "jira" {
 		return ingestJira(ctx, st, raw, out, errOut, workspace, f)
+	}
+	if f.Source == "sentry" {
+		return ingestSentry(ctx, st, raw, out, errOut, workspace, f)
 	}
 	var lock []byte
 	if f.Lock != "" {
@@ -117,6 +121,32 @@ func ingestJira(ctx context.Context, st *store.Store, raw []byte, out, errOut io
 			continue
 		}
 		fmt.Fprintf(out, "%s\t%s\t%s\n", r.Outcome, r.Ref, r.Summary)
+	}
+	if errors.Is(err, workitem.ErrUnknownProject) {
+		return fmt.Errorf("%w (run `repos db import` first)", err)
+	}
+	return err
+}
+
+// ingestSentry records the issues of one list-issues response (docs/sources-sentry.md).
+func ingestSentry(ctx context.Context, st *store.Store, raw []byte, out, errOut io.Writer, workspace string, f dbIngest) error {
+	if f.Org == "" || f.Project == "" {
+		return errors.New("repos db ingest: -org and -project are required for -source sentry")
+	}
+	results, leftOut, err := workitem.IngestSentry(ctx, st, workspace, f.Repo, f.Org, f.Project, raw)
+	if leftOut != nil {
+		fmt.Fprintln(errOut, "repos: left out:", oneLine(leftOut.Error()))
+	}
+	for _, r := range results {
+		if f.JSON {
+			b, merr := json.Marshal(r)
+			if merr != nil {
+				return merr
+			}
+			fmt.Fprintf(out, "%s\n", b)
+			continue
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\n", r.Outcome, r.Ref, r.Title)
 	}
 	if errors.Is(err, workitem.ErrUnknownProject) {
 		return fmt.Errorf("%w (run `repos db import` first)", err)

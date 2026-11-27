@@ -82,10 +82,34 @@ itself. `err` may come with valid envelopes (a bad item in a list): store the en
 log the error. Pass `Envelope.Key` to the store as the source event so a repeat is a
 no-op.
 
+## Wired: `bin/sentry-poll`
+
+Like Jira (`docs/sources-tracker.md`), Sentry is read over its REST API by a shell step, not
+through an MCP server or `sentry-cli` (whose `issues list` prints a table): no agent, and the
+response is the list the adapter parses.
+
+```yaml
+repos:
+  acme/shop:
+    sentry: acme/web     # org/project slugs, lowercase
+```
+
+`make repos` writes `sentry.list` (`acme/web acme/shop`, gitignored). `bin/sentry-poll` runs
+`GET /api/0/projects/acme/web/issues/?query=is:unresolved&statsPeriod=7d` with a bearer token and
+pipes the answer to `bin/repos db ingest -source sentry -repo acme/shop -org acme -project web`.
+Environment: `SENTRY_AUTH_TOKEN` (required, `project:read`), `SENTRY_URL` (default
+`https://sentry.io`; a region host if needed), `SENTRY_PERIOD`, `SENTRY_QUERY`, `SENTRY_MAX`. The
+token goes to curl on stdin and is never printed.
+
+One work item per `sentry:org/project#id`, titled `Sentry SHORT-ID: title`. The event count and the
+last-seen stamp are dropped before storing, so a busier issue is not a change; a new status, level
+or title replaces the payload and records `sentry.changed`. An issue of another project is left out.
+Tests: `bin/test-sentry-poll`, `go test ./internal/workitem`.
+
 ## Not done
 
-- no polling and no HTTP client: nothing fetches the list, nothing pages through it;
-- no webhook endpoint and no signature check;
+- no webhook endpoint and no signature check; no pagination beyond `SENTRY_MAX`;
+- no classification or note on the recorded issues yet;
 - no write-back (comment, resolve, assign): that stays in shell steps (ADR 0002);
 - no actions other than `created`, `regression` and `resolved`;
 - no stack frames from the list API, no event fetch.
