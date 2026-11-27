@@ -46,3 +46,8 @@ notifications.json.*.bak
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+
+# Binaries built by `go build` inside a command directory
+/cmd/dashboard/dashboard
+/cmd/repos/repos
+/cmd/health/health
