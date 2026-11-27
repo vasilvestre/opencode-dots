@@ -232,13 +232,12 @@ request there is a visitor whatever its address, `Host` or headers. Never infer 
 - Writes to `notifications.json` take `editMu`, keep a stamped `.bak`, and use
   `atomicWrite`. The recorder reads the file at send time, so a Config save
   changes the next notice without a restart.
-- The recorder sends one Discord notice per execution id when its log has
-  `workflow.completed` or `workflow.failed`. The message names the workflow and
-  that state. `notified` under `d.mu` deduplicates per run; `seedNotified()` marks
-  the logs already on disk at startup so a restart sends no repeat, and
-  `pruneLogs()` drops ids whose log has gone. A post has a five second timeout;
-  a failure is logged and recording continues. The injectable `discordPost`
-  field defaults to `postDiscord`.
+- The recorder (`internal/runrecorder`) calls `notifyRun` once per execution id whose log has
+  `workflow.completed` or `workflow.failed`; the handler reads `notifications.json` at send time
+  and posts the workflow and that state. The recorder marks the logs already on disk at start as
+  announced, so a restart sends no repeat, and drops ids whose log has gone when it prunes. A post
+  has a five second timeout; a failure is logged and recording continues. The injectable
+  `discordPost` field defaults to `postDiscord`.
 - This is separate from `DISCORD_WEBHOOK` and the workflow `notify` steps. Do
   not add a webhook test endpoint: saving the config sends nothing.
 - The page never runs git. The backup file is the safety net for the private

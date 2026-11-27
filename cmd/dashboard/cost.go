@@ -1,12 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"opencode-dots/internal/spend"
 )
@@ -94,13 +92,7 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 		f.Runs++
 		f.Cost += usd
 	}
-	seen := map[string]bool{}
-	for line := range strings.SplitSeq(readFile(d.indexFile(), 8<<20), "\n") {
-		var e logIndex
-		if json.Unmarshal([]byte(line), &e) != nil || e.ID == "" || seen[e.ID] {
-			continue
-		}
-		seen[e.ID] = true
+	for _, e := range d.rec.Entries() {
 		in := d.targetOf(e.ID, d.runText(e.ID))
 		usd, _ := d.runCost(e.ID)
 		add(in["repo"], in["pr"], in["issue"], e.WorkflowName, usd)

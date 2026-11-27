@@ -22,7 +22,7 @@ cmd/worker/    dots-worker: follows the hub, claims jobs from the queue, runs th
 cmd/health/    one-command health check, exit 0 healthy, 1 degraded, 2 down
 cmd/dots/      read-only CLI over run logs: runs, show, logs (docs/debug.md)
 cmd/repos/     CLI that generates awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
-internal/      jobs/: the queue (leases, claims, pause); events/: the Mercure client and tokens; spend/: run cost; models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite); sources/: inbound adapters (advisory, jira, sentry) to envelopes
+internal/      jobs/: the queue (leases, claims, pause); events/: the Mercure client and tokens; spend/: run cost; models/: the model presets file and its roles; auth/: visitor sign-in and sessions; workertokens/: worker tokens; runrecorder/: the event log of each awf run; atomicfile/: atomic file writes; repos/: the repository list and its features; store/: the control-plane database (SQLite); sources/: inbound adapters (advisory, jira, sentry) to envelopes
 model-presets.yaml  global model presets, read by the workflows at run time (bin/model)
 docs/          indexed by docs/README.md: workflows, units, remote and the queue, autonomy, pause, runner, paths, health, sources
 workflows/     awf state machines: review-pr, reply-pr, tend-repo, fix-issue, fix-ci, and hidden helpers (_name)

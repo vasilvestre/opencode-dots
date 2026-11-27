@@ -22,6 +22,7 @@ import (
 
 	"opencode-dots/internal/auth"
 	"opencode-dots/internal/jobs"
+	"opencode-dots/internal/runrecorder"
 	"opencode-dots/internal/workertokens"
 )
 
@@ -144,7 +145,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"error": "awf unreachable at " + *awf + ": " + err.Error()})
 	}
 
-	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
+	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}}
 	d.discordPost = postDiscord
 	d.wtokens = workertokens.New(*state)
 	d.queue = jobs.Open(*state)
@@ -158,7 +159,7 @@ func main() {
 			d.allow[h] = true
 		}
 	}
-	d.indexed = d.loadIndexed()
+	d.rec = runrecorder.New(*state, *awf, d.notifyRun)
 	mux := routes(d, *ui, proxy)
 
 	go d.watchRuns()
@@ -204,11 +205,7 @@ type dash struct {
 	editMu       sync.Mutex
 	modelCatalog func(context.Context) []string
 	discordPost  func(webhook, message string) error
-	mu           sync.Mutex
-	active       map[string]bool
-	tried        map[string]bool
-	notified     map[string]bool // one completion message per execution id
-	indexed      map[string]bool
+	rec          *runrecorder.Recorder
 
 	// The page asks for a price on every refresh; the last answer per run file
 	// is reused until the file changes.

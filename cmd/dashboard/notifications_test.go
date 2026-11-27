@@ -156,71 +156,26 @@ func TestNotificationsBackup(t *testing.T) {
 	}
 }
 
-func TestNotifyTerminalOnce(t *testing.T) {
-	state, root := t.TempDir(), t.TempDir()
-	os.MkdirAll(filepath.Join(state, "logs"), 0o755)
-	id := "notify-completed-1"
-	os.WriteFile(filepath.Join(state, "logs", id+".jsonl"), []byte(
-		"data: {\"kind\":\"step.started\"}\n\n"+
-			"data: {\"kind\":\"workflow.completed\",\"status\":\"success\"}\n\n"), 0o644)
+func TestNotifyRunPostsToTheConfiguredWebhook(t *testing.T) {
+	root := t.TempDir()
 	cfg, _ := json.Marshal(notificationConfig{Discord: discordNotification{Enabled: true, Webhook: testWebhook}})
 	os.WriteFile(filepath.Join(root, "notifications.json"), cfg, 0o644)
 
 	var sent []string
-	d := &dash{state: state, root: root, notified: map[string]bool{}, discordPost: func(webhook, message string) error {
+	d := &dash{root: root, discordPost: func(webhook, message string) error {
 		sent = append(sent, webhook+"|"+message)
 		return nil
 	}}
-	d.notifyTerminal(id, "review-pr")
-	d.notifyTerminal(id, "review-pr")
-	if len(sent) != 1 {
-		t.Fatalf("sent %d messages, want 1: %v", len(sent), sent)
-	}
-	if !strings.Contains(sent[0], testWebhook+"|") || !strings.Contains(sent[0], "review-pr") || !strings.Contains(sent[0], "completed") {
-		t.Fatalf("message = %q, want webhook, workflow and status", sent[0])
-	}
-
-	// A failed run gets its own message; a cancelled one is not a completion.
-	failed := "notify-failed-1"
-	os.WriteFile(filepath.Join(state, "logs", failed+".jsonl"), []byte(`data: {"kind":"workflow.failed"}`+"\n"), 0o644)
-	d.notifyTerminal(failed, "fix-issue")
-	cancelled := "notify-cancelled-1"
-	os.WriteFile(filepath.Join(state, "logs", cancelled+".jsonl"), []byte(`data: {"kind":"workflow.cancelled"}`+"\n"), 0o644)
-	d.notifyTerminal(cancelled, "fix-issue")
-	if len(sent) != 2 || !strings.Contains(sent[1], "fix-issue failed") {
-		t.Fatalf("messages = %v, want the failed run only", sent)
+	d.notifyRun("run-1", "review-pr", "completed")
+	if len(sent) != 1 || sent[0] != testWebhook+"|dots: review-pr completed" {
+		t.Fatalf("sent %v, want the webhook, the workflow and the status", sent)
 	}
 
 	// Reading the config at send time means a save takes effect at once.
 	os.Remove(filepath.Join(root, "notifications.json"))
-	disabled := "notify-disabled-1"
-	os.WriteFile(filepath.Join(state, "logs", disabled+".jsonl"), []byte(`data: {"kind":"workflow.completed"}`+"\n"), 0o644)
-	d.notifyTerminal(disabled, "reply-pr")
-	if len(sent) != 2 {
+	d.notifyRun("run-2", "reply-pr", "completed")
+	if len(sent) != 1 {
 		t.Fatalf("disabled config still sent %v", sent)
-	}
-}
-
-func TestSeedNotifiedSkipsOldLogs(t *testing.T) {
-	state, root := t.TempDir(), t.TempDir()
-	os.MkdirAll(filepath.Join(state, "logs"), 0o755)
-	id := "seeded-completed-1"
-	os.WriteFile(filepath.Join(state, "logs", id+".jsonl"), []byte(`data: {"kind":"workflow.completed"}`+"\n"), 0o644)
-	cfg, _ := json.Marshal(notificationConfig{Discord: discordNotification{Enabled: true, Webhook: testWebhook}})
-	os.WriteFile(filepath.Join(root, "notifications.json"), cfg, 0o644)
-
-	var sent []string
-	d := &dash{state: state, root: root, notified: map[string]bool{}, discordPost: func(webhook, message string) error {
-		sent = append(sent, message)
-		return nil
-	}}
-	d.seedNotified()
-	d.notifyTerminal(id, "review-pr")
-	if len(sent) != 0 {
-		t.Fatalf("seeded run sent %v", sent)
-	}
-	if !d.notified[id] {
-		t.Fatal("seed did not mark the existing log as announced")
 	}
 }
 

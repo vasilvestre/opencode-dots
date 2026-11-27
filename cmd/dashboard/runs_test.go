@@ -8,34 +8,36 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"opencode-dots/internal/runrecorder"
 )
 
 // The page joins a history row to a log on workflow plus start second, so the
 // index has to survive a restart and drop the lines of pruned logs.
 func TestLogIndex(t *testing.T) {
 	dir := t.TempDir()
-	d := &dash{state: dir, indexed: map[string]bool{}}
+	d := &dash{state: dir, rec: runrecorder.New(dir, "", nil)}
 
 	os.MkdirAll(filepath.Join(dir, "logs"), 0o755)
 	for _, id := range []string{"aaaabbbb-1234-1234-1234-123456789012", "ccccdddd-1234-1234-1234-123456789012"} {
 		os.WriteFile(filepath.Join(dir, "logs", id+".jsonl"), []byte("data: {}\n"), 0o644)
 	}
-	d.noteIndex("aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
-	d.noteIndex("aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
-	d.noteIndex("ccccdddd-1234-1234-1234-123456789012", "reply-pr", "2026-11-23T09:05:00Z")
+	d.rec.Note("aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
+	d.rec.Note("aaaabbbb-1234-1234-1234-123456789012", "fix-issue", "2026-11-23T09:00:00Z")
+	d.rec.Note("ccccdddd-1234-1234-1234-123456789012", "reply-pr", "2026-11-23T09:05:00Z")
 
-	if n := len(d.loadIndexed()); n != 2 {
+	if n := len(d.rec.Entries()); n != 2 {
 		t.Fatalf("index holds %d ids after a duplicate write, want 2", n)
 	}
 
 	// A restart keeps the lines it can read back.
-	if n := len((&dash{state: dir}).loadIndexed()); n != 2 {
+	if n := len(runrecorder.New(dir, "", nil).Entries()); n != 2 {
 		t.Fatalf("index holds %d ids after reload, want 2", n)
 	}
 
 	rec := httptest.NewRecorder()
 	d.logs(rec, httptest.NewRequest(http.MethodGet, "/api/logs", nil))
-	var out []logIndex
+	var out []runrecorder.Entry
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out) != 2 {
 		t.Fatalf("api/logs returned %q (err %v), want 2 entries", rec.Body.String(), err)
 	}
@@ -45,12 +47,11 @@ func TestLogIndex(t *testing.T) {
 
 	// Prune drops the line whose log is gone and keeps the other.
 	os.Remove(filepath.Join(dir, "logs", "ccccdddd-1234-1234-1234-123456789012.jsonl"))
-	d.indexed = d.loadIndexed() // prune copies its survivors back into the map
-	d.pruneLogs()
-	if n := len(d.indexed); n != 1 {
+	d.rec.Prune()
+	if n := len(d.rec.IDs()); n != 1 {
 		t.Fatalf("index holds %d ids after prune, want 1", n)
 	}
-	if !d.indexed["aaaabbbb-1234-1234-1234-123456789012"] {
+	if !d.rec.Has("aaaabbbb-1234-1234-1234-123456789012") {
 		t.Fatal("prune dropped the log that still exists")
 	}
 }
@@ -66,7 +67,7 @@ func TestStreamReplaysAndStops(t *testing.T) {
 			"data: {\"kind\":\"workflow.completed\",\"status\":\"completed\"}\n\n"+
 			"data: {\"kind\":\"step.started\",\"seq\":9,\"step\":\"late\"}\n\n"), 0o644)
 
-	d := &dash{state: state}
+	d := &dash{state: state, rec: runrecorder.New(state, "", nil)}
 	rec := httptest.NewRecorder()
 	d.stream(rec, httptest.NewRequest(http.MethodGet, "/api/stream?id="+id, nil))
 
@@ -88,8 +89,8 @@ func TestLogTargets(t *testing.T) {
 	log := filepath.Join(state, "logs", id+".jsonl")
 	os.WriteFile(log, []byte(`data: {"text":"review awf-project/cli#447"}`+"\n"), 0o644)
 
-	d := &dash{state: state, indexed: map[string]bool{}}
-	d.noteIndex(id, "review-pr", "2026-11-23T10:00:00Z")
+	d := &dash{state: state, rec: runrecorder.New(state, "", nil)}
+	d.rec.Note(id, "review-pr", "2026-11-23T10:00:00Z")
 	d.cacheTargets()
 
 	rec := httptest.NewRecorder()
@@ -110,7 +111,7 @@ func TestLogTargets(t *testing.T) {
 	part := "dddddddd-1234-1234-1234-123456789012"
 	partLog := filepath.Join(state, "logs", part+".jsonl")
 	os.WriteFile(partLog, []byte("data: {\"text\":\"issue #7\"}\n"), 0o644)
-	d.noteIndex(part, "fix-issue", "2026-11-23T10:02:00Z")
+	d.rec.Note(part, "fix-issue", "2026-11-23T10:02:00Z")
 	d.cacheTargets()
 	if in := d.target(part); in["repo"] != "" {
 		t.Fatalf("partial target = %v, want no repository yet", in)
@@ -126,7 +127,7 @@ func TestLogTargets(t *testing.T) {
 	none := "bbbbcccc-1234-1234-1234-123456789012"
 	noneLog := filepath.Join(state, "logs", none+".jsonl")
 	os.WriteFile(noneLog, []byte("data: {\"kind\":\"step.started\"}\n"), 0o644)
-	d.noteIndex(none, "tend-repo", "2026-11-23T10:05:00Z")
+	d.rec.Note(none, "tend-repo", "2026-11-23T10:05:00Z")
 	d.cacheTargets()
 	if in := d.target(none); len(in) != 0 {
 		t.Fatalf("target = %v, want none", in)
@@ -142,7 +143,8 @@ func TestLogTargets(t *testing.T) {
 	// Prune drops the cache with the index line it belongs to.
 	os.Remove(log)
 	os.Remove(noneLog)
-	d.pruneLogs()
+	d.rec.Prune()
+	d.targets.prune(d.rec.Has)
 	_, keptA := d.targets.m[id]
 	_, keptB := d.targets.m[none]
 	if keptA || keptB {
@@ -168,9 +170,9 @@ func TestLogRoundDiffs(t *testing.T) {
 	plainLog := filepath.Join(state, "logs", plain+".jsonl")
 	os.WriteFile(plainLog, []byte(`data: {"text":"review awf-project/cli#7"}`+"\n"), 0o644)
 
-	d := &dash{state: state, indexed: map[string]bool{}}
-	d.noteIndex(id, "review-pr", "2026-11-25T10:00:00Z")
-	d.noteIndex(plain, "review-pr", "2026-11-25T10:05:00Z")
+	d := &dash{state: state, rec: runrecorder.New(state, "", nil)}
+	d.rec.Note(id, "review-pr", "2026-11-25T10:00:00Z")
+	d.rec.Note(plain, "review-pr", "2026-11-25T10:05:00Z")
 	d.cacheTargets()
 
 	rec := httptest.NewRecorder()

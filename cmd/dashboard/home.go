@@ -55,13 +55,7 @@ func (d *dash) home(w http.ResponseWriter, r *http.Request) {
 		now = d.clock()
 	}
 	since := now.Add(-homeWindow)
-	seen := map[string]bool{}
-	for line := range strings.SplitSeq(readFile(d.indexFile(), 8<<20), "\n") {
-		var e logIndex
-		if json.Unmarshal([]byte(line), &e) != nil || e.ID == "" || seen[e.ID] {
-			continue
-		}
-		seen[e.ID] = true
+	for _, e := range d.rec.Entries() {
 		x := row(d.targetOf(e.ID, d.runText(e.ID))["repo"])
 		if x == nil {
 			continue // a run with no known repository belongs to no row

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"opencode-dots/internal/runrecorder"
 )
 
 // Prices come from opencode's own database, read through the sqlite3 binary.
@@ -59,7 +61,7 @@ func TestRunCost(t *testing.T) {
 
 func TestUsageGroupsByPullRequest(t *testing.T) {
 	dir := t.TempDir()
-	d := &dash{state: dir, awf: "http://127.0.0.1:1"}
+	d := &dash{state: dir, awf: "http://127.0.0.1:1", rec: runrecorder.New(dir, "", nil)}
 	if err := os.MkdirAll(filepath.Join(dir, "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}

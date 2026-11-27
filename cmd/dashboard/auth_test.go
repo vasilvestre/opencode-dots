@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"opencode-dots/internal/auth"
 	"opencode-dots/internal/jobs"
+	"opencode-dots/internal/runrecorder"
 	"opencode-dots/internal/workertokens"
 	"os"
 	"path/filepath"
@@ -234,7 +235,7 @@ func fixture(t *testing.T) (state, root string, targets map[string]map[string]st
 
 func newDash(state, root string, targets map[string]map[string]string, a *auth.Auth) *dash {
 	d := &dash{state: state, root: root, awfgh: filepath.Join(root, "awf-gh.yaml"), allow: map[string]bool{"box.ts.net": true},
-		indexed: map[string]bool{}, auth: a, wtokens: workertokens.New(""), queue: jobs.Open(state)}
+		rec: runrecorder.New(state, "", nil), auth: a, wtokens: workertokens.New(""), queue: jobs.Open(state)}
 	d.targets.m = map[string]memoEntry[map[string]string]{}
 	for id, in := range targets {
 		d.targets.m[id] = memoEntry[map[string]string]{val: in}

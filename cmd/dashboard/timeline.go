@@ -316,13 +316,7 @@ func completeTarget(in map[string]string) bool {
 // it is read once however it ended. A partial guess does not settle: a run
 // that names its issue before its repository is read again when the log grows.
 func (d *dash) cacheTargets() {
-	d.mu.Lock()
-	ids := make([]string, 0, len(d.indexed))
-	for id := range d.indexed {
-		ids = append(ids, id)
-	}
-	d.mu.Unlock()
-	for _, id := range ids {
+	for _, id := range d.rec.IDs() {
 		path := d.transcriptPath(id)
 		if path == "" {
 			path = filepath.Join(d.state, "logs", id+".jsonl")
@@ -416,7 +410,7 @@ func (d *dash) replay(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, out)
 		return
 	}
-	if entry, ok := d.indexEntry(id); ok {
+	if entry, ok := d.rec.Entry(id); ok {
 		out.Workflow = entry.WorkflowName
 	}
 	if out.Workflow == "" {
