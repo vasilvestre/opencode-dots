@@ -19,6 +19,7 @@ agent/         opencode config mounted into the container: AGENTS.md, agents/ass
 bin/           configure (mode chooser), tend (daily dispatch), adr (records)
 cmd/dashboard/ Go server for the activity page
 cmd/health/    one-command health check, exit 0 healthy, 1 degraded, 2 down
+cmd/dots/      read-only CLI over run logs: runs, show, logs (docs/debug.md)
 cmd/repos/     CLI that generates awf-gh.yaml, tend.list, repos.map, sync.map from repos.yaml
 internal/      models/: model preset and default logic; repos/: the repository list and its features; store/: the control-plane database (SQLite); sources/: inbound adapters (advisory, jira, sentry) to envelopes
 model-presets.yaml  global model presets projected into workflow defaults
@@ -50,6 +51,7 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Classify a work item (level 1, 2, 3) | `workflows/_classify-item.yaml`, `docs/classification.md` | hidden, posts nothing |
 | Work source adapters | `internal/sources`, `docs/sources.md` | not wired to a watcher yet |
 | Run untrusted steps in a container | `bin/sandbox-run`, `bin/patch-guard`, `docs/runner.md` | not wired to a workflow yet |
+| Debug a failed run | `bin/dots show last`, `docs/debug.md` | `internal/runlog` reads state/logs and transcripts |
 | Is the dot alive | `cmd/health`, `docs/health.md` | `make health` |
 | Add a key a repository accepts | `internal/repos/features_*.go` | one feature = one file, `bin/repos features` lists them |
 
@@ -115,7 +117,7 @@ make repos       # regenerate awf-gh.yaml, tend.list, repos.map, sync.map from r
 make script-tests # bin/test-publish-gate, test-classify, test-sandbox (offline)
 make health      # build bin/health and run it
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
-make go-build    # build the dashboard, repos and health commands into bin/
+make go-build    # build the dashboard, repos, health and dots commands into bin/
 make hooks       # refuse a commit that adds a binary (once per clone)
 make health      # go build ./cmd/health, then run it: exit 0 healthy, 1 degraded, 2 down
 bin/tend         # one tend-repo run per repository with tend enabled (tend.list)

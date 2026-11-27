@@ -104,12 +104,14 @@ dashboard: ## serve the activity page on 127.0.0.1:8099
 
 health: ## build bin/health and run it: exit 0 healthy, 1 degraded, 2 down
 	go build -o bin/health ./cmd/health
+	go build -o bin/dots ./cmd/dots
 	./bin/health
 
 go-build: ## build every Go command into bin/ (a bare `go build` inside cmd/NAME drops a binary there)
 	go build -o bin/dashboard ./cmd/dashboard
 	go build -o bin/repos ./cmd/repos
 	go build -o bin/health ./cmd/health
+	go build -o bin/dots ./cmd/dots
 
 hooks: ## use the tracked git hooks of this clone: refuses a commit that adds a binary
 	git config core.hooksPath .githooks
