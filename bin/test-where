@@ -50,6 +50,20 @@ printf '# the org keeps its projects here\nexample-org/*=~/example-org   # my ch
 [ "$(where --suggest example-org/new-project)" = "$HOME/example-org/new-project" ] && ok "the suggestion is the owner's root plus the name, comments ignored" || ko "suggest"
 printf 'acme/tool=~/x\n' >"$DOTS_PATHS"
 bin/where --suggest example-org/new-project >/dev/null 2>&1; [ $? = 1 ] && ok "no root for the owner: no suggestion" || ko "no suggestion"
+# A scan finds a clone by its origin, whatever its folder is called, one or two levels down.
+mk "$HOME/projects/oss/awf" git@github.com:example-org/cli.git
+mk "$HOME/projects/perso/tool-fork" https://github.com/me/tool.git
+mkdir -p "$HOME/projects/perso/not-a-repo"
+printf 'scan=~/projects/*\n' >"$DOTS_PATHS"
+[ "$(where example-org/cli)" = "$HOME/projects/oss/awf" ] && ok "a scan finds a fork whose folder has another name" || ko "scan by origin"
+[ "$(where me/tool)" = "$HOME/projects/perso/tool-fork" ] && ok "a scan looks in every folder a glob matches" || ko "scan glob"
+[ -z "$(where me/absent)" ] && ok "a scan finds nothing for a repository that is not there" || ko "scan false positive"
+printf 'scan=~/projects/oss\n' >"$DOTS_PATHS"
+[ -z "$(where me/tool)" ] && ok "a scan stays inside the roots it was given" || ko "scan leaked"
+printf 'example-org/*=~/nowhere\nscan=~/projects/*\n' >"$DOTS_PATHS"
+[ "$(where example-org/cli)" = "$HOME/projects/oss/awf" ] && ok "a named place that has no clone does not stop the scan" || ko "named then scan"
+: >"$DOTS_PATHS"
+
 # The team's hints: a last resort, never ahead of the machine's own map.
 : >"$DOTS_PATHS"; printf '# suggested\nexample-org/*=~/example-org\n' >"$DOTS_HINTS"
 [ "$(where --suggest example-org/new-project)" = "$HOME/example-org/new-project" ] && ok "with no root of its own, the suggestion comes from the team's hints" || ko "hint suggestion"

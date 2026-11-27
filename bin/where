@@ -11,6 +11,8 @@
 #        owner/repo   this exact path
 #        owner/*      a root: the checkout is PATH/<repo>, for every repository of that owner
 #        */*          a root for any owner: PATH/<owner>/<repo>
+#        scan=DIR     look in every folder directly under DIR (a glob is allowed: ~/projects/*) and take the
+#                     one whose origin is the repository, whatever the folder is called
 #      `~` expands to the home directory; the first match that is a real clone wins.
 #   3. the team's suggestions ~/.config/dots/hints (DOTS_HINTS), same format, kept by dots-worker from the
 #      server's settings.checkout_hints. They come last: a hint is a suggestion, never an order.
@@ -48,6 +50,7 @@ candidates() {
     pat=${pat//[[:space:]]/}; dir=$(expand "$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"$dir")")
     [ -n "$dir" ] || continue
     case $pat in
+      scan) echo "scan $dir" ;;
       "$repo") echo "exact $dir" ;;
       "$owner/*") echo "root $dir/$name" ;;
       "*/*") echo "root $dir/$owner/$name" ;;
@@ -68,8 +71,24 @@ if [ -r "${REPOS_MAP:-/work/repos.map}" ]; then
   src=$(awk -F= -v k="$repo" '!/^[[:space:]]*#/ && $1==k { sub(/^[^=]*=/, ""); print; exit }' "${REPOS_MAP:-/work/repos.map}" 2>/dev/null || true)
   if [ -n "$src" ] && [ -d "$src/.git" ]; then echo "$src"; exit 0; fi
 fi
-# 2. the machine map
+# 2. the machine map and the team's hints: named places first, then the scans
+scans=()
 while read -r kind dir; do
-  if is_clone_of "$dir"; then echo "$dir"; exit 0; fi
+  case $kind in
+    scan) scans+=("$dir") ;;
+    *) if is_clone_of "$dir"; then echo "$dir"; exit 0; fi ;;
+  esac
 done < <(candidates)
+# A scan reads only the folders directly under each root, at most 500 in all, and recognises a clone by its
+# origin: a fork called `cli` sitting in a folder called `awf` is still found.
+seen=0
+for glob in "${scans[@]}"; do
+  while IFS= read -r root; do
+    [ -d "$root" ] || continue
+    for sub in "$root"/*/; do
+      sub=${sub%/}; seen=$((seen + 1)); [ "$seen" -le 500 ] || break 3
+      if is_clone_of "$sub"; then echo "$sub"; exit 0; fi
+    done
+  done < <(compgen -G "$glob" || true)
+done
 exit 1

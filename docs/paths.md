@@ -17,6 +17,21 @@ One line per rule, `PATTERN=PATH`. `~` is your home directory, `#` starts a comm
 example-org/*=~/example-org          # every example-org repository is ~/example-org/<name>
 acme/tool=~/work/acme-tool           # one repository, anywhere
 */*=~/projects                       # any other owner: ~/projects/<owner>/<name>
+scan=~/projects/*                    # recognise a clone by its origin in every folder under ~/projects/*
+```
+
+`scan` is for the layouts a name cannot describe: a folder per category (`~/projects/oss`, `~/projects/perso`,
+`~/projects/work`) holding repositories of several owners, or a fork called `cli` kept in a folder called `awf`. It
+looks at the folders directly under each root (a glob such as `~/projects/*` names several roots), takes the one whose
+`origin` is the repository, and gives up after 500 folders. Named places are tried first, then the scans. A rule
+`owner/*` is also what `--suggest` uses to say where a new clone should go.
+
+A layout with a folder per category:
+
+```
+example-org/*=~/projects/work        # where a new work project should be cloned
+me/*=~/projects/perso                # where a new personal one should go
+scan=~/projects/*                    # and every clone already there is found, whatever its folder is called
 ```
 
 Looked up in this order, the first real clone wins:
