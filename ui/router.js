@@ -1,4 +1,5 @@
 // Hash routing. The URL is the only state a reload must preserve:
+//   #home (the landing page)
 //   #activity
 //   #workflows[/<name>]
 //   #config[/<file>]
@@ -10,12 +11,12 @@
 //   #audit
 //   #links
 
-const VIEWS = new Set(["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit", "links"]);
+const VIEWS = new Set(["home", "activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit", "links"]);
 
 export function parseRoute(hash = location.hash) {
-  const [view = "activity", ...rest] = hash.replace(/^#\/?/, "").split("/");
+  const [view = "home", ...rest] = hash.replace(/^#\/?/, "").split("/");
   return {
-    view: VIEWS.has(view) ? view : "activity",
+    view: VIEWS.has(view) ? view : "home",
     arg: rest.join("/") || "",
   };
 }
@@ -55,7 +56,7 @@ export function startRouter(onRoute) {
     onRoute(route);
   };
   window.addEventListener("hashchange", run);
-  if (!location.hash) history.replaceState(null, "", "#activity");
+  if (!location.hash) history.replaceState(null, "", "#home");
   run();
   return () => window.removeEventListener("hashchange", run);
 }

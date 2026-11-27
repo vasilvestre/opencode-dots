@@ -3,6 +3,7 @@ import { awf, getJSON } from "./api.js";
 import { openModal } from "./modal.js";
 
 const SECTIONS = [
+  ["Home", "home"],
   ["Activity", "activity"],
   ["Workflows", "workflows"],
   ["Settings", "config"],

@@ -3,16 +3,17 @@ import { getJSON } from "../api.js";
 
 // What the daily pass learned per repository: rules it derives from reviews,
 // and facts it keeps between passes.
-export function mountMemory(el) {
+export function mountMemory(el, arg = "") {
   const search = h("input", {
     type: "search",
     placeholder: "Filter repositories",
+    value: arg,
     "aria-label": "Filter memory by repository",
     oninput: () => { filter = search.value.trim().toLowerCase(); render(); },
   });
   const list = h("div", { class: "list" });
   let repos = [];
-  let filter = "";
+  let filter = arg.trim().toLowerCase();
 
   mount(el, h("div", { class: "stack" },
     h("div", { class: "row between" },

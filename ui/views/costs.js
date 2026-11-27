@@ -53,7 +53,8 @@ export async function mountCosts(el) {
 
 // rowLabel links the pull request to GitHub when the repository is known.
 function rowLabel(g) {
-  if (!g.repo || !g.pr) return h("b", {}, g.key === "(no pull request)" ? "Unattributed runs" : g.key);
+  if (!g.repo) return h("b", {}, g.key === "(no pull request)" ? "Unattributed runs" : g.key);
+  if (!g.pr) return h("a", { href: `https://github.com/${g.repo}`, target: "_blank", rel: "noreferrer" }, `${g.repo} (no pull request)`);
   const kind = g.issue && g.issue === g.pr ? "issues" : "pull";
   return h("a", { href: `https://github.com/${g.repo}/${kind}/${g.pr}`, target: "_blank", rel: "noreferrer" }, g.key);
 }

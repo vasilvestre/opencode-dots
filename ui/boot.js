@@ -4,6 +4,7 @@ import { startRouter, navigate } from "./router.js";
 import { OWNER_ONLY, isVisitor, shapeNav } from "./session.js";
 import { toast } from "./toast.js";
 import { openModal } from "./modal.js";
+import { mountHome } from "./views/home.js";
 import { mountActivity } from "./views/activity.js";
 import { mountWorkflows } from "./views/workflows.js";
 import { mountConfig } from "./views/config.js";
@@ -18,12 +19,13 @@ import { startNotifications } from "./notifications.js";
 import { openPalette } from "./palette.js";
 
 const VIEWS = {
+  home: { mount: (el) => mountHome(el), title: "Home" },
   activity: { mount: (el) => mountActivity(el), title: "Activity" },
   workflows: { mount: (el, arg) => mountWorkflows(el, arg), title: "Workflows" },
   config: { mount: (el, arg) => mountConfig(el, arg), title: "Settings" },
   repos: { mount: (el) => mountRepos(el), title: "Repos" },
   costs: { mount: (el) => mountCosts(el), title: "Cost" },
-  memory: { mount: (el) => mountMemory(el), title: "Memory" },
+  memory: { mount: (el, arg) => mountMemory(el, arg), title: "Memory" },
   autonomy: { mount: (el) => mountAutonomy(el), title: "Autonomy" },
   health: { mount: (el) => mountHealth(el), title: "Health" },
   audit: { mount: (el) => mountAudit(el), title: "Audit" },
@@ -36,12 +38,12 @@ let current = null;
 function show(route) {
   // A visitor is not offered the owner's sections, and typing one in the address bar leads back.
   if (isVisitor() && OWNER_ONLY.has(route.view)) {
-    navigate("costs", "", { replace: true });
+    navigate("home", "", { replace: true });
     return;
   }
   current?.destroy?.();
   current = null;
-  const def = VIEWS[route.view] || VIEWS.activity;
+  const def = VIEWS[route.view] || VIEWS.home;
   document.querySelectorAll("#tabs a").forEach((a) => {
     if (a.dataset.view === route.view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -118,7 +120,7 @@ document.addEventListener("keydown", (ev) => {
     });
   }
   if (!typing && /^[0-9]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-    const view = ["activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit", "links"][(Number(ev.key) + 9) % 10];
+    const view = ["home", "activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit"][(Number(ev.key) + 9) % 10];
     location.hash = `#${view}`;
   }
 });
