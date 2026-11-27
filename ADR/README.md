@@ -58,6 +58,7 @@ your mind by writing a new one that supersedes it.
 | [0048](0048-workers-pull-jobs-from-a-queue.md) | Workers pull jobs from a queue, through one public entry | accepted | 2026-11-27 |
 | [0049](0049-one-tick-timer-per-machine.md) | One tick timer per machine, installed by role | accepted | 2026-11-27 |
 | [0050](0050-trust-needs-europe-and-zero-retention.md) | From client up, the code stays in Europe and only zero-retention models read it | proposed | 2026-11-27 |
+| [0051](0051-read-access-shows-repository-names.md) | Read access shows repository names | proposed | 2026-11-27 |
 | [0052](0052-workflows-read-model-presets-at-run-time.md) | Workflows read the model presets when a run starts | accepted | 2026-11-27 |
 
 ## When to write one
