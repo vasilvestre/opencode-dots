@@ -197,7 +197,7 @@ func TestNoRouteIsReachableAsOwnerThroughTheTeamListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := regexp.MustCompile(`mux\.HandleFunc\("([^"]+)"`).FindAllStringSubmatch(string(src), -1)
+	found := regexp.MustCompile(`(?:mux\.HandleFunc\(|d\.ownerWrite\(mux, )"([^"]+)"`).FindAllStringSubmatch(string(src), -1)
 	if len(found) < 40 {
 		t.Fatalf("read only %d routes from routes.go", len(found))
 	}

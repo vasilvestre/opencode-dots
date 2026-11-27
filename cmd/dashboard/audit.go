@@ -68,6 +68,11 @@ func (s *statusWriter) Flush() {
 
 func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
+// ownerWrite registers a write endpoint the owner alone may call, audited under its own path.
+func (d *dash) ownerWrite(mux *http.ServeMux, path, target string, h http.HandlerFunc) {
+	mux.HandleFunc(path, d.audited(path, target, d.ownerOnly(h)))
+}
+
 // audited wraps a write endpoint: every request that is not a read gets one audit entry after
 // the handler answered, whatever the answer was. A refused write is a row too. target is the
 // fixed target of an endpoint that has one; a handler may set a finer one with auditTarget.
