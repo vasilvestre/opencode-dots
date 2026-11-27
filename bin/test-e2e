@@ -735,6 +735,41 @@ section_upstream() {
   check "upstream duplicate (closed, same error): recorded" up_decision '#9 (closed)'
   case_done
 
+  up_case "duplicate with a reworded title, same log line"
+  printf '[{"number":12,"title":"Segfault when configuration is blank","body":"log: panic: nil map in loadConfig","state":"OPEN","url":"https://github.com/up/tool/issues/12"}]\n' > "$T/fake/gh/up-issues-up_tool.json"
+  up_run auto
+  check "upstream reworded duplicate: run succeeds" test "$RC" = 0
+  check "upstream reworded duplicate: nothing created" up_no_write
+  check "upstream reworded duplicate: the decision names the issue" up_decision 'duplicate on up/tool: #12 (open)'
+  check "upstream reworded duplicate: a skipped ledger row" grep -q '	skipped	' "$(up_ledger)"
+  check "upstream reworded duplicate: a small tracker costs one list call" test "$(gh_count '^gh issue list')" = 1
+  case_done
+
+  up_case "large tracker, duplicate beyond the newest 100"
+  jq -n '[range(1;131) | {number:(1000-.), title:("Filler topic \(.) alpha"), body:"nothing", state:"OPEN", url:"https://github.com/up/tool/issues/\(1000-.)"}]
+    + [{number:7,title:"Segfault when configuration is blank",body:"log: panic: nil map in loadConfig",state:"CLOSED",url:"https://github.com/up/tool/issues/7"}]' > "$T/fake/gh/up-issues-up_tool.json"
+  up_run auto
+  check "upstream large tracker: nothing created" up_no_write
+  check "upstream large tracker: the older issue is found" up_decision 'duplicate on up/tool: #7 (closed)'
+  check "upstream large tracker: the search fallback ran" gh_some '^gh issue list .*--search'
+  check "upstream large tracker: the plain list ran first" gh_some '^gh issue list --repo up/tool --state all --limit 100 --json'
+  case_done
+
+  up_case "unrelated issue only"
+  printf '[{"number":3,"title":"Docs typo in install section","body":"readme says instal","state":"OPEN","url":"https://github.com/up/tool/issues/3"}]\n' > "$T/fake/gh/up-issues-up_tool.json"
+  up_run auto
+  check "upstream unrelated issue: one issue created" up_created
+  check "upstream unrelated issue: a filed row" test "$(up_filed)" = 1
+  check "upstream unrelated issue: one list call" test "$(gh_count '^gh issue list')" = 1
+  case_done
+
+  up_case "the list call fails"
+  : > "$T/fake/gh/up-list-fail-up_tool"
+  up_run auto
+  check "upstream list failure: nothing created" up_no_write
+  check "upstream list failure: the reason says a duplicate cannot be ruled out" up_decision 'cannot be ruled out'
+  case_done
+
   up_case "duplicate search fails"
   printf 'not json\n' > "$T/fake/gh/up-issues-up_tool.json"
   up_run auto

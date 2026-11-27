@@ -11,12 +11,16 @@ echo "gh $*" >> "$FAKE_DIR/gh.log"
 jqx=""
 bodyfile=""
 repo=""
+search=""
+limit=""
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
   case "${args[i]}" in
     --jq) jqx=${args[i+1]:-} ;;
     --body-file) bodyfile=${args[i+1]:-} ;;
     --repo) repo=${args[i+1]:-} ;;
+    --search) search=${args[i+1]:-} ;;
+    --limit) limit=${args[i+1]:-} ;;
   esac
 done
 
@@ -61,8 +65,18 @@ case "${1:-} ${2:-}" in
     uf=$g/up-issue-${repo//\//_}-$3.json
     if [ -n "$repo" ] && [ -f "$uf" ]; then emit "$uf"; else emit "$g/issue.json"; fi ;;
   "issue list")
-    uf=$g/up-issues-${repo//\//_}.json
-    if [ -f "$uf" ]; then emit "$uf"; elif [ -f "$g/issues-list.json" ]; then emit "$g/issues-list.json"; else echo '[]'; fi ;;
+    # up-list-fail-<slug> makes the call fail. up-issues-<slug>.json is the tracker, newest
+    # first. --search keeps only the issues whose title and body hold EVERY word of the
+    # query (as GitHub does); --limit then cuts the list.
+    slug=${repo//\//_}
+    [ ! -f "$g/up-list-fail-$slug" ] || { echo "gh: HTTP 502" >&2; exit 1; }
+    if [ -f "$g/up-issues-$slug.json" ]; then
+      jq --arg q "$search" --argjson n "${limit:-1000}" '
+        ($q | ascii_downcase | [scan("[^ ]+")]) as $w
+        | [.[] | select((((.title + " " + .body) | ascii_downcase) as $t | all($w[]; . as $x | $t | contains($x))))]
+        | .[:$n]' "$g/up-issues-$slug.json" > "$g/.list-cut.json" 2>/dev/null || cp "$g/up-issues-$slug.json" "$g/.list-cut.json"
+      emit "$g/.list-cut.json"
+    elif [ -f "$g/issues-list.json" ]; then emit "$g/issues-list.json"; else echo '[]'; fi ;;
   "issue create") snap issue-create; echo "https://github.com/${repo:-x/y}/issues/${FAKE_ISSUE_N:-101}" ;;
   "pr list") if [ -f "$g/pr-list.json" ]; then emit "$g/pr-list.json"; else echo '[]'; fi ;;
   "issue comment") snap issue-comment ;;
