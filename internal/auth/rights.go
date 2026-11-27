@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-// What a visitor's own GitHub token says they may do (ADR 0046). visibleRepos runs once, inside
+// What a visitor's own GitHub token says they may do (ADR 0046). VisibleRepos runs once, inside
 // the sign-in poll, with the token as an argument: nothing here keeps it, and no error or log
 // line carries it. A repository GitHub does not return, a 403, a 404 or any failure is hidden.
 
@@ -25,8 +25,8 @@ const (
 	rankAdmin    = 5
 )
 
-// parseMinPermission turns the setting into the rank a visitor needs. Empty is push.
-func parseMinPermission(s string) (int, error) {
+// ParseMinPermission turns the setting into the rank a visitor needs. Empty is push.
+func ParseMinPermission(s string) (int, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "push":
 		return rankPush, nil
@@ -36,7 +36,7 @@ func parseMinPermission(s string) (int, error) {
 	return 0, fmt.Errorf("min permission %q is not valid: use push or pull", s)
 }
 
-func minPermissionName(rank int) string {
+func PermissionName(rank int) string {
 	if rank == rankPull {
 		return "pull"
 	}
@@ -77,8 +77,8 @@ func restRank(p map[string]bool) int {
 	return 0
 }
 
-// visibleRepos is the subset of repos (lower-cased) where the token's owner reaches the minimum.
-func (a *authState) visibleRepos(token string, repos []string) map[string]bool {
+// VisibleRepos is the subset of repos (lower-cased) where the token's owner reaches the minimum.
+func (a *Auth) VisibleRepos(token string, repos []string) map[string]bool {
 	var valid []string
 	for _, r := range repos {
 		if repoNameRE.MatchString(r) {
@@ -98,7 +98,7 @@ func (a *authState) visibleRepos(token string, repos []string) map[string]bool {
 	return out
 }
 
-func (a *authState) apiRequest(method, path, token string, body io.Reader) (*http.Response, error) {
+func (a *Auth) apiRequest(method, path, token string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequest(method, a.apiURL+path, body)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (a *authState) apiRequest(method, path, token string, body io.Reader) (*htt
 
 // graphqlRanks asks for every repository's viewerPermission, 50 to a call. ok is false when
 // GitHub's GraphQL did not answer usably, so the caller falls back to REST.
-func (a *authState) graphqlRanks(token string, repos []string) (map[string]int, bool) {
+func (a *Auth) graphqlRanks(token string, repos []string) (map[string]int, bool) {
 	ranks := map[string]int{}
 	for start := 0; start < len(repos); start += graphqlChunk {
 		chunk := repos[start:min(start+graphqlChunk, len(repos))]
@@ -147,7 +147,7 @@ func (a *authState) graphqlRanks(token string, repos []string) (map[string]int, 
 }
 
 // restRanks is the fallback: GET /repos/{owner}/{repo} for each repository.
-func (a *authState) restRanks(token string, repos []string) map[string]int {
+func (a *Auth) restRanks(token string, repos []string) map[string]int {
 	ranks := map[string]int{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -169,7 +169,7 @@ func (a *authState) restRanks(token string, repos []string) map[string]int {
 	return ranks
 }
 
-func (a *authState) restRank(token, repo string) int {
+func (a *Auth) restRank(token, repo string) int {
 	owner, name, _ := strings.Cut(repo, "/")
 	resp, err := a.apiRequest(http.MethodGet, "/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(name), token, nil)
 	if err != nil {

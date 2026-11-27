@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"crypto/sha256"
@@ -45,16 +45,16 @@ func sessionKey(id string) string {
 
 // findSession looks a cookie id up by its hash, then compares the hashes in constant time. The
 // caller holds a.mu.
-func (a *authState) findSession(id string) (string, session, bool) {
+func (a *Auth) findSession(id string) (string, Session, bool) {
 	key := sessionKey(id)
 	s, ok := a.sessions[key]
 	if !ok || subtle.ConstantTimeCompare([]byte(key), []byte(sessionKey(id))) != 1 {
-		return "", session{}, false
+		return "", Session{}, false
 	}
 	return key, s, true
 }
 
-func (a *authState) storePath() string {
+func (a *Auth) storePath() string {
 	if a.stateDir == "" {
 		return ""
 	}
@@ -63,7 +63,7 @@ func (a *authState) storePath() string {
 
 // loadSessions reads the file once at start. A missing, empty, unreadable or corrupted file, or one
 // readable by others, starts empty and is left in place. Nothing of its content is logged.
-func (a *authState) loadSessions() {
+func (a *Auth) loadSessions() {
 	path := a.storePath()
 	if path == "" {
 		return
@@ -97,19 +97,19 @@ func (a *authState) loadSessions() {
 		for _, r := range s.Visible {
 			vis[r] = true
 		}
-		a.sessions[key] = session{login: s.Login, visible: vis, expires: s.Expires, created: s.Created}
+		a.sessions[key] = Session{Login: s.Login, Visible: vis, Expires: s.Expires, Created: s.Created}
 	}
 	a.capSessions()
 }
 
 // capSessions drops the oldest sessions beyond maxSessions. The caller holds a.mu or is single
 // threaded.
-func (a *authState) capSessions() {
+func (a *Auth) capSessions() {
 	for len(a.sessions) > maxSessions {
 		oldest, at := "", time.Time{}
 		for k, s := range a.sessions {
-			if oldest == "" || s.created.Before(at) {
-				oldest, at = k, s.created
+			if oldest == "" || s.Created.Before(at) {
+				oldest, at = k, s.Created
 			}
 		}
 		delete(a.sessions, oldest)
@@ -117,10 +117,10 @@ func (a *authState) capSessions() {
 }
 
 // pruneSessions deletes the expired ones and says whether any went. The caller holds a.mu.
-func (a *authState) pruneSessions() bool {
+func (a *Auth) pruneSessions() bool {
 	now, pruned := a.now(), false
 	for k, s := range a.sessions {
-		if !now.Before(s.expires) {
+		if !now.Before(s.Expires) {
 			delete(a.sessions, k)
 			pruned = true
 		}
@@ -129,7 +129,7 @@ func (a *authState) pruneSessions() bool {
 }
 
 // scheduleSave asks for a write soon; a burst of changes makes one write. The caller holds a.mu.
-func (a *authState) scheduleSave() {
+func (a *Auth) scheduleSave() {
 	if a.storePath() == "" || a.saveTimer != nil {
 		return
 	}
@@ -143,7 +143,7 @@ func (a *authState) scheduleSave() {
 
 // flush prunes, then writes the file now. A failure is logged at most once a minute and never
 // reaches the visitor: the sessions stay in memory.
-func (a *authState) flush() {
+func (a *Auth) flush() {
 	path := a.storePath()
 	if path == "" {
 		return
@@ -154,14 +154,14 @@ func (a *authState) flush() {
 	a.pruneSessions()
 	out := storedSessions{Version: sessionsVersion, Sessions: make(map[string]storedSession, len(a.sessions))}
 	for k, s := range a.sessions {
-		vis := make([]string, 0, len(s.visible))
-		for r, ok := range s.visible {
+		vis := make([]string, 0, len(s.Visible))
+		for r, ok := range s.Visible {
 			if ok {
 				vis = append(vis, r)
 			}
 		}
 		slices.Sort(vis)
-		out.Sessions[k] = storedSession{Login: s.login, Visible: vis, Expires: s.expires, Created: s.created}
+		out.Sessions[k] = storedSession{Login: s.Login, Visible: vis, Expires: s.Expires, Created: s.Created}
 	}
 	a.mu.Unlock()
 	if err := writeSessionsFile(path, out); err != nil {
@@ -178,9 +178,9 @@ func (a *authState) flush() {
 	}
 }
 
-// sweepSessions prunes the expired sessions every few minutes and saves when any went, so the
+// Sweep prunes the expired sessions every few minutes and saves when any went, so the
 // file does not keep a stale entry until the next sign-in.
-func (a *authState) sweepSessions(every time.Duration) {
+func (a *Auth) Sweep(every time.Duration) {
 	for range time.Tick(every) {
 		a.mu.Lock()
 		if a.pruneSessions() {

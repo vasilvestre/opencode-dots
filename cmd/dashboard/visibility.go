@@ -42,7 +42,7 @@ func (d *dash) who(w http.ResponseWriter, r *http.Request) (v *viewer, owner, ok
 		authError(w, http.StatusForbidden, "forbidden")
 		return nil, false, false
 	}
-	login, set := d.auth.sessionView(r)
+	login, set := d.sessionView(r)
 	if login == "" {
 		writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"error": "sign in with GitHub", "signin": true})
 		return nil, false, false
@@ -172,21 +172,9 @@ func (b *bufferedResponse) WriteHeader(code int) {
 // polls, so one row is kept per login, path and target a minute.
 func (d *dash) recordRead(r *http.Request, login, target string, status int) {
 	key := login + "|" + r.URL.Path + "|" + target + "|" + strconv.Itoa(status)
-	d.auth.mu.Lock()
-	now := d.auth.now()
-	if at, ok := d.auth.readSeen[key]; ok && now.Sub(at) < auditReadEvery {
-		d.auth.mu.Unlock()
+	if d.auth.SeenRecently(key, auditReadEvery) {
 		return
 	}
-	if len(d.auth.readSeen) > 5000 {
-		for k, at := range d.auth.readSeen {
-			if now.Sub(at) >= auditReadEvery {
-				delete(d.auth.readSeen, k)
-			}
-		}
-	}
-	d.auth.readSeen[key] = now
-	d.auth.mu.Unlock()
 	d.appendAudit(r.Method+" "+r.URL.Path, target, login, status)
 }
 

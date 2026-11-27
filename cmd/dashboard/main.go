@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"opencode-dots/internal/auth"
 	"opencode-dots/internal/jobs"
 )
 
@@ -126,7 +127,7 @@ func main() {
 	if err := checkTeamAddr(*teamAddr, *addr, *ghClient != ""); err != nil {
 		log.Fatal(err)
 	}
-	if _, err := parseMinPermission(*minPerm); err != nil {
+	if _, err := auth.ParseMinPermission(*minPerm); err != nil {
 		log.Fatal(err)
 	}
 
@@ -149,7 +150,7 @@ func main() {
 	if d.hub, err = newHubIssuer(*hubURL, *hubAud, *hubInternal, *hubEnv); err != nil {
 		log.Fatal(err)
 	}
-	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm, StateDir: *state})
+	d.auth = auth.New(auth.Config{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm, StateDir: *state})
 	d.execDash = parseExecutorDashboards(envOr("DOTS_EXECUTOR_DASHBOARDS", ""))
 	for h := range strings.SplitSeq(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {
@@ -163,7 +164,7 @@ func main() {
 
 	go d.watchRuns()
 	if d.auth != nil {
-		go d.auth.sweepSessions(10 * time.Minute)
+		go d.auth.Sweep(10 * time.Minute)
 	}
 
 	if *teamAddr != "" {
@@ -228,7 +229,7 @@ type dash struct {
 
 	// auth is nil unless a GitHub OAuth client id is configured: sign-in for visitors is off
 	// and every request is the owner's (auth.go, visibility.go).
-	auth *authState
+	auth *auth.Auth
 
 	// clock is the time source of the Home page; nil means time.Now.
 	clock func() time.Time

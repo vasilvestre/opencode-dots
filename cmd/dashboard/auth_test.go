@@ -5,11 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
+	"opencode-dots/internal/auth"
 	"opencode-dots/internal/jobs"
 	"os"
 	"path/filepath"
@@ -68,7 +67,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		g.mu.Lock()
 		defer g.mu.Unlock()
 		g.tokenCalls++
-		if r.PostForm.Get("device_code") != "devcode-secret" || r.PostForm.Get("grant_type") != deviceGrant {
+		if r.PostForm.Get("device_code") != "devcode-secret" || r.PostForm.Get("grant_type") != "urn:ietf:params:oauth:grant-type:device_code" {
 			http.Error(w, "bad", http.StatusBadRequest)
 			return
 		}
@@ -232,7 +231,7 @@ func fixture(t *testing.T) (state, root string, targets map[string]map[string]st
 	return state, root, targets
 }
 
-func newDash(state, root string, targets map[string]map[string]string, a *authState) *dash {
+func newDash(state, root string, targets map[string]map[string]string, a *auth.Auth) *dash {
 	d := &dash{state: state, root: root, awfgh: filepath.Join(root, "awf-gh.yaml"), allow: map[string]bool{"box.ts.net": true},
 		indexed: map[string]bool{}, targets: map[string]targetMemo{}, costs: map[string]costMemo{}, auth: a, wtokens: newWorkerStore(""), queue: jobs.Open(state)}
 	for id, in := range targets {
@@ -241,10 +240,8 @@ func newDash(state, root string, targets map[string]map[string]string, a *authSt
 	return d
 }
 
-func testAuth(g *fakeGitHub, minPermission string, c *clock) *authState {
-	a := newAuth(authConfig{ClientID: "client-1", GitHubURL: g.URL, APIURL: g.URL, MinPermission: minPermission})
-	a.now = c.now
-	return a
+func testAuth(g *fakeGitHub, minPermission string, c *clock) *auth.Auth {
+	return auth.New(auth.Config{ClientID: "client-1", GitHubURL: g.URL, APIURL: g.URL, MinPermission: minPermission, Now: c.now})
 }
 
 // ask sends a request through the real routes. A visitor comes through `tailscale serve`
@@ -262,7 +259,7 @@ func ask(h http.Handler, method, path, who, cookie, body string) *httptest.Respo
 		req.Host = "127.0.0.1:8099"
 	}
 	if cookie != "" {
-		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -314,7 +311,7 @@ func (r *rig) signIn() {
 		r.t.Fatalf("poll = %d %s", poll.Code, poll.Body)
 	}
 	for _, c := range poll.Result().Cookies() {
-		if c.Name == sessionCookie {
+		if c.Name == auth.CookieName {
 			r.cookie = c.Value
 		}
 	}
@@ -383,7 +380,7 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 	}
 	var cookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == sessionCookie {
+		if c.Name == auth.CookieName {
 			cookie = c
 		}
 	}
@@ -397,21 +394,20 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 	// The token is in no response, no cookie, no session, no log, nothing the dashboard keeps.
 	for name, text := range map[string]string{
 		"response": rec.Body.String(), "cookie": cookie.String(), "log": logs.String(),
-		"sessions": fmt.Sprintf("%+v %#v", r.d.auth.sessions, r.d.auth.sessions),
-		"pending":  fmt.Sprintf("%+v", r.d.auth.pending), "limits": fmt.Sprintf("%+v %+v", r.d.auth.limits, r.d.auth.readSeen),
+		"auth state": r.d.auth.Dump(),
 	} {
 		if strings.Contains(text, visitorToken) {
 			t.Errorf("the token is in the %s: %s", name, text)
 		}
 	}
-	if s := r.d.auth.sessions[sessionKey(cookie.Value)]; s.login != "alice" || !s.expires.Equal(r.clk.now().Add(time.Hour)) ||
-		len(s.visible) != 1 || !s.visible[openRepo] {
+	if s, _ := r.d.auth.Lookup(cookie.Value); s.Login != "alice" || !s.Expires.Equal(r.clk.now().Add(time.Hour)) ||
+		len(s.Visible) != 1 || !s.Visible[openRepo] {
 		t.Fatalf("session = %+v", s)
 	}
 	if r.gh.gqlCalls != 1 || r.gh.restCalls != 0 {
 		t.Fatalf("GitHub saw %d GraphQL and %d REST calls, want one GraphQL", r.gh.gqlCalls, r.gh.restCalls)
 	}
-	if len(r.d.auth.pending) != 0 {
+	if r.d.auth.PendingCount() != 0 {
 		t.Fatal("the finished sign-in is still pending")
 	}
 
@@ -499,7 +495,7 @@ func TestDevicePollOutcomes(t *testing.T) {
 		if _, out := poll(r, id); out["status"] != "denied" {
 			t.Fatalf("answer = %v", out)
 		}
-		if len(r.d.auth.sessions) != 0 {
+		if r.d.auth.SessionCount() != 0 {
 			t.Fatal("a denied sign-in opened a session")
 		}
 	})
@@ -613,8 +609,8 @@ func TestEveryPermissionLevelIsMappedOnBothPaths(t *testing.T) {
 					r.gh.gqlStatus = 500
 				}
 				r.signIn()
-				if got := r.d.auth.sessions[sessionKey(r.cookie)].visible[openRepo]; got != want[i] {
-					t.Errorf("rest=%v %s under %s: visible %v, want %v", rest, perm, min, got, want[i])
+				if s, _ := r.d.auth.Lookup(r.cookie); s.Visible[openRepo] != want[i] {
+					t.Errorf("rest=%v %s under %s: visible %v, want %v", rest, perm, min, s.Visible[openRepo], want[i])
 				}
 			}
 		}
@@ -642,7 +638,7 @@ func TestGraphQLAsksForEveryRepositoryInChunks(t *testing.T) {
 		repos = append(repos, fmt.Sprintf("acme/r%d", i))
 		r.gh.perms[repos[i]] = "write"
 	}
-	got := r.d.auth.visibleRepos(visitorToken, repos)
+	got := r.d.auth.VisibleRepos(visitorToken, repos)
 	if len(got) != 120 || r.gh.gqlCalls != 3 {
 		t.Fatalf("%d visible after %d GraphQL calls, want 120 after 3", len(got), r.gh.gqlCalls)
 	}
@@ -685,12 +681,12 @@ func TestAGitHubFailureShowsAVisitorNothing(t *testing.T) {
 
 func TestAnInvalidMinPermissionIsRefused(t *testing.T) {
 	for _, bad := range []string{"admin", "write", "read", "none", "pul"} {
-		if _, err := parseMinPermission(bad); err == nil || !strings.Contains(err.Error(), "push or pull") {
+		if _, err := auth.ParseMinPermission(bad); err == nil || !strings.Contains(err.Error(), "push or pull") {
 			t.Errorf("%q accepted or unclear: %v", bad, err)
 		}
 	}
 	for _, good := range []string{"", "push", "pull", " Pull "} {
-		if _, err := parseMinPermission(good); err != nil {
+		if _, err := auth.ParseMinPermission(good); err != nil {
 			t.Errorf("%q refused: %v", good, err)
 		}
 	}
@@ -920,8 +916,8 @@ func TestLogoutEndsTheSession(t *testing.T) {
 		t.Fatal("signed in but refused")
 	}
 	rec := ask(r.h, "POST", "/auth/logout", "visitor", r.cookie, "{}")
-	if rec.Code != 200 || len(r.d.auth.sessions) != 0 {
-		t.Fatalf("logout = %d, sessions %d", rec.Code, len(r.d.auth.sessions))
+	if rec.Code != 200 || r.d.auth.SessionCount() != 0 {
+		t.Fatalf("logout = %d, sessions %d", rec.Code, r.d.auth.SessionCount())
 	}
 	if r.visitor("/api/repos").Code != 401 {
 		t.Fatal("the session outlived the logout")
@@ -949,7 +945,7 @@ func TestSignInOffChangesNothing(t *testing.T) {
 	clk := &clock{t: time.Now()}
 	off := routes(newDash(state, root, targets, nil), filepath.Join(root, "index.html"), nil)
 	on := routes(newDash(state, root, targets, testAuth(g, "", clk)), filepath.Join(root, "index.html"), nil)
-	if newAuth(authConfig{}) != nil {
+	if auth.New(auth.Config{}) != nil {
 		t.Fatal("no client id still builds the sign-in")
 	}
 	paths := []string{"/api/artifacts", "/api/repos", "/api/repos/names", "/api/memory", "/api/logs", "/api/usage", "/api/claims",
@@ -992,15 +988,4 @@ func TestAnOwnerKeepsTheFullViewWithSignInOn(t *testing.T) {
 	if rec := ask(r.h, "GET", "/api/files", "owner", "", ""); rec.Code != 200 {
 		t.Fatalf("owner files = %d", rec.Code)
 	}
-}
-
-func TestDeviceFlowUsesTheConfiguredHostsOnly(t *testing.T) {
-	a := newAuth(authConfig{ClientID: "x"})
-	if a.githubURL != "https://github.com" || a.apiURL != "https://api.github.com" {
-		t.Fatalf("defaults = %s %s", a.githubURL, a.apiURL)
-	}
-	if u, _ := url.Parse(a.apiURL); u.Host != "api.github.com" {
-		t.Fatal("bad API default")
-	}
-	_ = io.Discard
 }

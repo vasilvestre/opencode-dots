@@ -1,127 +1,23 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net"
 	"net/http"
-	"net/url"
-	"regexp"
-	"strconv"
 	"strings"
-	"sync"
-	"time"
+
+	"opencode-dots/internal/auth"
 )
 
-// GitHub sign-in for visitors (ADR 0044, first step, docs/dashboard-auth.md). It is off unless
-// a GitHub OAuth client id is configured; with it off nothing here runs and the dashboard
-// answers as it always did.
-//
-// The visitor signs in through the OAuth device flow with the scope `repo` (ADR 0046). Right
-// after the approval the dashboard uses their token once: it reads the login and the visitor's
-// permission on every configured repository (rights.go), then drops the token. The server-side
-// session keeps the login, the set of visible repositories and an expiry of one hour.
+// The HTTP side of GitHub sign-in for visitors (ADR 0044, docs/dashboard-auth.md). The device
+// flow, the sessions and the rate limit live in internal/auth; this file decodes requests, runs
+// the checks every sign-in endpoint shares, and writes the answers. It is off unless a GitHub
+// OAuth client id is configured: d.auth is nil, nothing here runs and the dashboard answers as it
+// always did.
 
-const (
-	sessionCookie  = "dots_session"
-	sessionTTL     = time.Hour
-	maxSessions    = 1000
-	maxPending     = 200
-	defaultPollGap = 5 * time.Second
-	slowDownStep   = 5 * time.Second
-	deviceScope    = "repo"
-	deviceGrant    = "urn:ietf:params:oauth:grant-type:device_code"
-	authBodyCap    = 4096
-	githubBodyCap  = 1 << 20
-)
-
-// loginRE is what a GitHub login looks like, checked before it reaches a URL path.
-var loginRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-
-// authConfig is what the flags and the environment give.
-type authConfig struct {
-	ClientID      string
-	GitHubURL     string // device flow host, default https://github.com
-	APIURL        string // REST API, default https://api.github.com
-	MinPermission string // "push" (default) or "pull"
-	StateDir      string // where sessions.json lives; empty keeps sessions in memory only
-}
-
-type authState struct {
-	clientID  string
-	githubURL string
-	apiURL    string
-	minRank   int
-	client    *http.Client
-	now       func() time.Time
-
-	mu        sync.Mutex
-	pending   map[string]*devicePending
-	sessions  map[string]session // keyed by sessionKey(cookie id), never by the id
-	stateDir  string
-	fileMu    sync.Mutex // one writer of sessions.json at a time
-	saveTimer *time.Timer
-	lastWarn  time.Time
-	limits    map[string]*window
-	readSeen  map[string]time.Time
-}
-
-// devicePending is one device flow in progress. The device code never leaves the server.
-type devicePending struct {
-	deviceCode string
-	interval   time.Duration
-	nextPoll   time.Time
-	expires    time.Time
-}
-
-// session holds a login and the repositories it may see (lower-cased). It never holds a token.
-type session struct {
-	login   string
-	visible map[string]bool
-	expires time.Time
-	created time.Time
-}
-
-type window struct {
-	start time.Time
-	n     int
-}
-
-// newAuth builds the sign-in, or nil when no client id is set. main has checked the minimum
-// permission with parseMinPermission; an empty one is the default.
-func newAuth(c authConfig) *authState {
-	if c.ClientID == "" {
-		return nil
-	}
-	minRank, _ := parseMinPermission(c.MinPermission)
-	a := &authState{
-		clientID:  c.ClientID,
-		githubURL: strings.TrimRight(firstNonEmpty(c.GitHubURL, "https://github.com"), "/"),
-		apiURL:    strings.TrimRight(firstNonEmpty(c.APIURL, "https://api.github.com"), "/"),
-		minRank:   minRank,
-		client:    &http.Client{Timeout: 10 * time.Second},
-		now:       time.Now,
-		pending:   map[string]*devicePending{},
-		sessions:  map[string]session{},
-		limits:    map[string]*window{},
-		readSeen:  map[string]time.Time{},
-		stateDir:  c.StateDir,
-	}
-	a.loadSessions()
-	return a
-}
-
-func randomID(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic("no randomness: " + err.Error())
-	}
-	return hex.EncodeToString(b)
-}
+const authBodyCap = 4096
 
 // ownerRequest is the host's own user: the request reached the dashboard directly on
 // loopback, with no tailnet login header. Anything `tailscale serve` forwards is a visitor.
@@ -141,63 +37,18 @@ func ownerRequest(r *http.Request) bool {
 }
 
 // sessionView is the login and the visible repositories of the request's session, or "" when
-// there is none.
-func (a *authState) sessionView(r *http.Request) (string, map[string]bool) {
-	c, err := r.Cookie(sessionCookie)
-	if err != nil || c.Value == "" {
+// there is none. The caller has checked d.auth is not nil.
+func (d *dash) sessionView(r *http.Request) (string, map[string]bool) {
+	c, err := r.Cookie(auth.CookieName)
+	if err != nil {
 		return "", nil
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	key, s, ok := a.findSession(c.Value)
-	if !ok {
-		return "", nil
-	}
-	if !a.now().Before(s.expires) {
-		delete(a.sessions, key)
-		a.scheduleSave()
-		return "", nil
-	}
-	return s.login, s.visible
+	return d.auth.SessionView(c.Value)
 }
 
-func (a *authState) sessionLogin(r *http.Request) string {
-	login, _ := a.sessionView(r)
+func (d *dash) sessionLogin(r *http.Request) string {
+	login, _ := d.sessionView(r)
 	return login
-}
-
-func (a *authState) openSession(login string, visible map[string]bool) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.pruneSessions()
-	now := a.now()
-	id := randomID(32)
-	a.sessions[sessionKey(id)] = session{login: login, visible: visible, expires: now.Add(sessionTTL), created: now}
-	a.capSessions() // drops the oldest beyond the cap
-	a.scheduleSave()
-	return id
-}
-
-// allow is a fixed window per client and kind: n requests a minute.
-func (a *authState) allow(r *http.Request, kind string, n int) bool {
-	key := kind + "|" + clientKey(r)
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	now := a.now()
-	if len(a.limits) > 2000 {
-		for k, w := range a.limits {
-			if now.Sub(w.start) > time.Minute {
-				delete(a.limits, k)
-			}
-		}
-	}
-	w := a.limits[key]
-	if w == nil || now.Sub(w.start) >= time.Minute {
-		a.limits[key] = &window{start: now, n: 1}
-		return true
-	}
-	w.n++
-	return w.n <= n
 }
 
 func clientKey(r *http.Request) string {
@@ -233,7 +84,7 @@ func (d *dash) authPost(w http.ResponseWriter, r *http.Request, kind string, per
 		authError(w, http.StatusUnsupportedMediaType, "JSON only")
 		return false
 	}
-	if !d.auth.allow(r, kind, perMinute) {
+	if !d.auth.Allow(clientKey(r), kind, perMinute) {
 		w.Header().Set("Retry-After", "60")
 		authError(w, http.StatusTooManyRequests, "too many requests")
 		return false
@@ -247,30 +98,12 @@ func (d *dash) authPost(w http.ResponseWriter, r *http.Request, kind string, per
 	return true
 }
 
-// githubForm posts a form to the device flow host and decodes the JSON answer.
-func (a *authState) githubForm(path string, form url.Values, out any) error {
-	req, err := http.NewRequest(http.MethodPost, a.githubURL+path, strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return errors.New("github unreachable")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return errors.New("github answered " + strconv.Itoa(resp.StatusCode))
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, githubBodyCap)).Decode(out) != nil {
-		return errors.New("github answered with something unreadable")
-	}
-	return nil
+func newSessionCookie(r *http.Request, id string, maxAge int) *http.Cookie {
+	return &http.Cookie{Name: auth.CookieName, Value: id, Path: "/", MaxAge: maxAge,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secureRequest(r)}
 }
 
-// deviceStart begins a device flow: POST /auth/device/start. It asks for the scope `repo`, the
-// one `gh auth login` asks, so GitHub can say what the visitor may do on each repository.
+// deviceStart begins a device flow: POST /auth/device/start.
 func (d *dash) deviceStart(w http.ResponseWriter, r *http.Request) {
 	if d.auth == nil {
 		http.NotFound(w, r)
@@ -280,42 +113,15 @@ func (d *dash) deviceStart(w http.ResponseWriter, r *http.Request) {
 	if !d.authPost(w, r, "start", 10, &in) {
 		return
 	}
-	a := d.auth
-	var out struct {
-		DeviceCode string `json:"device_code"`
-		UserCode   string `json:"user_code"`
-		URI        string `json:"verification_uri"`
-		ExpiresIn  int    `json:"expires_in"`
-		Interval   int    `json:"interval"`
-	}
-	if err := a.githubForm("/login/device/code", url.Values{"client_id": {a.clientID}, "scope": {deviceScope}}, &out); err != nil ||
-		out.DeviceCode == "" || out.UserCode == "" || out.ExpiresIn <= 0 {
-		log.Printf("sign-in: the device code request failed")
+	dev, err := d.auth.StartDevice()
+	switch {
+	case errors.Is(err, auth.ErrBusy):
+		authError(w, http.StatusTooManyRequests, err.Error())
+	case err != nil:
 		authError(w, http.StatusBadGateway, "GitHub did not start the sign-in")
-		return
+	default:
+		writeJSON(w, dev)
 	}
-	interval := time.Duration(out.Interval) * time.Second
-	if interval < time.Second {
-		interval = defaultPollGap
-	}
-	now := a.now()
-	id := randomID(16)
-	a.mu.Lock()
-	for k, p := range a.pending {
-		if !now.Before(p.expires) {
-			delete(a.pending, k)
-		}
-	}
-	if len(a.pending) >= maxPending {
-		a.mu.Unlock()
-		authError(w, http.StatusTooManyRequests, "too many sign-ins in progress")
-		return
-	}
-	a.pending[id] = &devicePending{deviceCode: out.DeviceCode, interval: interval, nextPoll: now.Add(interval),
-		expires: now.Add(time.Duration(out.ExpiresIn) * time.Second)}
-	a.mu.Unlock()
-	writeJSON(w, map[string]any{"id": id, "user_code": out.UserCode, "verification_uri": out.URI,
-		"interval": int(interval / time.Second), "expires_in": out.ExpiresIn})
 }
 
 // devicePoll asks GitHub whether the visitor approved: POST /auth/device/poll {"id"}. It
@@ -331,132 +137,25 @@ func (d *dash) devicePoll(w http.ResponseWriter, r *http.Request) {
 	if !d.authPost(w, r, "poll", 30, &in) {
 		return
 	}
-	a := d.auth
-	a.mu.Lock()
-	p := a.pending[in.ID]
-	now := a.now()
-	if p == nil {
-		a.mu.Unlock()
-		authError(w, http.StatusNotFound, "no such sign-in")
-		return
-	}
-	if !now.Before(p.expires) {
-		delete(a.pending, in.ID)
-		a.mu.Unlock()
-		writeJSON(w, map[string]any{"status": "expired"})
-		return
-	}
-	if now.Before(p.nextPoll) { // GitHub is not asked before the interval has passed
-		interval := int(p.interval / time.Second)
-		a.mu.Unlock()
-		writeJSON(w, map[string]any{"status": "pending", "interval": interval})
-		return
-	}
-	p.nextPoll = now.Add(p.interval)
-	code := p.deviceCode
-	a.mu.Unlock()
-
-	var res struct {
-		AccessToken string `json:"access_token"`
-		Error       string `json:"error"`
-		Interval    int    `json:"interval"`
-	}
-	err := a.githubForm("/login/oauth/access_token", url.Values{"client_id": {a.clientID},
-		"device_code": {code}, "grant_type": {deviceGrant}}, &res)
-	if err != nil {
-		log.Printf("sign-in: the token request failed")
-		authError(w, http.StatusBadGateway, "GitHub did not answer")
-		return
-	}
-	switch res.Error {
-	case "":
-	case "authorization_pending":
-		writeJSON(w, map[string]any{"status": "pending", "interval": int(a.slowDown(in.ID, 0, false) / time.Second)})
-		return
-	case "slow_down":
-		writeJSON(w, map[string]any{"status": "pending", "interval": int(a.slowDown(in.ID, res.Interval, true) / time.Second)})
-		return
-	case "expired_token":
-		a.forget(in.ID)
-		writeJSON(w, map[string]any{"status": "expired"})
-		return
-	case "access_denied":
-		a.forget(in.ID)
-		writeJSON(w, map[string]any{"status": "denied"})
-		return
-	default:
-		a.forget(in.ID)
-		authError(w, http.StatusBadGateway, "GitHub refused the sign-in")
-		return
-	}
-	// The token is used here and nowhere else: it is never stored, logged or sent on.
-	login, err := a.loginOf(res.AccessToken)
-	var visible map[string]bool
-	if err == nil {
-		visible = a.visibleRepos(res.AccessToken, d.knownRepos())
-	}
-	res.AccessToken = ""
-	a.forget(in.ID)
-	if err != nil {
-		log.Printf("sign-in: the login could not be read")
-		authError(w, http.StatusBadGateway, "GitHub did not name the account")
-		return
-	}
-	id := a.openSession(login, visible)
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: id, Path: "/", MaxAge: int(sessionTTL / time.Second),
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secureRequest(r)})
-	d.recordSignIn(r, login)
-	writeJSON(w, map[string]any{"status": "ok", "login": login})
-}
-
-// slowDown answers a pending poll with the interval to wait. A slow_down from GitHub names the
-// new interval (or, when it names none, adds five seconds); authorization_pending keeps it.
-func (a *authState) slowDown(id string, ghInterval int, slow bool) time.Duration {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	p := a.pending[id]
-	if p == nil {
-		return defaultPollGap
-	}
+	p, err := d.auth.PollDevice(in.ID, d.knownRepos)
 	switch {
-	case ghInterval > 0:
-		p.interval = time.Duration(ghInterval) * time.Second
-	case slow:
-		p.interval += slowDownStep
+	case errors.Is(err, auth.ErrUnknown):
+		authError(w, http.StatusNotFound, err.Error())
+		return
+	case errors.Is(err, auth.ErrRefused), errors.Is(err, auth.ErrNoLogin), errors.Is(err, auth.ErrGitHub):
+		authError(w, http.StatusBadGateway, err.Error())
+		return
 	}
-	p.nextPoll = a.now().Add(p.interval)
-	return p.interval
-}
-
-func (a *authState) forget(id string) {
-	a.mu.Lock()
-	delete(a.pending, id)
-	a.mu.Unlock()
-}
-
-// loginOf reads the login the token belongs to.
-func (a *authState) loginOf(token string) (string, error) {
-	if token == "" {
-		return "", errors.New("no token")
+	switch p.Status {
+	case "pending":
+		writeJSON(w, map[string]any{"status": "pending", "interval": p.Interval})
+	case "ok":
+		http.SetCookie(w, newSessionCookie(r, p.SessionID, int(auth.TTL.Seconds())))
+		d.recordSignIn(r, p.Login)
+		writeJSON(w, map[string]any{"status": "ok", "login": p.Login})
+	default:
+		writeJSON(w, map[string]any{"status": p.Status})
 	}
-	req, err := http.NewRequest(http.MethodGet, a.apiURL+"/user", nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return "", errors.New("github unreachable")
-	}
-	defer resp.Body.Close()
-	var u struct {
-		Login string `json:"login"`
-	}
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, githubBodyCap)).Decode(&u) != nil || !loginRE.MatchString(u.Login) {
-		return "", errors.New("no login")
-	}
-	return u.Login, nil
 }
 
 // logout ends the session: POST /auth/logout.
@@ -468,14 +167,10 @@ func (d *dash) logout(w http.ResponseWriter, r *http.Request) {
 	if !d.authPost(w, r, "logout", 30, nil) {
 		return
 	}
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		d.auth.mu.Lock()
-		delete(d.auth.sessions, sessionKey(c.Value))
-		d.auth.scheduleSave()
-		d.auth.mu.Unlock()
+	if c, err := r.Cookie(auth.CookieName); err == nil {
+		d.auth.CloseSession(c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secureRequest(r)})
+	http.SetCookie(w, newSessionCookie(r, "", -1))
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -486,10 +181,10 @@ func (d *dash) sessionInfo(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	out := map[string]any{"enabled": true, "role": "anonymous", "login": "", "min_permission": minPermissionName(d.auth.minRank)}
+	out := map[string]any{"enabled": true, "role": "anonymous", "login": "", "min_permission": d.auth.MinPermission()}
 	if ownerRequest(r) {
 		out["role"] = "owner"
-	} else if l := d.auth.sessionLogin(r); l != "" && d.trustedHost(r.Host) {
+	} else if l := d.sessionLogin(r); l != "" && d.trustedHost(r.Host) {
 		out["role"], out["login"] = "visitor", l
 	}
 	writeJSON(w, out)

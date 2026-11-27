@@ -100,7 +100,7 @@ func (d *dash) audited(endpoint, target string, h http.HandlerFunc) http.Handler
 // that is the request `tailscale serve` forwards. Anything else is "local".
 func (d *dash) auditCaller(r *http.Request) string {
 	if d.auth != nil && !ownerRequest(r) {
-		if login := d.auth.sessionLogin(r); login != "" {
+		if login := d.sessionLogin(r); login != "" {
 			return login // a signed-in visitor is named by the GitHub login (ADR 0044)
 		}
 	}

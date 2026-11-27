@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"opencode-dots/internal/auth"
 )
 
 // teamAsk sends a request the way an SSH forward delivers it: from loopback, with a loopback
@@ -28,7 +30,7 @@ func teamAsk(h http.Handler, method, path, cookie, body string, hdr map[string]s
 		req.Header.Set(k, v)
 	}
 	if cookie != "" {
-		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -55,7 +57,7 @@ func teamSignIn(t *testing.T, r *rig, th http.Handler) string {
 		t.Fatalf("poll = %d %s", poll.Code, poll.Body)
 	}
 	for _, c := range poll.Result().Cookies() {
-		if c.Name == sessionCookie {
+		if c.Name == auth.CookieName {
 			return c.Value
 		}
 	}
@@ -204,9 +206,7 @@ func TestNoRouteIsReachableAsOwnerThroughTheTeamListener(t *testing.T) {
 	th := teamHandler(routes(r.d, "ui-missing.html", nil))
 	for _, m := range found {
 		path := m[1]
-		r.d.auth.mu.Lock()
-		r.d.auth.limits = map[string]*window{} // sign-ins are rate limited
-		r.d.auth.mu.Unlock()
+		r.d.auth.ResetLimits()         // sign-ins are rate limited
 		cookie := teamSignIn(t, r, th) // logout ends a session, so each route gets its own
 		if !visitorRoutes[path] && !ownerRoutes[path] {
 			t.Errorf("route %s is in neither list: decide whether a visitor may reach it", path)

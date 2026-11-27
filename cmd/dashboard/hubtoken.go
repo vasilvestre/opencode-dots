@@ -84,7 +84,7 @@ func (d *dash) hubToken(w http.ResponseWriter, r *http.Request) {
 	case d.auth == nil || ownerRequest(r):
 		repos = d.knownRepos()
 	default:
-		login, visible := d.auth.sessionView(r)
+		login, visible := d.sessionView(r)
 		if login == "" || !d.trustedHost(r.Host) {
 			writeJSONStatus(w, http.StatusUnauthorized, map[string]string{"error": "sign in first"})
 			return

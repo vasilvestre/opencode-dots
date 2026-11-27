@@ -5,7 +5,7 @@ for local config files. One Go package, `main`: `main.go` holds the shared
 types, `main()` and the route wiring; handlers sit in `runs.go`, `cost.go`,
 `timeline.go`, `ask.go`, `repos.go`, `models.go` (HTTP glue only; the logic is in
 `../../internal/models`), `notifications.go`, `files.go`, `security.go`,
-`auth.go` and `visibility.go` (GitHub sign-in for visitors, `routes.go` wires them),
+`auth.go` and `visibility.go` (GitHub sign-in for visitors, `routes.go` wires them; the device flow, sessions and rights live in `../../internal/auth`),
 `util.go`, with a `*_test.go` per file. The frontend is `../../ui/`, served from
 disk as ES modules, with no build step.
 
@@ -176,21 +176,20 @@ loopback with no `Tailscale-User-Login` (`ownerRequest`); every other request is
 - A new read endpoint keyed by repository needs a rule in `routes.go`: without one it reaches a visitor
   unfiltered. A new write endpoint needs `ownerOnly`.
 - The device flow asks for the scope `repo`. In the poll handler the visitor's token is used once
-  (`loginOf`, then `visibleRepos` in `rights.go`: one aliased GraphQL `viewerPermission` call per 50
+  (`loginOf`, then `VisibleRepos` in `internal/auth/rights.go`: one aliased GraphQL `viewerPermission` call per 50
   repositories, REST `GET /repos/{r}` per repository when GraphQL fails) and dropped. A session holds
-  the login, the set of visible repositories, an expiry of one hour (`sessionTTL`, `authState.now` is
-  injectable) and a 256-bit id. Sessions persist in `STATE_DIR/sessions.json` (`sessionstore.go`): keyed by the SHA-256 of the
+  the login, the set of visible repositories, an expiry of one hour (`sessionTTL`, `auth.Config.Now` is
+  injectable) and a 256-bit id. Sessions persist in `STATE_DIR/sessions.json` (`internal/auth/sessionstore.go`): keyed by the SHA-256 of the
   cookie id (the id is never written), entries hold only login, visible set, expiry and creation, mode 0600, atomic
   write, debounced about 1 s, 1000 at most, a bad or wide-mode file starts empty, off when sign-in is off.
-  Never store a token, a device code or a user code there; `TestTheFileHoldsNoSecret` scans for them. Tests read
-  `authState.sessions` by `sessionKey(cookie)`. Authorization is a lookup in that set (`viewer.can`);
+  Never store a token, a device code or a user code there; `TestTheFileHoldsNoSecret` scans for them. Dashboard tests read a session with `Auth.Lookup(cookie)`; the persistence tests live in `internal/auth`. Authorization is a lookup in that set (`viewer.can`);
   there is no per-request call to GitHub, no cache and no dot token. Anything not returned, any error
   and a total failure hide the repository. Never pass the token to a log, an error, a session field or
   an audit row; `TestDeviceFlowSignsAVisitorIn` scans for it.
 - `min_permission` (`-min-permission`, `DOTS_MIN_PERMISSION`): `push` (default, write or better) or
   `pull` (read or better). An invalid value stops the start (`parseMinPermission`). `/api/session`
   reports it for the sign-in page.
-- Tests run against a fake GitHub (`auth_test.go`); the GitHub base URLs are fields of `authState`.
+- Tests run against a fake GitHub (`auth_test.go`); the GitHub base URLs are fields of `auth.Config`.
 
 ## TEAM LISTENER (docs/team-ui.md)
 

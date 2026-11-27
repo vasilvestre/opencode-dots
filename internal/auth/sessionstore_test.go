@@ -1,9 +1,10 @@
-package main
+package auth
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,24 +13,40 @@ import (
 	"time"
 )
 
-// persistRig is a signed-in rig whose sessions are kept in a state directory of its own.
-func persistRig(t *testing.T) (*rig, string) {
-	t.Helper()
-	r := newRig(t)
-	dir := t.TempDir()
-	r.d.auth.stateDir = dir
-	return r, dir
+const (
+	openRepo   = "acme/app"
+	hiddenRepo = "acme/secret"
+	tokenValue = "gho_visitor-token"
+)
+
+type clock struct {
+	mu sync.Mutex
+	t  time.Time
 }
 
-// restart builds a second dashboard over the same file, as a deploy would.
-func (r *rig) restart(dir string) *rig {
-	r.t.Helper()
-	r.d.auth.flush()
-	a := testAuth(r.gh, "", r.clk)
-	a.stateDir = dir
-	a.loadSessions()
-	d := newDash(r.d.state, r.d.root, r.targets, a)
-	return &rig{t: r.t, gh: r.gh, clk: r.clk, d: d, h: routes(d, filepath.Join(r.d.root, "index.html"), nil), cookie: r.cookie, targets: r.targets}
+func (c *clock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *clock) advance(d time.Duration) {
+	c.mu.Lock()
+	c.t = c.t.Add(d)
+	c.mu.Unlock()
+}
+
+func logTo(t *testing.T) *bytes.Buffer {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	return &buf
+}
+
+// open builds an Auth that keeps its sessions in dir, on a clock the test moves.
+func open(t *testing.T, dir string, c *clock) *Auth {
+	t.Helper()
+	return New(Config{ClientID: "x", StateDir: dir, Now: c.now})
 }
 
 func readStore(t *testing.T, dir string) (storedSessions, []byte) {
@@ -46,53 +63,55 @@ func readStore(t *testing.T, dir string) (storedSessions, []byte) {
 }
 
 func TestSessionSurvivesARestart(t *testing.T) {
-	r, dir := persistRig(t)
-	r.signIn()
-	r2 := r.restart(dir)
-	if r2.visitor("/api/repos").Code != 200 {
-		t.Fatal("the session did not survive the restart")
+	dir, clk := t.TempDir(), &clock{t: time.Now()}
+	a := open(t, dir, clk)
+	id := a.OpenSession("alice", map[string]bool{openRepo: true})
+	a.flush()
+
+	b := open(t, dir, clk) // a deploy over the same file
+	if login, vis := b.SessionView(id); login != "alice" || !vis[openRepo] || vis[hiddenRepo] {
+		t.Fatalf("the restored session is %q %v", login, vis)
 	}
-	if got := r2.d.auth.sessions[sessionKey(r.cookie)]; got.login != "alice" || !got.visible[openRepo] || got.visible[hiddenRepo] {
-		t.Fatalf("the restored session is %+v", got)
-	}
-	r2.clk.advance(time.Hour + time.Minute)
-	if r2.visitor("/api/repos").Code != 401 {
+	clk.advance(TTL + time.Minute)
+	if login, _ := b.SessionView(id); login != "" {
 		t.Fatal("the restored session outlived its hour")
 	}
 }
 
 func TestAnExpiredSessionDoesNotSurvive(t *testing.T) {
-	r, dir := persistRig(t)
-	r.signIn()
-	r.d.auth.flush()
-	r.clk.advance(time.Hour + time.Second)
-	r2 := r.restart(dir)
-	if len(r2.d.auth.sessions) != 0 {
+	dir, clk := t.TempDir(), &clock{t: time.Now()}
+	a := open(t, dir, clk)
+	id := a.OpenSession("alice", map[string]bool{openRepo: true})
+	a.flush()
+	clk.advance(TTL + time.Second)
+
+	b := open(t, dir, clk)
+	if b.SessionCount() != 0 {
 		t.Fatal("an expired session was loaded")
 	}
-	if r2.visitor("/api/repos").Code != 401 {
+	if login, _ := b.SessionView(id); login != "" {
 		t.Fatal("an expired session signed in")
 	}
+	b.flush()
 	if s, _ := readStore(t, dir); len(s.Sessions) != 0 {
 		t.Fatalf("the expired entry stayed in the file: %d", len(s.Sessions))
 	}
 }
 
 func TestTheFileHoldsNoSecret(t *testing.T) {
-	r, dir := persistRig(t)
-	r.signIn()
-	r.d.auth.flush()
+	dir, clk := t.TempDir(), &clock{t: time.Now()}
+	a := open(t, dir, clk)
+	id := a.OpenSession("alice", map[string]bool{openRepo: true})
+	a.flush()
 	s, raw := readStore(t, dir)
 	if len(s.Sessions) != 1 {
 		t.Fatalf("%d entries", len(s.Sessions))
 	}
-	for _, secret := range []string{r.cookie, visitorToken, "devcode-secret", "ABCD-1234", "gho_"} {
-		if bytes.Contains(raw, []byte(secret)) {
-			t.Fatalf("the file holds %q", secret)
-		}
+	if bytes.Contains(raw, []byte(id)) {
+		t.Fatal("the file holds the cookie id")
 	}
-	e, ok := s.Sessions[sessionKey(r.cookie)]
-	if !ok || e.Login != "alice" || len(e.Visible) != 1 || e.Visible[0] != openRepo || !e.Expires.Equal(r.clk.now().Add(time.Hour)) || e.Created.IsZero() {
+	e, ok := s.Sessions[sessionKey(id)]
+	if !ok || e.Login != "alice" || len(e.Visible) != 1 || e.Visible[0] != openRepo || !e.Expires.Equal(clk.now().Add(TTL)) || e.Created.IsZero() {
 		t.Fatalf("entry = %+v", e)
 	}
 	var generic map[string]map[string]map[string]any
@@ -109,11 +128,10 @@ func TestTheFileHoldsNoSecret(t *testing.T) {
 }
 
 func TestTheStateDirectoryIsCreatedPrivate(t *testing.T) {
-	r := newRig(t)
 	dir := filepath.Join(t.TempDir(), "state")
-	r.d.auth.stateDir = dir
-	r.signIn()
-	r.d.auth.flush()
+	a := open(t, dir, &clock{t: time.Now()})
+	a.OpenSession("alice", map[string]bool{openRepo: true})
+	a.flush()
 	info, err := os.Stat(dir)
 	if err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("dir %v %v", info, err)
@@ -136,9 +154,9 @@ func TestAnUnusableFileStartsEmpty(t *testing.T) {
 			os.WriteFile(path, []byte(c.content), c.mode)
 			os.Chmod(path, c.mode)
 			buf := logTo(t)
-			a := newAuth(authConfig{ClientID: "x", StateDir: dir})
-			if len(a.sessions) != 0 {
-				t.Fatalf("%d sessions loaded", len(a.sessions))
+			a := New(Config{ClientID: "x", StateDir: dir})
+			if a.SessionCount() != 0 {
+				t.Fatalf("%d sessions loaded", a.SessionCount())
 			}
 			if _, err := os.Stat(path); err != nil {
 				t.Fatal("the file was deleted")
@@ -149,33 +167,34 @@ func TestAnUnusableFileStartsEmpty(t *testing.T) {
 		})
 	}
 	t.Run("missing", func(t *testing.T) {
-		a := newAuth(authConfig{ClientID: "x", StateDir: t.TempDir()})
-		if len(a.sessions) != 0 {
+		if New(Config{ClientID: "x", StateDir: t.TempDir()}).SessionCount() != 0 {
 			t.Fatal("sessions from nowhere")
 		}
 	})
 }
 
-func TestLogoutRemovesTheEntryFromTheFile(t *testing.T) {
-	r, dir := persistRig(t)
-	r.signIn()
-	r.d.auth.flush()
+func TestCloseSessionRemovesTheEntryFromTheFile(t *testing.T) {
+	dir, clk := t.TempDir(), &clock{t: time.Now()}
+	a := open(t, dir, clk)
+	id := a.OpenSession("alice", map[string]bool{openRepo: true})
+	a.flush()
 	if s, _ := readStore(t, dir); len(s.Sessions) != 1 {
 		t.Fatal("not saved")
 	}
-	ask(r.h, "POST", "/auth/logout", "visitor", r.cookie, "{}")
-	r.d.auth.flush()
+	a.CloseSession(id)
+	a.flush()
 	if s, _ := readStore(t, dir); len(s.Sessions) != 0 {
 		t.Fatal("the entry stayed in the file after logout")
 	}
-	if r.restart(dir).visitor("/api/repos").Code != 401 {
+	if login, _ := open(t, dir, clk).SessionView(id); login != "" {
 		t.Fatal("a logged-out session came back")
 	}
 }
 
 func TestTheDebouncedSaveWrites(t *testing.T) {
-	r, dir := persistRig(t)
-	r.signIn()
+	dir := t.TempDir()
+	a := open(t, dir, &clock{t: time.Now()})
+	a.OpenSession("alice", map[string]bool{openRepo: true})
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, sessionsFile)); err == nil {
@@ -189,19 +208,19 @@ func TestTheDebouncedSaveWrites(t *testing.T) {
 }
 
 func TestTheStoreIsCapped(t *testing.T) {
-	r, dir := persistRig(t)
-	a := r.d.auth
+	dir, clk := t.TempDir(), &clock{t: time.Now()}
+	a := open(t, dir, clk)
 	first := ""
 	for i := range maxSessions + 5 {
-		id := a.openSession("bob", map[string]bool{openRepo: true})
+		id := a.OpenSession("bob", map[string]bool{openRepo: true})
 		if i == 0 {
 			first = id
 		}
-		r.clk.advance(time.Millisecond)
+		clk.advance(time.Millisecond)
 	}
 	a.flush()
-	if len(a.sessions) != maxSessions {
-		t.Fatalf("%d sessions in memory", len(a.sessions))
+	if a.SessionCount() != maxSessions {
+		t.Fatalf("%d sessions in memory", a.SessionCount())
 	}
 	s, _ := readStore(t, dir)
 	if len(s.Sessions) != maxSessions {
@@ -218,19 +237,17 @@ func TestTheStoreIsCapped(t *testing.T) {
 }
 
 func TestConcurrentSignInsKeepTheFileValid(t *testing.T) {
-	r, dir := persistRig(t)
-	a := r.d.auth
+	dir := t.TempDir()
+	a := open(t, dir, &clock{t: time.Now()})
 	var wg sync.WaitGroup
 	for i := range 40 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			id := a.openSession(fmt.Sprintf("user%d", i), map[string]bool{openRepo: true})
+			id := a.OpenSession(fmt.Sprintf("user%d", i), map[string]bool{openRepo: true})
 			a.flush()
 			if i%4 == 0 {
-				a.mu.Lock()
-				delete(a.sessions, sessionKey(id))
-				a.mu.Unlock()
+				a.CloseSession(id)
 			}
 			a.flush()
 		}(i)
@@ -244,22 +261,22 @@ func TestConcurrentSignInsKeepTheFileValid(t *testing.T) {
 }
 
 func TestAFailedWriteBreaksNothingAndWarnsOnce(t *testing.T) {
-	r := newRig(t)
 	blocker := filepath.Join(t.TempDir(), "file")
 	os.WriteFile(blocker, []byte("x"), 0o600)
-	r.d.auth.stateDir = filepath.Join(blocker, "state") // a directory cannot be made under a file
+	clk := &clock{t: time.Now()}
 	buf := logTo(t)
-	r.signIn()
-	r.d.auth.flush()
-	r.d.auth.flush()
-	if r.visitor("/api/repos").Code != 200 {
+	a := open(t, filepath.Join(blocker, "state"), clk) // a directory cannot be made under a file
+	id := a.OpenSession("alice", map[string]bool{openRepo: true})
+	a.flush()
+	a.flush()
+	if login, _ := a.SessionView(id); login != "alice" {
 		t.Fatal("sign-in broke on a failed write")
 	}
 	if n := strings.Count(buf.String(), "could not be written"); n != 1 {
 		t.Fatalf("%d warnings in a minute, want 1", n)
 	}
-	r.clk.advance(2 * time.Minute)
-	r.d.auth.flush()
+	clk.advance(2 * time.Minute)
+	a.flush()
 	if n := strings.Count(buf.String(), "could not be written"); n != 2 {
 		t.Fatalf("%d warnings after a minute, want 2", n)
 	}
@@ -267,10 +284,17 @@ func TestAFailedWriteBreaksNothingAndWarnsOnce(t *testing.T) {
 
 func TestSignInOffCreatesNoFile(t *testing.T) {
 	dir := t.TempDir()
-	if newAuth(authConfig{StateDir: dir}) != nil {
+	if New(Config{StateDir: dir}) != nil {
 		t.Fatal("auth built without a client id")
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("files created: %v", entries)
+	}
+}
+
+func TestTheConfiguredHostsDefaultToGitHub(t *testing.T) {
+	a := New(Config{ClientID: "x"})
+	if a.githubURL != "https://github.com" || a.apiURL != "https://api.github.com" {
+		t.Fatalf("defaults = %s %s", a.githubURL, a.apiURL)
 	}
 }
