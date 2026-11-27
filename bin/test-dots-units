@@ -11,7 +11,7 @@ mkdir -p "$h/.config/systemd/user"
 cat >"$h/sc" <<'E2'
 #!/bin/sh
 echo "$*" >> "$HOME/sc.log"
-case "$*" in *is-enabled*) [ -e "$HOME/.config/systemd/user/$(echo "$*" | awk '{print $NF}')" ] && [ -z "$NOT_ENABLED" ];; *is-active*) echo active;; esac
+case "$*" in *is-enabled*) [ -e "$HOME/.config/systemd/user/$(echo "$*" | awk '{print $NF}')" ] && [ -z "$NOT_ENABLED" ];; *is-active*) echo active; case "$*" in *--quiet*dots-opencode*) exit 3 ;; esac ;; esac
 exit 0
 E2
 chmod +x "$h/sc"
