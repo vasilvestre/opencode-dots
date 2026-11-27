@@ -56,11 +56,22 @@ permission (one GraphQL call with `viewerPermission` per 50 repositories; if Gra
 cache, a log, an error, an audit row or a cookie. A GitHub App with metadata permission only would hold
 less; it is a later option (ADR 0046).
 
-**The session.** It lives in the dashboard's memory: the login, the set of visible repositories, an
+**The session.** The dashboard keeps the login, the set of visible repositories, an
 expiry of **one hour** and a random 256-bit id sent as an `HttpOnly`, `SameSite=Strict` cookie
 (`Secure` when the request came over https). Rights are as fresh as the session: a right removed on
-GitHub disappears at the latest when it ends, and signing in again refreshes it. A restart signs
-everyone out. "Sign out" in the nav ends it at once.
+GitHub disappears at the latest when it ends, and signing in again refreshes it. "Sign out" in the
+nav ends it at once.
+
+**Sessions survive a restart.** They are written to `STATE_DIR/sessions.json` (mode 0600, the directory
+0700), atomically (temp file in the same directory, fsync, rename), about a second after a sign-in, a
+logout or an expiry, so a deploy does not sign visitors out. The file is keyed by the SHA-256 of the cookie
+id, so it cannot sign anyone in. Each entry holds only the login, the visible repositories, the expiry and
+the creation time. **Never written:** the cookie id itself, any GitHub token (the dashboard drops it
+at sign-in), the device code and the user code. At start the file is read and expired entries dropped; a
+missing, empty or corrupted file, or one wider than 0600, is ignored with a warning (no session content in
+it) and left in place. The store holds 1000 sessions at most, dropping the oldest. A failed write never
+breaks sign-in: the sessions stay in memory and one warning a minute is logged. With sign-in off no file is
+created or read. **To sign everyone out:** delete `sessions.json` and restart the dashboard.
 
 Endpoints: `POST /auth/device/start`, `POST /auth/device/poll`, `POST /auth/logout`, `GET /api/session`.
 The first three are rate limited per client and check the host, the origin, a JSON content type and a
@@ -123,7 +134,7 @@ and target a minute, so a page that polls does not flood the table). See `docs/a
 - The list of repositories is the dot's own; a run or a record of a repository outside it is hidden
   from visitors.
 - No organisation-level rules: the answer is the visitor's own permission on the repository.
-- Sessions live in memory: a restart signs visitors out.
+- Sessions survive a restart through `sessions.json`; a visible set changed on GitHub still shows until the hour ends.
 - The Activity page does not work for a visitor yet; runs show on the Cost page and through
   `/api/logs`.
 - A run with no repository in its recorded inputs or in the head of its first prompt stays hidden from
@@ -138,8 +149,8 @@ Before ADR 0046 (the flow without a scope and the dot's token), on 2026-11-27, a
   the readable repository and not the one the visitor has no permission on.
 - **With curl:** the owner (direct loopback, no tailnet header) sees both notes; a visitor with no session gets 401;
   a signed-in visitor gets 403 on an owner-only endpoint; the visitor's token appears in no file, log or cookie.
-- **After a restart of the dashboard:** the session is gone (sessions live in memory), the old cookie is useless,
-  `/api/session` answers `anonymous`, protected endpoints answer 401 and the page shows the sign-in again.
+- **After a restart of the dashboard** (at that time): the session was gone, since sessions lived in memory only. They are
+  now kept in `sessions.json` and survive a restart (see above).
 
 Not checked: the real GitHub, where the response shapes follow the documentation, and the Activity page, which a
 visitor does not get.

@@ -179,7 +179,11 @@ loopback with no `Tailscale-User-Login` (`ownerRequest`); every other request is
   (`loginOf`, then `visibleRepos` in `rights.go`: one aliased GraphQL `viewerPermission` call per 50
   repositories, REST `GET /repos/{r}` per repository when GraphQL fails) and dropped. A session holds
   the login, the set of visible repositories, an expiry of one hour (`sessionTTL`, `authState.now` is
-  injectable) and a 256-bit id, in memory only. Authorization is a lookup in that set (`viewer.can`);
+  injectable) and a 256-bit id. Sessions persist in `STATE_DIR/sessions.json` (`sessionstore.go`): keyed by the SHA-256 of the
+  cookie id (the id is never written), entries hold only login, visible set, expiry and creation, mode 0600, atomic
+  write, debounced about 1 s, 1000 at most, a bad or wide-mode file starts empty, off when sign-in is off.
+  Never store a token, a device code or a user code there; `TestTheFileHoldsNoSecret` scans for them. Tests read
+  `authState.sessions` by `sessionKey(cookie)`. Authorization is a lookup in that set (`viewer.can`);
   there is no per-request call to GitHub, no cache and no dot token. Anything not returned, any error
   and a total failure hide the repository. Never pass the token to a log, an error, a session field or
   an audit row; `TestDeviceFlowSignsAVisitorIn` scans for it.
