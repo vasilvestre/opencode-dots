@@ -107,7 +107,7 @@ A `tend-repo` override changes only its own role. Its nested `review-pr` run use
 the inputs, so the values are recovered twice:
 
 1. from the run log: every workflow prompt spells `owner/repo#123`, and a review
-   run also writes `pr123-<sha>`. `replayInputs` reads them back, which is a
+   run also writes `pr123-<sha>`. `spend.ReplayInputs` reads them back, which is a
    guess and the page says so.
 2. from the page itself: when a run starts from the run dialog, `ui/run.js`
    keeps its exact inputs in `localStorage` under `dots-run-<id>`. That copy
@@ -246,7 +246,7 @@ as stale.
 - awf v0.12.0 records what each agent step cost (`cost_usd`) in the run log, so
   `/api/cost` sums that over the transcript, falling back to the recorder file.
   `/api/usage` adds it up per pull request, taking the pull request from
-  `replayInputs` over the same log, so a run whose prompt names no pull request
+  `spend.ReplayInputs` over the same log, so a run whose prompt names no pull request
   counts under "Unattributed runs". That grouping is a guess from the prompt
   text: it never reads GitHub.
   The sum is memoised by file size and modification time, because the page asks

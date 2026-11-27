@@ -51,11 +51,12 @@ propose-links-test: ## check what bin/propose-links posts to awf serve, with a f
 shim-test: ## run the opencode shim against a stub (no model is called)
 	test/shim.sh
 
-script-tests: ## run bin/test-publish-gate, bin/test-classify, bin/test-sandbox and bin/test-dot-sign (offline; container checks only with a local dots-* image)
+script-tests: ## run bin/test-publish-gate, bin/test-classify, bin/test-sandbox, bin/test-dot-sign and bin/test-budget (offline; container checks only with a local dots-* image)
 	bin/test-publish-gate
 	bin/test-classify
 	bin/test-sandbox
 	bin/test-dot-sign
+	bin/test-budget
 
 deploy-test: ## run the deploy scripts in a Debian 13 container (needs docker and the network)
 	deploy/test/run.sh
