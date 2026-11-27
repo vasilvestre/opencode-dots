@@ -1,6 +1,6 @@
 # 0044. The dashboard shows a viewer only the repositories GitHub says they can read
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-27
 - Supersedes: none
 - Superseded by: none
@@ -51,6 +51,21 @@ or to a log. It needs an OAuth app registered by the owner (a client id, no secr
 2. Does the viewer's audit row carry the GitHub login, as proposed?
 3. May a repository that GitHub hides from a viewer also be hidden from the costs total, or must the total stay
    complete?
+
+### Settled in discussion (2026-11-27)
+
+- **The device flow is the way in.** The owner registers a GitHub OAuth app with the device flow enabled and gives
+  its client id to the dashboard; no secret is stored.
+- **The visitor proves who they are, nothing more.** The device flow asks for **no scope**. The dashboard reads the
+  visitor's login with it, keeps the login and drops the token at once. A token that could read private
+  repositories would be a standing risk if the dashboard were ever compromised.
+- **The dot's own `gh` token reads the permission.** For each repository the dashboard asks GitHub for the
+  permission of that login (`GET /repos/{owner}/{repo}/collaborators/{login}/permission`) and shows the
+  repository only when it is `read` or better. If the dot's token cannot read the permission of a repository, it
+  is hidden from every visitor: it fails closed.
+- Without a client id the dashboard behaves as today, and the host's own direct loopback requests keep the full view.
+- Questions 2 and 3 are taken as proposed: the audit row carries the GitHub login, and a repository hidden from a
+  visitor is also left out of the costs total they see.
 
 ## Consequences
 
