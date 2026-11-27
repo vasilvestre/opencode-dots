@@ -107,6 +107,11 @@ var repoNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]*[A-Za-z0-9_-][A-Za-z0-9_.-]
 // config, the daily list, the path map and the directories a pass wrote under
 // state/tend. The run dialog offers them, and still accepts any other name.
 func (d *dash) repoNames(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, d.knownRepos())
+}
+
+// knownRepos is the sorted list behind repoNames. A visitor's view is built from it too.
+func (d *dash) knownRepos() []string {
 	seen := map[string]bool{}
 	add := func(s string) {
 		s = strings.TrimSpace(s)
@@ -149,7 +154,7 @@ func (d *dash) repoNames(w http.ResponseWriter, r *http.Request) {
 		out = append(out, name)
 	}
 	sort.Strings(out)
-	writeJSON(w, out)
+	return out
 }
 
 type memoryEntry struct {

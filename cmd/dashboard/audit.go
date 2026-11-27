@@ -99,8 +99,16 @@ func (d *dash) audited(endpoint, target string, h http.HandlerFunc) http.Handler
 // the same trust check as a write (loopback or an -allow-host name, with a matching Origin):
 // that is the request `tailscale serve` forwards. Anything else is "local".
 func (d *dash) auditCaller(r *http.Request) string {
+	if d.auth != nil && !ownerRequest(r) {
+		if login := d.auth.sessionLogin(r); login != "" {
+			return login // a signed-in visitor is named by the GitHub login (ADR 0044)
+		}
+	}
 	login := strings.TrimSpace(r.Header.Get(tailscaleLoginHeader))
 	if login == "" || !d.trustedRequest(r) {
+		if d.auth != nil && !ownerRequest(r) {
+			return "anonymous"
+		}
 		return localCaller
 	}
 	return login
@@ -108,19 +116,24 @@ func (d *dash) auditCaller(r *http.Request) string {
 
 // recordAudit appends one entry. A failure is logged and goes no further.
 func (d *dash) recordAudit(r *http.Request, endpoint, target string, status int) {
+	d.appendAudit(r.Method+" "+endpoint, target, d.auditCaller(r), status)
+}
+
+// appendAudit writes one row for the endpoint ("METHOD /path"), whoever the caller is.
+func (d *dash) appendAudit(endpoint, target, caller string, status int) {
 	if d.state == "" {
 		return
 	}
 	st, err := store.Open(filepath.Join(d.state, "dots.db"))
 	if err != nil {
-		log.Printf("audit: %s %s not recorded: %v", r.Method, endpoint, err)
+		log.Printf("audit: %s not recorded: %v", endpoint, err)
 		return
 	}
 	defer st.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := st.RecordAudit(ctx, r.Method+" "+endpoint, target, d.auditCaller(r), status); err != nil {
-		log.Printf("audit: %s %s not recorded: %v", r.Method, endpoint, err)
+	if err := st.RecordAudit(ctx, endpoint, target, caller, status); err != nil {
+		log.Printf("audit: %s not recorded: %v", endpoint, err)
 	}
 }
 

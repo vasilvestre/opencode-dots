@@ -5,6 +5,7 @@ for local config files. One Go package, `main`: `main.go` holds the shared
 types, `main()` and the route wiring; handlers sit in `runs.go`, `cost.go`,
 `timeline.go`, `ask.go`, `repos.go`, `models.go` (HTTP glue only; the logic is in
 `../../internal/models`), `notifications.go`, `files.go`, `security.go`,
+`auth.go` and `visibility.go` (GitHub sign-in for visitors, `routes.go` wires them),
 `util.go`, with a `*_test.go` per file. The frontend is `../../ui/`, served from
 disk as ES modules, with no build step.
 
@@ -41,6 +42,7 @@ disk as ES modules, with no build step.
 | `/api/notifications` (GET) | reads the Discord webhook setting from `notifications.json`, or the disabled defaults |
 | `/api/notifications` (PUT) | saves the Discord webhook setting under the same write lock and keeps a `.bak` |
 | `/awf/*` | proxied to `AWF_URL`, default `http://127.0.0.1:2511` |
+| `/auth/device/start`, `/auth/device/poll`, `/auth/logout` (POST), `/api/session` (GET) | GitHub sign-in of a visitor, only when `DOTS_GITHUB_CLIENT_ID` is set, else 404; see the section below |
 
 ## MODEL PRESETS
 
@@ -158,10 +160,31 @@ account behind the workflow's token. `GET /api/autonomy` also lists `released`. 
 else `overall`, `checks` and `mtime`; the page treats a file over 30 minutes old
 as stale.
 
+## VISITORS (ADR 0044, docs/dashboard-auth.md)
+
+Off unless `-github-client-id` (`DOTS_GITHUB_CLIENT_ID`) is set: `dash.auth` is nil, `scoped` and
+`ownerOnly` return the handler itself, and nothing changes. On, the owner is a request directly on
+loopback with no `Tailscale-User-Login` (`ownerRequest`); every other request is a visitor.
+
+- `routes.go` wraps every read in `scoped(handler, rule)`: a `gate` refuses before the handler runs
+  (a run by id, a thread, a file, an autonomy artifact: 404 as a missing record), a `shape` filters
+  the JSON it answered (lists by `repo`, usage totals recomputed, links only when both items are
+  visible, audit rows by the repository in the target). Everything that changes something, the
+  config pages, `/api/workers`, `/api/health` and `/awf/` go through `ownerOnly`: 403 for a signed-in
+  visitor, 401 for one who is not. Put `ownerOnly` inside `audited` so a refused write is a row.
+- A new read endpoint keyed by repository needs a rule in `routes.go`: without one it reaches a visitor
+  unfiltered. A new write endpoint needs `ownerOnly`.
+- The device flow sends an empty scope, reads the login once with `GET /user` and drops the token. A
+  session holds a login, an expiry and a 256-bit id, in memory only. The dot's token (`GH_TOKEN`) only
+  reads `GET /repos/{r}/collaborators/{login}/permission`, cached 60 seconds, fail closed. Never log
+  or store either token: `secret` hides the dot's.
+- Tests run against a fake GitHub (`auth_test.go`); the GitHub base URLs are fields of `authState`.
+
 ## RULES
 
 - Bind `127.0.0.1` only. The default is `-addr 127.0.0.1:8099`. There is no
-  authentication: the loopback bind is the boundary.
+  authentication for the owner: the loopback bind is the boundary. A visitor through the tailnet
+  signs in with GitHub when that is configured (above).
 - The tailnet reaches the page through `tailscale serve` on
   the tailnet address of this machine (see `systemd/dots-dashboard.env`), never through a wider bind. See
   ADR 0013.
@@ -286,7 +309,8 @@ as stale.
 holds `workflows/`, the local configs and `model-presets.yaml`), `-allow-host`
 (default `DOTS_ALLOW_HOST`), `-awf` (default `AWF_URL`), `-ui`,
 `-awfgh` (default `awf-gh.yaml`), `-opencode` (default the opencode config under
-`$XDG_CONFIG_HOME`).
+`$XDG_CONFIG_HOME`), `-github-client-id` (default `DOTS_GITHUB_CLIENT_ID`; empty turns visitor
+sign-in off), `-github-url` and `-github-api` (defaults `DOTS_GITHUB_URL`, `DOTS_GITHUB_API_URL`).
 
 ## NOTES
 

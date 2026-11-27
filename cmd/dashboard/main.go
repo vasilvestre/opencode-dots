@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -102,6 +103,10 @@ func main() {
 	opencodeDB := flag.String("opencode-db", envOr("OPENCODE_DB", defaultOpencodeDB()), "opencode SQLite database, read-only, for the run view sessions")
 	allowHost := flag.String("allow-host", envOr("DOTS_ALLOW_HOST", ""),
 		"comma separated hosts allowed to write through the proxy, for the tailnet name")
+	ghClient := flag.String("github-client-id", envOr("DOTS_GITHUB_CLIENT_ID", ""),
+		"GitHub OAuth app client id; sign-in for visitors is on only when it is set (docs/dashboard-auth.md)")
+	ghURL := flag.String("github-url", envOr("DOTS_GITHUB_URL", "https://github.com"), "GitHub device flow host")
+	ghAPI := flag.String("github-api", envOr("DOTS_GITHUB_API_URL", "https://api.github.com"), "GitHub REST API base URL")
 	flag.Parse()
 
 	target, err := url.Parse(*awf)
@@ -118,6 +123,7 @@ func main() {
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
+	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, Token: os.Getenv("GH_TOKEN")})
 	d.execDash = parseExecutorDashboards(envOr("DOTS_EXECUTOR_DASHBOARDS", ""))
 	for _, h := range strings.Split(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {
@@ -127,60 +133,7 @@ func main() {
 	d.targets = map[string]targetMemo{}
 	d.costs = map[string]costMemo{}
 	d.indexed = d.loadIndexed()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			// Everything the page needs lives in ui/: modules, stylesheet, icon.
-			if name := strings.TrimPrefix(r.URL.Path, "/"); safeAsset(name) {
-				serveFile(w, r, filepath.Join(filepath.Dir(*ui), name), assetType(name))
-				return
-			}
-			http.NotFound(w, r)
-			return
-		}
-		serveFile(w, r, *ui, "text/html; charset=utf-8")
-	})
-	mux.HandleFunc("/api/artifacts", d.artifacts)
-	mux.HandleFunc("/api/file", d.file)
-	mux.HandleFunc("/api/log", d.viaExecutor(d.log))
-	mux.HandleFunc("/api/stream", d.viaExecutor(d.stream))
-	mux.HandleFunc("/api/cost", d.viaExecutor(d.cost))
-	mux.HandleFunc("/api/usage", d.usage)
-	mux.HandleFunc("/api/run", d.viaExecutor(d.runTimeline))
-	mux.HandleFunc("/api/sessions", d.sessions)
-	mux.HandleFunc("/api/logs", d.logs)
-	mux.HandleFunc("/api/remote-runs", d.remoteRuns)
-	mux.HandleFunc("/api/repos", d.repos)
-	mux.HandleFunc("/api/repos/names", d.repoNames)
-	mux.HandleFunc("/api/repos/config", d.audited("/api/repos/config", "", d.reposConfig))
-	mux.HandleFunc("/api/replay", d.replay)
-	mux.HandleFunc("/api/thread", d.thread)
-	mux.HandleFunc("/api/ask", d.audited("/api/ask", "", d.ask))
-	mux.HandleFunc("/api/ask/answer", d.audited("/api/ask/answer", "", d.askAnswer))
-	mux.HandleFunc("/api/memory", d.tendMemory)
-	mux.HandleFunc("/api/files", d.files)
-	mux.HandleFunc("/api/models", d.audited("/api/models", "model-presets", d.models))
-	mux.HandleFunc("/api/claims", d.claims)
-	mux.HandleFunc("/api/audit", d.audit)
-	mux.HandleFunc("/api/links", d.links)
-	mux.HandleFunc("/api/links/accept", d.audited("/api/links/accept", "", d.linksAccept))
-	mux.HandleFunc("/api/links/decline", d.audited("/api/links/decline", "", d.linksDecline))
-	mux.HandleFunc("/api/links/split", d.audited("/api/links/split", "", d.linksSplit))
-	mux.HandleFunc("/api/workers", d.workers)
-	mux.HandleFunc("/api/autonomy", d.autonomy)
-	mux.HandleFunc("/api/autonomy/artifact", d.autonomyArtifact)
-	mux.HandleFunc("/api/autonomy/release", d.audited("/api/autonomy/release", "", d.autonomyRelease))
-	mux.HandleFunc("/api/health", d.health)
-	mux.HandleFunc("/api/notifications", d.audited("/api/notifications", "notifications", d.notifications))
-	mux.HandleFunc("/api/source", d.source)
-	mux.HandleFunc("/api/save", d.audited("/api/save", "", d.saveFile))
-	// A write through the proxy (starting or cancelling a run) is a write too: its target is the
-	// awf path, and the audit never sees the body.
-	awfProxy := http.StripPrefix("/awf", proxy)
-	mux.HandleFunc("/awf/", d.audited("/awf/", "", func(w http.ResponseWriter, r *http.Request) {
-		auditTarget(r, r.URL.Path)
-		awfProxy.ServeHTTP(w, r)
-	}))
+	mux := routes(d, *ui, proxy)
 
 	go d.watchRuns()
 
@@ -221,4 +174,8 @@ type dash struct {
 	remote   map[string]remoteSnapshot
 	remoteAt time.Time
 	execDash map[string]string // executor name -> its dashboard, see DOTS_EXECUTOR_DASHBOARDS
+
+	// auth is nil unless a GitHub OAuth client id is configured: sign-in for visitors is off
+	// and every request is the owner's (auth.go, visibility.go).
+	auth *authState
 }

@@ -632,3 +632,13 @@ button.stat:hover { background: var(--surface-2); }
 .pill:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 .rule-preview { font-size: 12px; }
 .modal select { max-width: 100%; }
+
+/* GitHub sign-in (ADR 0044): the page of an anonymous visitor, and who is signed in. */
+.signin { max-width: 420px; margin: 8vh auto 0; padding: 0 16px; }
+.signin-code { font: 600 28px/1.2 var(--mono); letter-spacing: .12em; padding: 12px 16px; text-align: center; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); user-select: all; }
+.signin-note { color: var(--warn); }
+.whoami { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
+.whoami[hidden] { display: none; }
+[data-role="anonymous"] .tabs, [data-role="anonymous"] .tools { display: none; }
+@media (max-width: 760px) { .who-prefix { display: none; } .whoami > span { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+#tabs a[hidden] { display: none; }
