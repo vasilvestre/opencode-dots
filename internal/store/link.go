@@ -247,7 +247,7 @@ func (s *Store) ListLinkProposals(ctx context.Context, limit int) ([]LinkProposa
 	for rows.Next() {
 		p, err := scanLink(rows)
 		if err != nil {
-			rows.Close()
+			rows.Close() //nolint:sqlclosecheck // closed before the next statement on the same tx
 			return nil, err
 		}
 		out = append(out, p)
@@ -392,12 +392,15 @@ func mergeItems(ctx context.Context, tx *sql.Tx, p LinkProposal, actorID, at str
 	for rows.Next() {
 		var m movedRef
 		if err := rows.Scan(&m.Ref, &m.SourceEvent, &m.AttachedBy, &m.AttachedAt); err != nil {
-			rows.Close()
+			rows.Close() //nolint:sqlclosecheck // closed before the next statement on the same tx
 			return err
 		}
 		moved = append(moved, m)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE work_item_ref SET work_item_id = ? WHERE work_item_id = ?`, p.A, p.B); err != nil {
 		return err
 	}

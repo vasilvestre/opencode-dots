@@ -15,6 +15,9 @@ jobs:
       - run: go test ./...
       - run: bin/adr check
       - run: bin/check-binaries tracked
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.1
       - run: test/binaries.sh
       - run: test/backup.sh
       - run: test/shim.sh

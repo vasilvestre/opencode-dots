@@ -155,7 +155,7 @@ func (s *Store) LinkCandidates(ctx context.Context, workspace string, max int) (
 		var it CandidateItem
 		var payload, features string
 		if err := rows.Scan(&it.ID, &it.Title, &payload, &it.Repo, &features); err != nil {
-			rows.Close()
+			rows.Close() //nolint:sqlclosecheck // closed before the next statement
 			return nil, 0, err
 		}
 		it.Payload, it.Trust = json.RawMessage(payload), trustOf(features)
@@ -178,7 +178,7 @@ func (s *Store) LinkCandidates(ctx context.Context, workspace string, max int) (
 	for prows.Next() {
 		var a, b string
 		if err := prows.Scan(&a, &b); err != nil {
-			prows.Close()
+			prows.Close() //nolint:sqlclosecheck // closed before the next statement
 			return nil, 0, err
 		}
 		known[pairKey(a, b)] = true

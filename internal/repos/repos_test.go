@@ -2,6 +2,7 @@ package repos
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -342,7 +343,7 @@ func (echo) Key() string { return "echo" }
 func (echo) Doc() string { return "test feature: writes one line per repository to echo.txt" }
 func (echo) Check(v any) error {
 	if _, ok := v.(string); !ok {
-		return fmt.Errorf("must be a string")
+		return errors.New("must be a string")
 	}
 	return nil
 }

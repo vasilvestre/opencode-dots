@@ -98,7 +98,7 @@ func probe(c *http.Client) func(string) error {
 
 func githubToken(c *http.Client, token string) func() (bool, time.Time, error) {
 	return func() (bool, time.Time, error) {
-		req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+		req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Accept", "application/vnd.github+json")
 		resp, err := c.Do(req)
@@ -107,7 +107,7 @@ func githubToken(c *http.Client, token string) func() (bool, time.Time, error) {
 			return false, time.Time{}, err
 		}
 		resp.Body.Close()
-		if resp.StatusCode == 401 {
+		if resp.StatusCode == http.StatusUnauthorized {
 			return false, time.Time{}, nil
 		}
 		if resp.StatusCode >= 500 {
@@ -173,7 +173,7 @@ func latestRun(dir string) (time.Time, bool, error) {
 	for _, sub := range []string{"reviews", "replies", "tend"} {
 		_ = filepath.WalkDir(filepath.Join(dir, sub), func(p string, e os.DirEntry, err error) error {
 			if err != nil || e.IsDir() {
-				return nil
+				return nil //nolint:nilerr // an unreadable path is skipped, not fatal
 			}
 			if info, err := e.Info(); err == nil && info.ModTime().After(newest) {
 				newest = info.ModTime()

@@ -30,7 +30,7 @@ func TestParseRef(t *testing.T) {
 }
 
 func TestIdempotencyKey(t *testing.T) {
-	if IdempotencyKey("a", "b") != IdempotencyKey("a", "b") {
+	if IdempotencyKey("a", "b") != IdempotencyKey("a", "b") { //nolint:staticcheck // SA4000: calling twice is the point
 		t.Error("not stable")
 	}
 	if IdempotencyKey("ab", "c") == IdempotencyKey("a", "bc") {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ func TestRunCost(t *testing.T) {
 	}
 
 	write(filepath.Join(logs, id+".jsonl"), step("0.5"))
-	if usd, steps = d.runCost(id); steps != 2 {
+	if _, steps = d.runCost(id); steps != 2 {
 		t.Fatalf("transcript should win, got %d steps", steps)
 	}
 
@@ -86,7 +87,7 @@ func TestUsageGroupsByPullRequest(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	d.usage(rec, httptest.NewRequest("GET", "/api/usage", nil))
+	d.usage(rec, httptest.NewRequest(http.MethodGet, "/api/usage", nil))
 
 	var got struct {
 		Total    float64    `json:"total"`

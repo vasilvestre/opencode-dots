@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -58,7 +59,7 @@ func checkTeamAddr(team, owner string, signIn bool) error {
 		return fmt.Errorf("-team-addr %q: the team listener binds a loopback IP address only (127.0.0.0/8 or ::1)", team)
 	}
 	if !signIn {
-		return fmt.Errorf("-team-addr needs sign-in: set -github-client-id (DOTS_GITHUB_CLIENT_ID)")
+		return errors.New("-team-addr needs sign-in: set -github-client-id (DOTS_GITHUB_CLIENT_ID)")
 	}
 	if sameAddr(team, owner) {
 		return fmt.Errorf("-team-addr %q is the owner listener's address: use another port", team)

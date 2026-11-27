@@ -83,7 +83,7 @@ func (d *dash) pruneLogs() {
 		keep.WriteString(line + "\n")
 		indexed[e.ID] = true
 	}
-	os.WriteFile(filepath.Join(dir, "index.jsonl"), []byte(keep.String()), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "index.jsonl"), []byte(keep.String()), 0o644)
 	d.mu.Lock()
 	d.indexed = indexed
 	for id := range d.notified {
@@ -230,7 +230,7 @@ func (d *dash) stream(w http.ResponseWriter, r *http.Request) {
 			lines := strings.Split(carry, "\n")
 			carry = lines[len(lines)-1]
 			for _, line := range lines[:len(lines)-1] {
-				frame := line
+				var frame string
 				if transcript {
 					converted, ok := transcriptFrame(line)
 					if !ok {
@@ -346,7 +346,7 @@ func logID(id string) bool {
 		return false
 	}
 	for _, r := range id {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
 			return false
 		}
 	}
@@ -409,7 +409,7 @@ func (d *dash) noteIndex(id, workflow, started string) {
 		return
 	}
 	defer f.Close()
-	f.Write(append(line, '\n'))
+	_, _ = f.Write(append(line, '\n'))
 }
 
 var (

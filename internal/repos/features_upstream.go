@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -70,7 +71,7 @@ func upstreamEntries(v any) ([][2]string, error) {
 				return nil, fmt.Errorf("max_per_week for %s must be between 1 and 20, got %d", repo, n)
 			}
 		}
-		out = append(out, [2]string{repo, fmt.Sprint(n)})
+		out = append(out, [2]string{repo, strconv.Itoa(n)})
 	}
 	return out, nil
 }
@@ -89,7 +90,7 @@ func (upstream) Emit(*Resolved, *Output) error { return nil }
 func (upstream) Modify(r *Resolved, out *Output, from int) error {
 	entries, err := upstreamEntries(r.Values["upstream"])
 	if err != nil {
-		return nil // Check already reported it
+		return nil //nolint:nilerr // Check already reported it
 	}
 	if lvl := EffectiveAutonomy(r); lvl != "auto" {
 		return fmt.Errorf("upstream needs autonomy auto, this repository is at %s; remove upstream or raise autonomy", lvl)

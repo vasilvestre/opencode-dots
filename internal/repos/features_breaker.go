@@ -70,7 +70,7 @@ func (breaker) Emit(r *Resolved, out *Output) error {
 // commas. A workflow that does not declare the input ignores it (ADR 0033).
 func (breaker) Modify(r *Resolved, out *Output, from int) error {
 	if breaker.Check(breaker{}, r.Values["circuit_breaker"]) != nil {
-		return nil // Check already reported it
+		return nil //nolint:nilerr // Check already reported it
 	}
 	if lvl := EffectiveAutonomy(r); lvl != "auto" {
 		return fmt.Errorf("needs autonomy auto, this repository is at %s and never merges; remove circuit_breaker or raise autonomy", lvl)

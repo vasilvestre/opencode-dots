@@ -36,7 +36,7 @@ func issueToken(t *testing.T, r *rig, body string) (secret, id string) {
 }
 
 func exchange(r *rig, secret string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("GET", "/api/hub-token", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/hub-token", nil)
 	if secret != "" {
 		req.Header.Set("Authorization", "Bearer "+secret)
 	}

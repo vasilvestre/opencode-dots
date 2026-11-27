@@ -35,7 +35,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	auth := func(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Authorization") != "Bearer "+tok {
-				w.WriteHeader(401)
+				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 			h(w, r)
@@ -50,7 +50,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	mux.HandleFunc("POST /api/jobs/{id}/claim", auth(func(w http.ResponseWriter, r *http.Request) {
 		j, err := f.q.Claim(r.PathValue("id"), r.Header.Get("X-Worker-Instance"), f.repos)
 		if err != nil {
-			w.WriteHeader(409)
+			w.WriteHeader(http.StatusConflict)
 			return
 		}
 		json.NewEncoder(w).Encode(j)
@@ -58,7 +58,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	mux.HandleFunc("POST /api/jobs/{id}/heartbeat", auth(func(w http.ResponseWriter, r *http.Request) {
 		j, err := f.q.Claim(r.PathValue("id"), r.Header.Get("X-Worker-Instance"), f.repos)
 		if err != nil {
-			w.WriteHeader(409)
+			w.WriteHeader(http.StatusConflict)
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]bool{"cancelled": j.State == jobs.Cancelled})
@@ -70,14 +70,14 @@ func newFakeServer(t *testing.T) *fakeServer {
 		}
 		json.NewDecoder(r.Body).Decode(&in)
 		if _, err := f.q.Finish(r.PathValue("id"), r.Header.Get("X-Worker-Instance"), jobs.State(in.Status), in.Note, in.Cost); err != nil {
-			w.WriteHeader(409)
+			w.WriteHeader(http.StatusConflict)
 			return
 		}
 		w.Write([]byte(`{"status":"ok"}`))
 	}))
 	f.hub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer hubtok" || len(r.URL.Query()["match"]) == 0 {
-			w.WriteHeader(401)
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -96,7 +96,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 			"expires_at": time.Now().Add(15 * time.Minute).UTC().Format(time.RFC3339)})
 	}))
 	f.Server = httptest.NewServer(mux)
-	t.Cleanup(func() { f.Server.Close(); f.hub.Close() })
+	t.Cleanup(func() { f.Close(); f.hub.Close() })
 	return f
 }
 
@@ -118,13 +118,13 @@ func newFakeAWF(t *testing.T, statuses ...string) *fakeAWF {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if a.refuse {
-			w.WriteHeader(422)
+			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
 		var in struct{ Inputs map[string]any }
 		json.NewDecoder(r.Body).Decode(&in)
 		a.runs = append(a.runs, in.Inputs)
-		w.WriteHeader(202)
+		w.WriteHeader(http.StatusAccepted)
 		fmt.Fprintf(w, `{"body":{"execution_id":"x%d"}}`, len(a.runs))
 	})
 	mux.HandleFunc("GET /api/executions/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -138,10 +138,10 @@ func newFakeAWF(t *testing.T, statuses ...string) *fakeAWF {
 		a.mu.Lock()
 		a.cancels++
 		a.mu.Unlock()
-		w.WriteHeader(204)
+		w.WriteHeader(http.StatusNoContent)
 	})
 	a.Server = httptest.NewServer(mux)
-	t.Cleanup(a.Server.Close)
+	t.Cleanup(a.Close)
 	return a
 }
 
@@ -254,7 +254,7 @@ func TestWorkerReportsWhatTheRunCost(t *testing.T) {
 	srv, awf := newFakeServer(t), newFakeAWF(t, "completed")
 	dash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/cost" || r.URL.Query().Get("id") != "x1" {
-			w.WriteHeader(404)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		w.Write([]byte(`{"available":true,"cost":0.31,"steps":2}`))

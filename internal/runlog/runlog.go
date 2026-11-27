@@ -11,6 +11,7 @@ package runlog
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -183,7 +184,7 @@ func (s *Store) Resolve(ref string) (string, error) {
 	idx := s.index()
 	if ref == "last" {
 		if len(idx) == 0 {
-			return "", fmt.Errorf("no run recorded")
+			return "", errors.New("no run recorded")
 		}
 		return idx[0].ID, nil
 	}

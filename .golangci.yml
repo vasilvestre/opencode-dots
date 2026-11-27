@@ -1,0 +1,71 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - unused
+    - errcheck
+    - errorlint
+    - nilerr
+    - ineffassign
+    - copyloopvar
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - gosec
+    - misspell
+    - perfsprint
+    - usestdlibvars
+    - modernize
+    - intrange
+    - nolintlint
+  exclusions:
+    rules:
+      # tests build throwaway servers, files and requests: unchecked errors and file modes are fine there
+      - path: _test\.go
+        linters: [errcheck, gosec]
+      # a few tests misspell a key on purpose
+      - path: (files|repos)_test\.go
+        linters: [misspell]
+  settings:
+    errcheck:
+      # best-effort cleanup and output writes: nothing to do when they fail
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*opencode-dots/internal/store.Store).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - (*text/tabwriter.Writer).Flush
+        - os.Remove
+        - os.RemoveAll
+        - io.Copy
+        - io.WriteString
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        - G204 # this tool runs commands by design
+        - G304 # and reads paths it was given
+        - G301
+        - G302
+        - G306 # state files are private to the user's machine
+        - G115
+        - G703
+        - G704
+        - G706
+        - G104 # errcheck covers it
+        - G101 # token names, not tokens
+        - G702
+        - G124 # Secure follows the request: plain http on localhost
+        - G118 # a clone outlives the request that asked for it
+    nolintlint:
+      require-explanation: true
+      require-specific: true

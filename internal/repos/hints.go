@@ -18,7 +18,7 @@ func checkHints(s Settings) error {
 		switch {
 		case !hintOwnerRE.MatchString(owner) || owner == "." || owner == "..":
 			problems = append(problems, fmt.Sprintf("settings.checkout_hints: %q is not an owner name", owner))
-		case !(strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "/")) || strings.Contains(path, "..") || strings.ContainsAny(path, "\n\r=#"):
+		case (!strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "/")) || strings.Contains(path, "..") || strings.ContainsAny(path, "\n\r=#"):
 			problems = append(problems, fmt.Sprintf("settings.checkout_hints.%s: %q must be a folder starting with ~/ or /, without .., = or #", owner, path))
 		}
 	}

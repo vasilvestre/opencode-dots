@@ -134,7 +134,7 @@ func TestAutonomyListsFileIssueTarget(t *testing.T) {
 	os.WriteFile(filepath.Join(state, "held", fileIssueID), []byte("action: file-issue\nref: up/tool\ntarget: up/tool\ntitle: Tool crashes\n"), 0o644)
 	d := &dash{state: state}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/autonomy", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/autonomy", nil)
 	r.Host = "127.0.0.1:8099"
 	d.autonomy(w, r)
 	var got map[string][]gateItem
@@ -163,7 +163,7 @@ func TestAutonomyListsReleased(t *testing.T) {
 	os.WriteFile(filepath.Join(state, "held", "released", relID), []byte("action: comment\nref: acme/app#12\n"), 0o644)
 	d := &dash{state: state}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/autonomy", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/autonomy", nil)
 	r.Host = "127.0.0.1:8099"
 	d.autonomy(w, r)
 	var got map[string][]gateItem
@@ -178,7 +178,7 @@ func TestHealth(t *testing.T) {
 	d := &dash{state: state}
 	get := func(host string) (int, map[string]any) {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest("GET", "/api/health", nil)
+		r := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 		r.Host = host
 		d.health(w, r)
 		var m map[string]any

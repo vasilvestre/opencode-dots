@@ -169,7 +169,7 @@ func main() {
 	if *teamAddr != "" {
 		go func() {
 			log.Printf("dots dashboard, team listener (visitors only) on http://%s", *teamAddr)
-			log.Fatal(http.ListenAndServe(*teamAddr, teamHandler(mux)))
+			log.Fatal(serve(*teamAddr, teamHandler(mux)))
 		}()
 	}
 
@@ -179,12 +179,12 @@ func main() {
 		}
 		go func() {
 			log.Printf("dots dashboard, worker token exchange on http://%s", *workerAddr)
-			log.Fatal(http.ListenAndServe(*workerAddr, d.workerHandler()))
+			log.Fatal(serve(*workerAddr, d.workerHandler()))
 		}()
 	}
 
 	log.Printf("dots dashboard on http://%s (awf at %s)", *addr, *awf)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	log.Fatal(serve(*addr, mux))
 }
 
 type dash struct {
@@ -237,4 +237,9 @@ type dash struct {
 func defaultHubEnv() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "dots", "hub.env")
+}
+
+// serve is http.ListenAndServe with a header timeout, so a client that never finishes its request line cannot hold a connection.
+func serve(addr string, h http.Handler) error {
+	return (&http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}).ListenAndServe()
 }

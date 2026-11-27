@@ -250,7 +250,7 @@ func (d *dash) saveFile(w http.ResponseWriter, r *http.Request) {
 func backupFile(abs string) (string, error) {
 	info, err := os.Stat(abs)
 	if err != nil || info.IsDir() {
-		return "", nil
+		return "", nil //nolint:nilerr // a missing file has nothing to back up
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {

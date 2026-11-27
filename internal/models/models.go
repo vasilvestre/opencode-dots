@@ -231,7 +231,7 @@ func inspect(rel string, data []byte) ([]*Variable, []string) {
 		return nil, []string{"invalid YAML: " + err.Error()}
 	}
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return nil, []string{"workflow must contain one YAML document"}
 		}
@@ -376,7 +376,7 @@ func inspect(rel string, data []byte) ([]*Variable, []string) {
 
 func nodeFields(node *yaml.Node) (map[string]*yaml.Node, error) {
 	if node == nil || node.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("expected a mapping")
+		return nil, errors.New("expected a mapping")
 	}
 	fields := make(map[string]*yaml.Node, len(node.Content)/2)
 	for i := 0; i < len(node.Content); i += 2 {
@@ -620,24 +620,24 @@ func scalarReplacement(node *yaml.Node, value string) (string, error) {
 	case yaml.DoubleQuotedStyle:
 		return strconv.Quote(value), nil
 	default:
-		return "", fmt.Errorf("unsupported default scalar style")
+		return "", errors.New("unsupported default scalar style")
 	}
 }
 
 func defaultSpan(data []byte, node *yaml.Node) (scalarSpan, error) {
 	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
-		return scalarSpan{}, fmt.Errorf("default must be a string scalar")
+		return scalarSpan{}, errors.New("default must be a string scalar")
 	}
 	switch node.Style {
 	case 0, yaml.SingleQuotedStyle, yaml.DoubleQuotedStyle:
 	default:
-		return scalarSpan{}, fmt.Errorf("unsupported default scalar style")
+		return scalarSpan{}, errors.New("unsupported default scalar style")
 	}
 	if node.Anchor != "" || node.Alias != nil {
-		return scalarSpan{}, fmt.Errorf("unsupported default scalar style")
+		return scalarSpan{}, errors.New("unsupported default scalar style")
 	}
 	if strings.ContainsAny(node.Value, "\r\n") {
-		return scalarSpan{}, fmt.Errorf("default must be a one-line scalar")
+		return scalarSpan{}, errors.New("default must be a one-line scalar")
 	}
 	start, err := yamlNodeOffset(data, node)
 	if err != nil {
@@ -665,7 +665,7 @@ func defaultSpan(data []byte, node *yaml.Node) (scalarSpan, error) {
 		}
 	case yaml.SingleQuotedStyle:
 		if start >= lineEnd || data[start] != '\'' {
-			return scalarSpan{}, fmt.Errorf("default quote does not match its YAML node")
+			return scalarSpan{}, errors.New("default quote does not match its YAML node")
 		}
 		for i := start + 1; i < lineEnd; i++ {
 			if data[i] != '\'' {
@@ -680,7 +680,7 @@ func defaultSpan(data []byte, node *yaml.Node) (scalarSpan, error) {
 		}
 	case yaml.DoubleQuotedStyle:
 		if start >= lineEnd || data[start] != '"' {
-			return scalarSpan{}, fmt.Errorf("default quote does not match its YAML node")
+			return scalarSpan{}, errors.New("default quote does not match its YAML node")
 		}
 		escaped := false
 		for i := start + 1; i < lineEnd; i++ {
@@ -699,14 +699,14 @@ func defaultSpan(data []byte, node *yaml.Node) (scalarSpan, error) {
 		}
 	}
 	if end <= start {
-		return scalarSpan{}, fmt.Errorf("default scalar token is missing or spans multiple lines")
+		return scalarSpan{}, errors.New("default scalar token is missing or spans multiple lines")
 	}
 	return scalarSpan{start: start, end: end}, nil
 }
 
 func yamlNodeOffset(data []byte, node *yaml.Node) (int, error) {
 	if node.Line < 1 || node.Column < 1 {
-		return 0, fmt.Errorf("default scalar has no YAML position")
+		return 0, errors.New("default scalar has no YAML position")
 	}
 	line, start := 1, 0
 	for line < node.Line {
@@ -715,7 +715,7 @@ func yamlNodeOffset(data []byte, node *yaml.Node) (int, error) {
 			i++
 		}
 		if i == len(data) {
-			return 0, fmt.Errorf("default scalar line is outside the file")
+			return 0, errors.New("default scalar line is outside the file")
 		}
 		if data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n' {
 			i++
@@ -726,13 +726,13 @@ func yamlNodeOffset(data []byte, node *yaml.Node) (int, error) {
 	offset := start
 	for column := 1; column < node.Column; column++ {
 		if offset >= len(data) || data[offset] == '\r' || data[offset] == '\n' {
-			return 0, fmt.Errorf("default scalar column is outside the line")
+			return 0, errors.New("default scalar column is outside the line")
 		}
 		_, size := utf8.DecodeRune(data[offset:])
 		offset += size
 	}
 	if offset >= len(data) || data[offset] == '\r' || data[offset] == '\n' {
-		return 0, fmt.Errorf("default scalar position is empty")
+		return 0, errors.New("default scalar position is empty")
 	}
 	return offset, nil
 }

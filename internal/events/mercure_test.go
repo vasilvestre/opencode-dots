@@ -74,7 +74,7 @@ func TestPublishSendsASignedForm(t *testing.T) {
 }
 
 func TestPublishReportsARefusal(t *testing.T) {
-	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "bad token", 401) }))
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "bad token", http.StatusUnauthorized) }))
 	defer hub.Close()
 	err := Hub{URL: hub.URL, Secret: []byte("x")}.Publish(context.Background(), "t", []byte("d"), false)
 	if err == nil || !strings.Contains(err.Error(), "401") {

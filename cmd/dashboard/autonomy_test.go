@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -83,7 +84,7 @@ func gateFixture(t *testing.T) *dash {
 func TestAutonomyListNewestFirst(t *testing.T) {
 	d := gateFixture(t)
 	rec := httptest.NewRecorder()
-	d.autonomy(rec, httptest.NewRequest("GET", "http://127.0.0.1:8099/api/autonomy", nil))
+	d.autonomy(rec, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8099/api/autonomy", nil))
 	body := rec.Body.String()
 	if rec.Code != 200 || strings.Index(body, "20261124") > strings.Index(body, "20261122T100000Z-comment-a") || strings.Contains(body, "README") {
 		t.Fatalf("%d %s", rec.Code, body)
@@ -97,7 +98,7 @@ func TestAutonomyArtifactEndpoint(t *testing.T) {
 	d := gateFixture(t)
 	get := func(host, q string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		d.autonomyArtifact(rec, httptest.NewRequest("GET", "http://"+host+"/api/autonomy/artifact?"+q, nil))
+		d.autonomyArtifact(rec, httptest.NewRequest(http.MethodGet, "http://"+host+"/api/autonomy/artifact?"+q, nil))
 		return rec
 	}
 	if r := get("127.0.0.1:8099", "kind=held&name=20261122T100000Z-comment-a.txt"); r.Code != 200 || r.Body.String() != "comment body" {
@@ -132,7 +133,7 @@ func TestAutonomyArtifactCopyUnderHeld(t *testing.T) {
 	os.WriteFile(filepath.Join(d.state, "held", "20261125T100000Z-push-acme_app_2.txt"), []byte(rec), 0o644)
 
 	list := httptest.NewRecorder()
-	d.autonomy(list, httptest.NewRequest("GET", "http://127.0.0.1:8099/api/autonomy", nil))
+	d.autonomy(list, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8099/api/autonomy", nil))
 	body := list.Body.String()
 	if list.Code != 200 || !strings.Contains(body, "20261125T100000Z-push-acme_app_2.txt") || strings.Contains(body, `"name":"artifacts"`) {
 		t.Fatalf("list: %d %s", list.Code, body)
@@ -142,7 +143,7 @@ func TestAutonomyArtifactCopyUnderHeld(t *testing.T) {
 		t.Fatalf("copy not readable: %s", body)
 	}
 	rr := httptest.NewRecorder()
-	d.autonomyArtifact(rr, httptest.NewRequest("GET", "http://127.0.0.1:8099/api/autonomy/artifact?kind=held&name=20261125T100000Z-push-acme_app_2.txt", nil))
+	d.autonomyArtifact(rr, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8099/api/autonomy/artifact?kind=held&name=20261125T100000Z-push-acme_app_2.txt", nil))
 	if rr.Code != 200 || rr.Body.String() != "patch body" {
 		t.Fatalf("artifact: %d %s", rr.Code, rr.Body.String())
 	}
@@ -162,7 +163,7 @@ func TestAutonomyArtifactOfReleasedRecord(t *testing.T) {
 
 	get := func(url string) *httptest.ResponseRecorder {
 		rr := httptest.NewRecorder()
-		d.autonomyArtifact(rr, httptest.NewRequest("GET", url, nil))
+		d.autonomyArtifact(rr, httptest.NewRequest(http.MethodGet, url, nil))
 		return rr
 	}
 	if rr := get("http://127.0.0.1:8099/api/autonomy/artifact?kind=released&name=" + name); rr.Code != 200 || rr.Body.String() != "released body" {
@@ -173,7 +174,7 @@ func TestAutonomyArtifactOfReleasedRecord(t *testing.T) {
 		t.Fatalf("held kind: %d", rr.Code)
 	}
 	list := httptest.NewRecorder()
-	d.autonomy(list, httptest.NewRequest("GET", "http://127.0.0.1:8099/api/autonomy", nil))
+	d.autonomy(list, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8099/api/autonomy", nil))
 	if !strings.Contains(list.Body.String(), `"readable":true`) {
 		t.Fatalf("released item not readable: %s", list.Body.String())
 	}

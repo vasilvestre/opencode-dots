@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,7 @@ func TestClaimsListTheLiveOnes(t *testing.T) {
 	st.Close()
 
 	rec := httptest.NewRecorder()
-	(&dash{state: dir}).claims(rec, httptest.NewRequest("GET", "/api/claims", nil))
+	(&dash{state: dir}).claims(rec, httptest.NewRequest(http.MethodGet, "/api/claims", nil))
 
 	var got []claimView
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -41,7 +42,7 @@ func TestClaimsListTheLiveOnes(t *testing.T) {
 
 func TestClaimsWithoutADatabaseIsAnEmptyList(t *testing.T) {
 	rec := httptest.NewRecorder()
-	(&dash{state: t.TempDir()}).claims(rec, httptest.NewRequest("GET", "/api/claims", nil))
+	(&dash{state: t.TempDir()}).claims(rec, httptest.NewRequest(http.MethodGet, "/api/claims", nil))
 	if body := rec.Body.String(); body != "[]\n" && body != "[]" {
 		t.Fatalf("body = %q", body)
 	}

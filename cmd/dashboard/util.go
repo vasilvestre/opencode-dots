@@ -113,7 +113,7 @@ func loadJSON(path string, v any) {
 	if err != nil {
 		return
 	}
-	json.Unmarshal(data, v)
+	_ = json.Unmarshal(data, v)
 }
 
 func readFile(path string, limit int64) string {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -97,7 +98,8 @@ type httpError struct {
 func (e httpError) Error() string { return e.msg }
 
 func statusOf(err error) int {
-	if he, ok := err.(httpError); ok {
+	var he httpError
+	if errors.As(err, &he) {
 		return he.status
 	}
 	return http.StatusInternalServerError
@@ -141,9 +143,7 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 	for i, entry := range doc.Repos {
 		res := resolved[i]
 		row := repoRow{Name: entry.Name, Features: map[string]featureState{}, Provider: "opencode"}
-		for _, p := range useNames(entry.Config["use"]) {
-			row.Use = append(row.Use, p)
-		}
+		row.Use = append(row.Use, useNames(entry.Config["use"])...)
 		for _, key := range toggles {
 			st := featureState{}
 			if v, on := res.Value(key); on {
@@ -415,7 +415,7 @@ func setKey(top, block *yaml.Node, p reposPatch) error {
 			if fromProfile && mapValue(block, p.Key) == nil {
 				return nil // already on through a profile
 			}
-			if cur := mapValue(block, p.Key); cur != nil && !(cur.Kind == yaml.ScalarNode && cur.Tag == "!!bool" && cur.Value == "false") {
+			if cur := mapValue(block, p.Key); cur != nil && (cur.Kind != yaml.ScalarNode || cur.Tag != "!!bool" || cur.Value != "false") {
 				return nil // already on, keep its options
 			}
 			putKey(block, p.Key, boolNode(true))

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -185,7 +186,7 @@ func (d *dash) startRun(workflow string, inputs map[string]string) (string, erro
 		} `json:"body"`
 	}
 	if json.Unmarshal(raw, &out) != nil || out.Body.ExecutionID == "" {
-		return "", fmt.Errorf("awf accepted the run but named no execution")
+		return "", errors.New("awf accepted the run but named no execution")
 	}
 	return out.Body.ExecutionID, nil
 }
@@ -236,7 +237,7 @@ func (d *dash) ask(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The question never reached awf: keep the thread as it was.
 		t.Messages = t.Messages[:len(t.Messages)-1]
-		d.writeThread(t)
+		_ = d.writeThread(t)
 		writeJSONStatus(w, 502, map[string]string{"error": err.Error()})
 		return
 	}

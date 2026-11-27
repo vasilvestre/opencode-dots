@@ -166,7 +166,7 @@ func TestOwnerListenerAndSignInOffAreUnchanged(t *testing.T) {
 	if got := r.owner("/api/session").Body.String(); !strings.Contains(got, `"owner"`) {
 		t.Errorf("session = %s", got)
 	}
-	if teamRequest(httptest.NewRequest("GET", "/", nil)) {
+	if teamRequest(httptest.NewRequest(http.MethodGet, "/", nil)) {
 		t.Error("a plain request is not a team request")
 	}
 }

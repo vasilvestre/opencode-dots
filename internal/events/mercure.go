@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -72,7 +73,7 @@ func (h Hub) sign(role, sub, audience string, topics []map[string]string, ttl ti
 		// RFC 9396, the form hub 1.x reads: the pre-1.0 "mercure" claim is not accepted.
 		"authorization_details": []map[string]any{{"type": detailType, "actions": []string{role}, "topics": topics}},
 		"sub":                   sub,
-		"jti":                   fmt.Sprintf("%d", now.UnixNano()),
+		"jti":                   strconv.FormatInt(now.UnixNano(), 10),
 		"client_id":             "dots",
 		"aud":                   audience, // the hub's resource identifier: its own endpoint, without a query
 		"iat":                   now.Unix(),

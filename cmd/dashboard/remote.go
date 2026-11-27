@@ -71,7 +71,7 @@ func (d *dash) pollExecutors() {
 			priceRemote(&snap, d.execDash[name])
 			if os.MkdirAll(filepath.Dir(d.snapshotFile(name)), 0o755) == nil {
 				if b, err := json.Marshal(snap); err == nil {
-					os.WriteFile(d.snapshotFile(name), b, 0o644)
+					_ = os.WriteFile(d.snapshotFile(name), b, 0o644)
 				}
 			}
 		}
@@ -95,7 +95,7 @@ func (d *dash) loadSnapshot(name string) remoteSnapshot {
 	}
 	var disk remoteSnapshot
 	if b, err := os.ReadFile(d.snapshotFile(name)); err == nil {
-		json.Unmarshal(b, &disk)
+		_ = json.Unmarshal(b, &disk)
 	}
 	return disk
 }

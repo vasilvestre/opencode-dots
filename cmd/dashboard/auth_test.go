@@ -191,11 +191,13 @@ func fixture(t *testing.T) (state, root string, targets map[string]map[string]st
 	step := `{"seq":4,"type":"step.completed","payload":{"name":"say","kind":"agent","cost_usd":0.5}}` + "\n"
 	idx := ""
 	targets = map[string]map[string]string{}
+	var idxSb194 strings.Builder
 	for id, repo := range map[string]string{"run-open-0001": openRepo, "run-hidden-02": hiddenRepo} {
 		put(filepath.Join(state, "logs", id+".jsonl"), "prompt "+repo+"#1\n"+step)
-		idx += `{"execution_id":"` + id + `","workflow_name":"review-pr","started_at":"2026-11-23T09:00:00Z"}` + "\n"
+		idxSb194.WriteString(`{"execution_id":"` + id + `","workflow_name":"review-pr","started_at":"2026-11-23T09:00:00Z"}` + "\n")
 		targets[id] = map[string]string{"repo": repo, "pr": "1"}
 	}
+	idx += idxSb194.String()
 	put(filepath.Join(state, "logs", "index.jsonl"), idx)
 
 	st, err := store.Open(filepath.Join(state, "dots.db"))
@@ -414,7 +416,7 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 	}
 
 	// Over https the cookie is Secure.
-	req := httptest.NewRequest("POST", "/auth/logout", strings.NewReader("{}"))
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", strings.NewReader("{}"))
 	req.RemoteAddr, req.Host = "127.0.0.1:1", "box.ts.net"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-Proto", "https")
@@ -555,9 +557,11 @@ func threeRepos(t *testing.T, r *rig) {
 	t.Helper()
 	third := "acme/other"
 	cfg := "repos:\n"
+	var cfgSb558 strings.Builder
 	for _, repo := range []string{openRepo, hiddenRepo, third} {
-		cfg += "  - repo: " + repo + "\n    scope: s\n    workflow: review-pr\n"
+		cfgSb558.WriteString("  - repo: " + repo + "\n    scope: s\n    workflow: review-pr\n")
 	}
+	cfg += cfgSb558.String()
 	if err := os.WriteFile(filepath.Join(r.d.root, "awf-gh.yaml"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -704,7 +708,7 @@ func TestOwnerRequest(t *testing.T) {
 		{"remote address", "127.0.0.1:8099", "10.0.0.2:5000", "", false},
 	}
 	for _, c := range cases {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Host, req.RemoteAddr = c.host, c.remote
 		if c.header != "" {
 			req.Header.Set(tailscaleLoginHeader, c.header)

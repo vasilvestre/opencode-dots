@@ -196,13 +196,13 @@ func parseConfiguration(data []byte) (*Configuration, error) {
 	decoder.KnownFields(true)
 	var configuration Configuration
 	if err := decoder.Decode(&configuration); err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil, errors.New("preset file is empty")
 		}
 		return nil, err
 	}
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return nil, errors.New("preset file must contain one YAML document")
 		}

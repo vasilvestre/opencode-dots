@@ -348,12 +348,15 @@ func (s *Store) WorkItemsByProject(ctx context.Context, projectID string) ([]Wor
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			rows.Close() //nolint:sqlclosecheck // closed before the next query
 			return nil, err
 		}
 		ids = append(ids, id)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	var out []WorkItem
 	for _, id := range ids {
 		w, err := s.workItem(ctx, id)
