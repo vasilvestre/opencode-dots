@@ -151,3 +151,18 @@ func TestCheckoutCloneRefusesAFolderOutsideTheHome(t *testing.T) {
 		t.Fatalf("no suggestion at all = %d, want 422", got)
 	}
 }
+
+// The dashboard once reported every project as missing: bin/where was run without the map of this
+// installation, so the explicit `checkout:` paths of repos.yaml were never read.
+func TestCheckoutsAskWhereWithTheMapOfThisInstallation(t *testing.T) {
+	c := newCheckoutRig(t)
+	t.Setenv("REPOS_MAP", "") // as in a service that sets none
+	logFile := filepath.Join(c.home, "map.log")
+	os.WriteFile(filepath.Join(c.d.root, "bin", "where"), []byte("#!/bin/sh\necho \"$REPOS_MAP\" >> "+logFile+"\nexit 1\n"), 0o755)
+	c.rows()
+	raw, _ := os.ReadFile(logFile)
+	want := filepath.Join(c.d.root, "repos.map")
+	if !strings.Contains(string(raw), want) {
+		t.Fatalf("bin/where saw REPOS_MAP=%q, want %q", strings.TrimSpace(string(raw)), want)
+	}
+}

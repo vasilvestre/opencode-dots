@@ -43,7 +43,13 @@ func (d *dash) where(ctx context.Context, repo string, suggest bool) string {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, d.whereBin(), args...).Output()
+	cmd := exec.CommandContext(cctx, d.whereBin(), args...)
+	// The explicit map of this installation (the `checkout:` keys of repos.yaml): without it bin/where
+	// would look for /work/repos.map, which only exists in the container.
+	if os.Getenv("REPOS_MAP") == "" {
+		cmd.Env = append(os.Environ(), "REPOS_MAP="+filepath.Join(d.root, "repos.map"))
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
