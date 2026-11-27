@@ -8,7 +8,7 @@ COMPOSE ?= docker compose
 # local clone is the only source.
 AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
-.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests
+.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests ci
 
 configure: ## choose local or image for opencode, awf, gh, awf-gh and (optional) claude; writes .env
 	bin/configure
@@ -96,3 +96,16 @@ dashboard: ## serve the activity page on 127.0.0.1:8099
 health: ## build bin/health and run it: exit 0 healthy, 1 degraded, 2 down
 	go build -o bin/health ./cmd/health
 	./bin/health
+
+ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
+	go vet ./...
+	go test ./...
+	bin/adr check
+	test/shim.sh
+	test/workspace.sh
+	test/watchers.sh
+	test/held.sh
+	test/tend.sh
+	test/propose-links.sh
+	$(MAKE) script-tests
+	deslop-please ./...

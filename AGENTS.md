@@ -133,11 +133,13 @@ systemctl --user enable --now dots-tend.timer   # optional, daily
 - `make check` proves the image and the binaries answer. It does not run a
   workflow.
 - CI (`.github/workflows/ci.yml`, on pull requests and pushes to main) runs
-  `go vet`, `go test`, `bin/adr check` and `deslop-please`, which is installed
-  unpinned, so a new release can flag code that passed before. Run all four
-  before pushing. The Go tests cover `cmd/dashboard`, `internal/models` and
-  `internal/repos`; the workflows have no test. `make validate` only parses the
-  YAML.
+  `go vet`, `go test`, `bin/adr check`, the `test/*.sh` scripts, `make script-tests`
+  and `deslop-please`, which is installed unpinned, so a new release can flag code
+  that passed before. `make ci` runs the same steps locally: run it before every
+  push, and read the CI result after it (`gh run list`). Five pushes once failed
+  unnoticed on a `deslop-please` error that local tests did not cover. The
+  workflows are covered offline by `bin/test-e2e` (needs `awf` and `jq`, so not in
+  CI); `make validate` only parses the YAML.
 - `state/` and `.tower/` are runtime output. Never treat them as source or
   document what they contain.
 - `make up` and `make awf-gh` require `.env` and `compose.override.yaml` from
