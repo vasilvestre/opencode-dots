@@ -116,6 +116,7 @@ ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
 	bin/adr check
 	bin/check-binaries tracked
 	test/binaries.sh
+	test/backup.sh
 	test/shim.sh
 	test/workspace.sh
 	test/watchers.sh

@@ -4,7 +4,9 @@
 #   bin/backup-server user@host [DEST_DIR]
 #
 # Taken: state/tend (lessons, raised, cursors, worklogs) and repos.yaml, from ~/dots on the
-# server. Left out on purpose: the clones under state/*/work and the logs, which come back
+# server, and the workspace repositories under ~/workspaces (the bare git repository that
+# carries the memory, with its history: ADR 0025). The paths in the archive start at the
+# server's home. Left out on purpose: the clones under state/*/work and the logs, which come back
 # from GitHub, and .env and the opencode credentials, which are secrets: a backup of them
 # would be one more place to leak from. Restore the files, then log in again.
 #
@@ -22,7 +24,9 @@ mkdir -p "$dest"
 tmp=$(mktemp "$dest/.dots-$stamp.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 
-ssh -o BatchMode=yes "$host" "cd '$remote' && tar -czf - --exclude='work' --exclude='*.bak' state/tend repos.yaml" >"$tmp"
+# A workspace repository is copied as it is: only the server writes it, once a night at the end of the
+# tend pass, so a backup taken at another hour reads a settled repository.
+ssh -o BatchMode=yes "$host" "cd && w=; [ -d workspaces ] && w=workspaces; tar -czf - --exclude='work' --exclude='*.bak' '$remote/state/tend' '$remote/repos.yaml' \$w" >"$tmp"
 # A truncated stream must not replace a good backup: read the archive back before keeping it.
 tar -tzf "$tmp" >/dev/null || { echo "backup: the archive from $host is not readable, nothing kept" >&2; exit 1; }
 files=$(tar -tzf "$tmp" | wc -l)

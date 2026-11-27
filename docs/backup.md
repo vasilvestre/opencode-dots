@@ -7,6 +7,7 @@ holds nothing else that cannot come back.
 | --- | --- |
 | `state/tend/` | lessons, raised findings, cursors, worklogs: what the dot learned |
 | `repos.yaml` | the list of repositories and what the dot does on each |
+| `workspaces/` | the bare git repository of the workspace memory, with its history (ADR 0025): the only place that keeps a lesson's earlier versions |
 
 Left out on purpose: the clones (`state/*/work`) and logs, which come back from GitHub, and
 `.env` and the opencode credentials. They are secrets, and a backup of them is one more place
@@ -23,8 +24,8 @@ install -m 644 systemd/dots-backup-server.service systemd/dots-backup-server.tim
 systemctl --user daemon-reload && systemctl --user enable --now dots-backup-server.timer
 ```
 
-To restore, copy the archive to the server and extract it in `~/dots`:
-`tar -xzf dots-<date>.tgz -C ~/dots`.
+To restore, copy the archive to the server and extract it in the home directory (the paths in the
+archive start there): `tar -xzf dots-<date>.tgz -C ~`.
 
 Not covered: the awf run history (`~/.local/share/awf/history.db`, a live SQLite file that a
 plain copy can corrupt) and the opencode sessions. A snapshot of the machine at the provider
