@@ -20,6 +20,7 @@ disk as ES modules, with no build step.
 | `/api/cost?id=&from=&to=` | what opencode charged for one run |
 | `/api/costs?from=&to=` | every opencode session in a window, for the history table |
 | `/api/usage` | `state/logs/index.jsonl` plus each run's log: what each pull request cost and which workflow spent it |
+| `/api/home` | the Home page: per repository the latest activity, runs and cost of 7 days, held and notes, memory flag; `home.go`, filtered per repository by `shapeHome` |
 | `/api/stream?id=` | tails the run: awf's transcript when present, else `state/logs/<id>.jsonl` |
 | `/api/remote-runs` | runs of the executors named in `repos.yaml` `settings.executors`, polled from their awf and cached in `state/executors/<name>.json` (`remote.go`); no log, the executor holds it |
 | `/api/logs` | `state/logs/index.jsonl`: which execution recorded which run, plus its price, target, archived `rounds` and model inputs from awf state files |
@@ -278,7 +279,15 @@ loopback with no `Tailscale-User-Login` (`ownerRequest`); every other request is
   `/api/usage` adds it up per pull request, taking the pull request from
   `spend.ReplayInputs` over the same log, so a run whose prompt names no pull request
   counts under "Unattributed runs". That grouping is a guess from the prompt
-  text: it never reads GitHub.
+  text: it never reads GitHub. A run's repository is taken first from the
+  `repo` input in awf's state file (`targetOf` in `timeline.go`), then from the
+  first user message's own template line (`spend.PromptRepo`: `repo: owner/name`
+  as the first line, or the `tend-repo` opening sentence), and only then guessed
+  from text. The first two beat the guess (`spend.SetRepo` drops a pull request
+  that belonged to the guessed repository); free text never sets a repository,
+  so a daily-pass run groups under its repository and a visitor can see it.
+  `/api/home` counts per repository from the same `targetOf`; a run with no
+  repository is in no row.
   The sum is memoised by file size and modification time, because the page asks
   on every refresh. `/api/logs` carries the same number per row, so the history
   table needs no second request. It also carries the run's `repo` and `pr` or

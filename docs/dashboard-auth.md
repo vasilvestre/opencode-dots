@@ -76,12 +76,29 @@ session's set; the dashboard does not call GitHub again until the visitor signs 
 
 Filtered to those repositories: artifacts (reviews, replies, seen), a run's log, stream, price,
 steps, sessions and replay, `/api/logs`, `/api/usage` (the total, the run count and the unpriced
-count are added up again from the visible groups), executors' runs, repos and repo names, memory,
+count are added up again from the visible groups), `/api/home` (the Home page: one row per visible
+repository, each with numbers of that repository alone), executors' runs, repos and repo names, memory,
 claims, link proposals (only when both items are visible), autonomy notes and held records and their
 artifacts, Ask threads, artifact files, and audit rows whose target names a repository.
 
 A record of a hidden repository answers like one that does not exist (404, the same body), appears in
 no list, count, total or error message. A run whose repository is not known is hidden.
+
+## What a visitor sees
+
+A visitor lands on **Home**: a table of the repositories of their session (the ones the dot knows that
+they may see, plus any of their session the dot has recorded nothing about), each with the latest
+recorded activity, the runs and cost of the last 7 days, the held records and notes, and a link to the
+repository's Memory entry. Every number is computed per repository, so a hidden repository is in no row
+and no count. The owner lands on the same page, with every repository the dot knows. Cost, Memory,
+Autonomy, Audit and Links follow, filtered as above.
+
+The repository of a run is found from, in order: the `repo` input awf recorded for the run (its state
+file), a line the workflow's own prompt template prints at the head of the first user message (`repo:
+owner/name` as the first line, or the opening sentence of `tend-repo`), then the `owner/repo#N` or
+`issue #N` guess from the prompt. Text a pull request or an issue could carry is never read for the
+first two. So the daily pass (`tend-repo`) shows on Cost under its repository, not under "(no pull
+request)". A run whose repository cannot be found stays unattributed and hidden from visitors.
 
 ## What is owner only
 
@@ -89,7 +106,7 @@ A visitor gets 403 here even when signed in, and 401 when not signed in: `/api/s
 `/api/files`, `/api/models`, `/api/notifications`, `/api/repos/config`, `/api/autonomy/release`,
 `/api/links/accept`, `/api/links/decline`, `/api/links/split`, `/api/ask`, `/api/ask/answer`,
 `/api/workers`, `/api/health` and the `/awf/` proxy. The page hides the Activity, Workflows, Settings,
-Repos (the `repos.yaml` editor) and Health sections from a visitor, who lands on Cost. Activity is built
+Repos (the `repos.yaml` editor) and Health sections from a visitor, who lands on Home. Activity is built
 on awf's own history, which is the owner's.
 
 ## Audit
@@ -109,13 +126,15 @@ and target a minute, so a page that polls does not flood the table). See `docs/a
 - Sessions live in memory: a restart signs visitors out.
 - The Activity page does not work for a visitor yet; runs show on the Cost page and through
   `/api/logs`.
+- A run with no repository in its recorded inputs or in the head of its first prompt stays hidden from
+  visitors, even when it is the dot's own.
 
 ## What was checked
 
 Before ADR 0046 (the flow without a scope and the dot's token), on 2026-11-27, against a fake GitHub (nothing real was contacted), with the merged code and a scratch state:
 
 - **In a browser, as a visitor** (`box.localhost`, so not loopback): the sign-in page, the device code and the
-  "Open GitHub" link, the automatic move to the Cost page once approved, and an Autonomy page that listed the note of
+  "Open GitHub" link, the automatic move to the landing page once approved (Cost then, Home now), and an Autonomy page that listed the note of
   the readable repository and not the one the visitor has no permission on.
 - **With curl:** the owner (direct loopback, no tailnet header) sees both notes; a visitor with no session gets 401;
   a signed-in visitor gets 403 on an owner-only endpoint; the visitor's token appears in no file, log or cookie.
