@@ -33,6 +33,7 @@ func routes(d *dash, ui string, proxy *httputil.ReverseProxy) *http.ServeMux {
 	mux.HandleFunc("/api/log", scoped(d, d.viaExecutor(d.log), ruleRun))
 	mux.HandleFunc("/api/stream", scoped(d, d.viaExecutor(d.stream), ruleRun))
 	mux.HandleFunc("/api/cost", scoped(d, d.viaExecutor(d.cost), ruleRun))
+	mux.HandleFunc("/api/home", scoped(d, d.home, rule{shape: shapeHome}))
 	mux.HandleFunc("/api/usage", scoped(d, d.usage, rule{shape: shapeUsage}))
 	mux.HandleFunc("/api/run", scoped(d, d.viaExecutor(d.runTimeline), ruleRun))
 	mux.HandleFunc("/api/sessions", scoped(d, d.sessions, ruleRun))

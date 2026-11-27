@@ -70,7 +70,7 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[e.ID] = true
-		in := spend.ReplayInputs(d.runText(e.ID))
+		in := d.targetOf(e.ID, d.runText(e.ID))
 		repo, pr, issue := in["repo"], in["pr"], in["issue"]
 		if pr == "" && issue != "" {
 			pr = "issue " + issue

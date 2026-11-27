@@ -20,7 +20,84 @@ var (
 	prShaRE     = regexp.MustCompile(`\bpr([0-9]+)-([0-9a-f]{7,40})\b`)
 	namedRepoRE = regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*)`)
 	issueRE     = regexp.MustCompile(`\bissue #([0-9]+)`)
+
+	// What a workflow's own prompt template prints about its repository: a labelled
+	// first line, or the opening sentence of tend-repo. Both are read from the head of the
+	// first user message only, never from the text a pull request could carry.
+	labelRepoRE  = regexp.MustCompile(`^\s*repo:[ \t]*"?([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*)"?[ \t]*(?:\n|$)`)
+	tendOpenerRE = regexp.MustCompile(`^\s*You keep one repository honest\. It is ([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*),`)
+	repoInputRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
+
+// promptHead is how much of the first user message may name the repository.
+const promptHead = 1500
+
+// RepoInput returns the repository a workflow input holds, "" when it is not an
+// owner/name.
+func RepoInput(v string) string {
+	v = strings.TrimSpace(v)
+	if repoInputRE.MatchString(v) {
+		return v
+	}
+	return ""
+}
+
+// SetRepo makes repo the repository of a run's inputs. The repository comes from the
+// workflow itself (an input, or a line its own template prints), so it beats a guess
+// from free text; and when that guess named another repository, the pull request or
+// issue read along with it belonged to that one and is dropped.
+func SetRepo(in map[string]string, repo string) {
+	if old := in["repo"]; old != "" && !strings.EqualFold(old, repo) {
+		delete(in, "pr")
+		delete(in, "issue")
+		delete(in, "sha")
+	}
+	in["repo"] = repo
+}
+
+// PromptRepo reads the repository a workflow's own prompt template prints, from the
+// first user message of a run log: a `repo: owner/name` first line, or tend-repo's
+// opening sentence. A repository only mentioned later, or inside the text of a pull request
+// or an issue, is data and is not read.
+func PromptRepo(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "data:"))
+		if !strings.Contains(line, `"message.user"`) {
+			continue
+		}
+		var ev struct {
+			Text    string `json:"text"`
+			Prompt  string `json:"prompt"`
+			Content string `json:"content"`
+			Payload struct {
+				Text    string `json:"text"`
+				Prompt  string `json:"prompt"`
+				Content string `json:"content"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			return ""
+		}
+		msg := ""
+		for _, c := range []string{ev.Text, ev.Prompt, ev.Content, ev.Payload.Text, ev.Payload.Prompt, ev.Payload.Content} {
+			if c != "" {
+				msg = c
+				break
+			}
+		}
+		if len(msg) > promptHead {
+			msg = msg[:promptHead]
+		}
+		if m := tendOpenerRE.FindStringSubmatch(msg); m != nil {
+			return m[1]
+		}
+		if m := labelRepoRE.FindStringSubmatch(msg); m != nil {
+			return m[1]
+		}
+		return "" // only the first user message counts
+	}
+	return ""
+}
 
 // SumCost adds up the prices recorded in a run log and counts the priced steps. A
 // run started by an awf that does not record prices sums to zero.
@@ -44,6 +121,7 @@ func SumCost(text string) (float64, int) {
 // write the head commit as "pr123-<sha>", so the log holds what the run was
 // given. It is a guess: the page shows it as one and the operator can correct it.
 func ReplayInputs(text string) map[string]string {
+	raw := text
 	// Transcript lines are JSON: the prompt keeps its escapes, and a bare `\n`
 	// would glue an `n` onto the repository name.
 	text = strings.NewReplacer(`\n`, " ", `\t`, " ", `\"`, `"`).Replace(text)
@@ -71,6 +149,9 @@ func ReplayInputs(text string) map[string]string {
 				out["repo"] = r[1]
 			}
 		}
+	}
+	if r := PromptRepo(raw); r != "" {
+		SetRepo(out, r)
 	}
 	return out
 }

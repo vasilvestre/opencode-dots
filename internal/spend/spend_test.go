@@ -111,3 +111,26 @@ func TestDayErrors(t *testing.T) {
 		t.Fatal("an unreadable index must be an error")
 	}
 }
+
+func TestPromptRepoReadsOnlyWhatTheTemplatePrints(t *testing.T) {
+	msg := func(text string) string {
+		return `data: {"kind":"message.user","text":"` + text + `"}` + "\n"
+	}
+	for name, c := range map[string]struct{ log, want string }{
+		"tend opener":         {msg(`You keep one repository honest. It is acme/app, mostly written by\nAI.`), "acme/app"},
+		"label first line":    {msg(`repo: acme/lib\nrest`), "acme/lib"},
+		"label later":         {msg(`hello\nrepo: acme/lib\n`), ""},
+		"free mention":        {msg(`see acme/app, it is acme/lib`), ""},
+		"second message only": {msg(`hello`) + msg(`repo: acme/lib\n`), ""},
+		"no message":          {`{"cost_usd":1}`, ""},
+	} {
+		if got := PromptRepo(c.log); got != c.want {
+			t.Errorf("%s: PromptRepo = %q, want %q", name, got, c.want)
+		}
+	}
+	// The template's repository beats a guess from text, and drops the target of that guess.
+	in := ReplayInputs(msg(`You keep one repository honest. It is acme/app, see acme/lib#9`))
+	if in["repo"] != "acme/app" || in["pr"] != "" {
+		t.Fatalf("inputs = %v", in)
+	}
+}

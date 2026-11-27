@@ -182,4 +182,7 @@ type dash struct {
 	// auth is nil unless a GitHub OAuth client id is configured: sign-in for visitors is off
 	// and every request is the owner's (auth.go, visibility.go).
 	auth *authState
+
+	// clock is the time source of the Home page; nil means time.Now.
+	clock func() time.Time
 }

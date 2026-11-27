@@ -346,7 +346,7 @@ func (d *dash) cacheTargets() {
 		if completeTarget(memo.in) || (memo.size == st.Size() && memo.mod.Equal(st.ModTime())) {
 			continue
 		}
-		in := spend.ReplayInputs(readFile(path, 4<<20))
+		in := d.targetOf(id, readFile(path, 4<<20))
 		d.targetMu.Lock()
 		d.targets[id] = targetMemo{size: st.Size(), mod: st.ModTime(), in: in}
 		d.targetMu.Unlock()
@@ -364,6 +364,25 @@ func (d *dash) runText(id string) string {
 		return readFile(p, 4<<20)
 	}
 	return readFile(filepath.Join(d.state, "logs", id+".jsonl"), 1<<20)
+}
+
+// targetOf is what spend.ReplayInputs reads from a run log, with the repository
+// awf recorded as the run's own `repo` input when the log names none. Only that
+// input and the template's own labelled line count; free text never does.
+func (d *dash) targetOf(id, text string) map[string]string {
+	in := spend.ReplayInputs(text)
+	if in["repo"] != "" {
+		return in
+	}
+	for _, dir := range d.transcriptDirs() {
+		var st runState
+		loadJSON(filepath.Join(filepath.Dir(dir), "states", id+".json"), &st)
+		if r := spend.RepoInput(st.Inputs["repo"]); r != "" {
+			in["repo"] = r
+			break
+		}
+	}
+	return in
 }
 
 // scopeOf asks awf where a workflow lives, falling back to global: every local
