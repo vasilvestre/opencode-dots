@@ -31,6 +31,7 @@ trap 'rm -rf "$out"' EXIT
 log "building bin/repos and bin/dashboard here"
 CGO_ENABLED=0 go build -o "$out/repos" ./cmd/repos
 go build -o "$out/dashboard" ./cmd/dashboard
+CGO_ENABLED=0 go build -o "$out/health" ./cmd/health
 
 ssh_opts=(-o BatchMode=yes)
 # A binary that is running cannot be overwritten ("text file busy"), but it can be
@@ -44,6 +45,7 @@ log "copying to $host:$remote"
 ssh "${ssh_opts[@]}" "$host" "mkdir -p '$remote/bin'"
 send "$out/repos" "$remote/bin/repos"
 send "$out/dashboard" "$remote/bin/dashboard"
+send "$out/health" "$remote/bin/health"
 
 if [ "$tower" = 1 ]; then
   command -v tower >/dev/null 2>&1 || die "tower is not installed here, build it first (see the README)"
