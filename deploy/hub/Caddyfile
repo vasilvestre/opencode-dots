@@ -6,8 +6,9 @@
 	auto_https off
 }
 
-{$SERVER_NAME:http://127.0.0.1:3901} {
-	# The site address is only a host match: without this Caddy listens on every interface.
+{$SERVER_NAME:http://:3901} {
+	# The site address matches any Host, so a proxy under another name works; without this line
+	# Caddy would listen on every interface.
 	bind 127.0.0.1
 	mercure {
 		# Hub 1.x only accepts RFC 9068 access tokens whose `iss` it trusts and whose `aud` is
