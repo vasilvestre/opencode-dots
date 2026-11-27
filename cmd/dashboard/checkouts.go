@@ -56,8 +56,9 @@ func (d *dash) where(ctx context.Context, repo string, suggest bool) string {
 	return strings.TrimSpace(string(out))
 }
 
-// servedRepos are the repositories the local worker serves (the file it writes), and those this
-// dashboard already knows from its own configuration.
+// servedRepos are the repositories the local worker serves (the file it writes). Not the ones this
+// installation's own configuration knows: those are the owner's own projects, found through repos.map,
+// and listing them as "not cloned" would only be noise.
 func (d *dash) servedRepos() []string {
 	seen := map[string]bool{}
 	home, _ := os.UserHomeDir()
@@ -69,9 +70,6 @@ func (d *dash) servedRepos() []string {
 				seen[line] = true
 			}
 		}
-	}
-	for _, r := range d.knownRepos() {
-		seen[r] = true
 	}
 	out := make([]string, 0, len(seen))
 	for r := range seen {

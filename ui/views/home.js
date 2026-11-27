@@ -47,7 +47,8 @@ export async function mountHome(el) {
   // The projects this machine works on (owner only; a visitor gets a 403 and sees nothing).
   let projects = null;
   try {
-    projects = (await getJSON("/api/checkouts")).projects;
+    // Not cloned first: those are the ones to act on.
+    projects = (await getJSON("/api/checkouts")).projects.sort((a, b) => (a.state === "found") - (b.state === "found") || a.repo.localeCompare(b.repo));
   } catch {
     projects = null;
   }
@@ -79,7 +80,8 @@ export async function mountHome(el) {
             ? h("button", { class: "btn ghost sm", onclick: () => clone(p.repo) }, "Retry")
             : null),
       ))))));
-  if (projectsCard) el.firstChild.appendChild(projectsCard);
+  // Above the table when something is not cloned (that is what needs attention), below it otherwise.
+  if (projectsCard) el.firstChild.insertBefore(projectsCard, projects.some((p) => p.state !== "found") ? table : null);
 
   head.textContent = `${rows.length} repositor${rows.length === 1 ? "y" : "ies"}; runs and cost cover the last 7 days`;
   if (!rows.length) {

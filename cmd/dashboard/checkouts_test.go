@@ -33,7 +33,7 @@ exit 1
 	os.WriteFile(gh, []byte("#!/bin/sh\necho \"$*\" >> "+ghLog+"\n[ -z \"$FAKE_GH_FAIL\" ] || { echo 'authentication required'; exit 1; }\nmkdir -p \"$4\" && touch \"$4/.clone\"\n"), 0o755)
 	r.d.gh = gh
 	os.MkdirAll(filepath.Join(home, ".config", "dots"), 0o755)
-	os.WriteFile(filepath.Join(home, ".config", "dots", "served"), []byte("# served\nacme/webapp\nother/tool\n"), 0o644)
+	os.WriteFile(filepath.Join(home, ".config", "dots", "served"), []byte("# served\nacme/app\nacme/webapp\nother/tool\n"), 0o644)
 	os.MkdirAll(filepath.Join(home, "acme", "app"), 0o755)
 	os.WriteFile(filepath.Join(home, "acme", "app", ".clone"), nil, 0o644)
 	return &checkoutRig{rig: r, home: home, ghLog: ghLog}
@@ -164,5 +164,19 @@ func TestCheckoutsAskWhereWithTheMapOfThisInstallation(t *testing.T) {
 	want := filepath.Join(c.d.root, "repos.map")
 	if !strings.Contains(string(raw), want) {
 		t.Fatalf("bin/where saw REPOS_MAP=%q, want %q", strings.TrimSpace(string(raw)), want)
+	}
+}
+
+// The card is about the projects a worker serves. A repository only this installation's own
+// configuration knows (the owner's personal projects) is not listed as "not cloned".
+func TestCheckoutsListOnlyWhatTheWorkerServes(t *testing.T) {
+	c := newCheckoutRig(t)
+	os.Remove(filepath.Join(c.home, ".config", "dots", "served"))
+	if rows := c.rows(); len(rows) != 0 {
+		t.Fatalf("with no worker, the card has nothing to say: %v", rows)
+	}
+	os.WriteFile(filepath.Join(c.home, ".config", "dots", "served"), []byte("acme/webapp\n"), 0o644)
+	if rows := c.rows(); len(rows) != 1 || rows["acme/webapp"].Repo == "" {
+		t.Fatalf("only the served repository must be listed: %v", rows)
 	}
 }
