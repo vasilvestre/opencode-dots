@@ -30,47 +30,47 @@ var repoNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 // An empty AwfURL or StatePath means "keep what the generated file already has,
 // else the built-in default": bin/configure writes the mode dependent values.
 type Settings struct {
-	AwfURL    string `yaml:"awf_url"`
-	StatePath string `yaml:"state_path"`
-	MaxPerRun int    `yaml:"max_per_run"`
+	AwfURL    string `yaml:"awf_url" json:"awf_url,omitempty"`
+	StatePath string `yaml:"state_path" json:"state_path,omitempty"`
+	MaxPerRun int    `yaml:"max_per_run" json:"max_per_run,omitempty"`
 	// Executors maps a name to the awf serve that runs the tasks of the
 	// repositories naming it (ADR 0031). The watcher stays where it is.
-	Executors map[string]string `yaml:"executors"`
+	Executors map[string]string `yaml:"executors" json:"executors,omitempty"`
 	// Trust is what this machine may hold and what a client repository may use
 	// (ADR 0032). It is a machine setting, like awf_url.
-	Trust TrustSettings `yaml:"trust"`
+	Trust TrustSettings `yaml:"trust" json:"trust,omitzero"`
 	// DotID is this server's dot id (ADR 0038). A repository whose `dot` names another
 	// id is not acted on here. Empty means every repository is this server's.
-	DotID string `yaml:"dot_id"`
+	DotID string `yaml:"dot_id" json:"dot_id,omitempty"`
 	// CheckoutHints suggests where a developer keeps the projects of an owner: `{acme: "~/acme"}`. A worker
 	// gets it from the server and shows it to someone who has not cloned a project; it is never imposed
 	// (docs/paths.md).
-	CheckoutHints map[string]string `yaml:"checkout_hints"`
+	CheckoutHints map[string]string `yaml:"checkout_hints" json:"checkout_hints,omitempty"`
 }
 
 // TrustSettings is settings.trust (ADR 0032). Host is the highest level this
 // machine may hold: open, client, private or strict. Allow names what a repository at
 // client or strict may reach.
 type TrustSettings struct {
-	Host  string     `yaml:"host"`
-	Allow TrustAllow `yaml:"allow"`
+	Host  string     `yaml:"host" json:"host,omitempty"`
+	Allow TrustAllow `yaml:"allow" json:"allow,omitzero"`
 	// Region is where this machine runs; Regions says where each named executor runs. A repository at
 	// client or above needs Europe (a value starting with "eu"). ZDR names the model providers the owner
 	// has a zero data retention guarantee from (ADR 0050): the prefix of a model id before "/", or
 	// "anthropic" for the claude CLI. SelfHosted names the model providers the owner runs
 	// themselves, which count as zero retention and are all a private or strict repository may use.
-	Region     string            `yaml:"region"`
-	Regions    map[string]string `yaml:"regions"`
-	ZDR        []string          `yaml:"zdr"`
-	SelfHosted []string          `yaml:"self_hosted"`
+	Region     string            `yaml:"region" json:"region,omitempty"`
+	Regions    map[string]string `yaml:"regions" json:"regions,omitempty"`
+	ZDR        []string          `yaml:"zdr" json:"zdr,omitempty"`
+	SelfHosted []string          `yaml:"self_hosted" json:"self_hosted,omitempty"`
 }
 
 // TrustAllow is the allow-list of settings.trust.allow: the providers, the
 // models and the executors a client or strict repository may use.
 type TrustAllow struct {
-	Providers []string `yaml:"providers"`
-	Models    []string `yaml:"models"`
-	Executors []string `yaml:"executors"`
+	Providers []string `yaml:"providers" json:"providers,omitempty"`
+	Models    []string `yaml:"models" json:"models,omitempty"`
+	Executors []string `yaml:"executors" json:"executors,omitempty"`
 }
 
 // Entry is one repository, in file order, with what its block says before any

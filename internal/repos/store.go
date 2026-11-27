@@ -16,14 +16,6 @@ import (
 // database, the generated files can be built from the database, and the two can be
 // compared. repos.yaml stays the source until a later step switches it.
 
-// settingsJSON is how the watcher settings are stored: the keys of repos.yaml.
-type settingsJSON struct {
-	AwfURL    string            `json:"awf_url,omitempty"`
-	StatePath string            `json:"state_path,omitempty"`
-	MaxPerRun int               `json:"max_per_run,omitempty"`
-	Executors map[string]string `json:"executors,omitempty"`
-}
-
 // StoreImport is what an import did.
 type StoreImport struct {
 	Added, Updated, Unchanged int
@@ -56,7 +48,7 @@ func ImportToStore(ctx context.Context, st *store.Store, workspace string, data 
 	if err != nil {
 		return res, err
 	}
-	raw, err := json.Marshal(settingsJSON{AwfURL: doc.Settings.AwfURL, StatePath: doc.Settings.StatePath, MaxPerRun: doc.Settings.MaxPerRun, Executors: doc.Settings.Executors})
+	raw, err := json.Marshal(doc.Settings) // the keys of repos.yaml
 	if err != nil {
 		return res, err
 	}
@@ -117,11 +109,10 @@ func documentFromStore(ctx context.Context, st *store.Store, workspace string) (
 	if err != nil {
 		return nil, err
 	}
-	var s settingsJSON
-	if err := json.Unmarshal(raw, &s); err != nil {
+	doc := &Document{}
+	if err := json.Unmarshal(raw, &doc.Settings); err != nil {
 		return nil, fmt.Errorf("workspace %s: stored settings are not JSON: %w", workspace, err)
 	}
-	doc := &Document{Settings: Settings{AwfURL: s.AwfURL, StatePath: s.StatePath, MaxPerRun: s.MaxPerRun, Executors: s.Executors}}
 	for _, p := range projects {
 		doc.Repos = append(doc.Repos, Entry{Name: p.Repo, Config: p.Features})
 	}

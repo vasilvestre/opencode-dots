@@ -59,6 +59,36 @@ func TestStoreGeneratesTheSameFilesAsTheFile(t *testing.T) {
 	}
 }
 
+// The machine settings of the file (trust, dot_id, checkout hints) are stored too, so an export
+// does not lose them.
+func TestTheDatabaseKeepsEverySetting(t *testing.T) {
+	const doc = `version: 1
+settings:
+  max_per_run: 4
+  dot_id: server-1
+  checkout_hints: {acme: "~/acme"}
+  trust: {host: client, region: eu-west, zdr: [mistral], allow: {providers: [opencode]}}
+repos:
+  acme/app: {review: true}
+`
+	ctx, st := context.Background(), openStore(t)
+	if _, err := ImportToStore(ctx, st, "default", []byte(doc), false); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := ExportYAML(ctx, st, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := Parse([]byte(doc))
+	got, err := Parse(exported)
+	if err != nil {
+		t.Fatalf("the export does not parse: %v\n%s", err, exported)
+	}
+	if !reflect.DeepEqual(got.Settings, want.Settings) {
+		t.Fatalf("settings after export\nwant %+v\ngot  %+v", want.Settings, got.Settings)
+	}
+}
+
 func TestExportThenImportGivesTheSameDatabase(t *testing.T) {
 	for name, data := range fixtureDocs(t) {
 		t.Run(name, func(t *testing.T) {
