@@ -182,7 +182,7 @@ func TestNoRouteIsReachableAsOwnerThroughTheTeamListener(t *testing.T) {
 		"/api/run": true, "/api/sessions": true, "/api/logs": true, "/api/remote-runs": true,
 		"/api/repos": true, "/api/repos/names": true, "/api/replay": true, "/api/thread": true,
 		"/api/memory": true, "/api/claims": true, "/api/audit": true, "/api/links": true,
-		"/api/autonomy": true, "/api/autonomy/artifact": true,
+		"/api/autonomy": true, "/api/autonomy/artifact": true, "/api/hub-token": true,
 	}
 	ownerRoutes := map[string]bool{
 		"/api/repos/config": true, "/api/ask": true, "/api/ask/answer": true, "/api/files": true,

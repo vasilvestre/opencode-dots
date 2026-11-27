@@ -28,6 +28,7 @@ func routes(d *dash, ui string, proxy *httputil.ReverseProxy) *http.ServeMux {
 	mux.HandleFunc("/auth/device/poll", d.devicePoll)
 	mux.HandleFunc("/auth/logout", d.logout)
 	mux.HandleFunc("/api/session", d.sessionInfo)
+	mux.HandleFunc("/api/hub-token", d.hubToken)
 	mux.HandleFunc("/api/artifacts", scoped(d, d.artifacts, rule{shape: shapeArtifacts}))
 	mux.HandleFunc("/api/file", scoped(d, d.file, rule{gate: gateFile}))
 	mux.HandleFunc("/api/log", scoped(d, d.viaExecutor(d.log), ruleRun))

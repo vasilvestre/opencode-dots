@@ -45,3 +45,23 @@ is the next step (the dashboard issuing one after the GitHub sign-in).
 
 The hub binds to loopback itself (`bind 127.0.0.1` in `deploy/hub/Caddyfile`) and accepts any
 Host, so the name the proxy forwards does not matter.
+
+### Subscriber token
+
+With `DOTS_HUB_URL` set (the public endpoint) the dashboard answers `GET /api/hub-token` to a
+signed-in visitor, or to the owner, with the endpoint and a 15 minute token that names only the
+topics `dots/repo/<owner>/<repo>` of the repositories that person may reach (ADR 0046); the hub
+key stays in the dashboard, read from the hub's own `~/.config/dots/hub.env`
+(`DOTS_HUB_ENV` to change it). A client asks again before the token ends, so a session that is
+gone stops following. Without a session the answer is 401, with no hub configured 404.
+
+`DOTS_HUB_AUDIENCE` is the endpoint as the hub sees a request. Behind a proxy that ends TLS the
+hub sees `http://` and the forwarded host, so it differs from the public URL:
+
+```
+DOTS_HUB_URL=https://hub.example.org/.well-known/mercure
+DOTS_HUB_AUDIENCE=http://hub.example.org/.well-known/mercure
+```
+
+A hub 1.x subscriber follows `?match=<topic>`, and only an update published `private` is held back
+from a subscriber whose token does not name its topic.

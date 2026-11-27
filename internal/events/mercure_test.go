@@ -134,3 +134,44 @@ func TestClaimTopic(t *testing.T) {
 		t.Errorf("topic = %q", ClaimTopic("wi_9"))
 	}
 }
+
+func TestSubscriberTokenNamesOnlyItsTopics(t *testing.T) {
+	h := Hub{URL: "https://hub.example/.well-known/mercure", Secret: []byte("k"), Issuer: "dots"}
+	tok := h.SubscriberToken("octo", "http://hub.example/.well-known/mercure", []string{RepoTopic("Org/Repo"), RepoTopic("org/b")}, time.Hour)
+	parts := strings.Split(tok, ".")
+	mac := hmac.New(sha256.New, []byte("k"))
+	mac.Write([]byte(parts[0] + "." + parts[1]))
+	if parts[2] != base64.RawURLEncoding.EncodeToString(mac.Sum(nil)) {
+		t.Fatal("the signature does not verify with the hub key")
+	}
+	raw, _ := base64.RawURLEncoding.DecodeString(strings.Split(tok, ".")[1])
+	var c struct {
+		Sub, Aud, Iss string
+		Exp, Iat      int64
+		Details       []struct {
+			Actions []string
+			Topics  []map[string]string
+		} `json:"authorization_details"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Sub != "octo" || c.Aud != "http://hub.example/.well-known/mercure" || c.Iss != "dots" {
+		t.Fatalf("claims = %+v", c)
+	}
+	if got := c.Exp - c.Iat; got != 3600 {
+		t.Fatalf("lifetime = %ds, want 3600", got)
+	}
+	if len(c.Details) != 1 || len(c.Details[0].Actions) != 1 || c.Details[0].Actions[0] != "subscribe" {
+		t.Fatalf("details = %+v", c.Details)
+	}
+	want := []string{"dots/repo/org/repo", "dots/repo/org/b"}
+	for i, topic := range c.Details[0].Topics {
+		if topic["match"] != want[i] || topic["match_type"] != "exact" {
+			t.Fatalf("topic %d = %v, want exact %s", i, topic, want[i])
+		}
+	}
+	if len(c.Details[0].Topics) != len(want) {
+		t.Fatalf("topics = %v", c.Details[0].Topics)
+	}
+}

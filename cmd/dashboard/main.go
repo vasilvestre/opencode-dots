@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -110,6 +111,11 @@ func main() {
 		"permission a visitor needs on a repository to see it: push (write or better) or pull (read or better)")
 	teamAddr := flag.String("team-addr", envOr("DOTS_TEAM_ADDR", ""),
 		"loopback address of a second listener where every request is a visitor, for SSH forwards (docs/team-ui.md)")
+	hubURL := flag.String("hub-url", envOr("DOTS_HUB_URL", ""),
+		"public endpoint of the Mercure hub; subscriber tokens are issued only when it is set (docs/remote.md)")
+	hubAud := flag.String("hub-audience", envOr("DOTS_HUB_AUDIENCE", ""),
+		"the hub endpoint as the hub itself sees a request (http behind a TLS proxy); empty means -hub-url")
+	hubEnv := flag.String("hub-env", envOr("DOTS_HUB_ENV", defaultHubEnv()), "the hub's settings file holding its subscriber key")
 	flag.Parse()
 	if err := checkTeamAddr(*teamAddr, *addr, *ghClient != ""); err != nil {
 		log.Fatal(err)
@@ -132,6 +138,9 @@ func main() {
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
+	if d.hub, err = newHubIssuer(*hubURL, *hubAud, *hubEnv); err != nil {
+		log.Fatal(err)
+	}
 	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm, StateDir: *state})
 	d.execDash = parseExecutorDashboards(envOr("DOTS_EXECUTOR_DASHBOARDS", ""))
 	for _, h := range strings.Split(*allowHost, ",") {
@@ -169,6 +178,7 @@ type dash struct {
 	opencode     string
 	opencodeDB   string          // opencode SQLite database, read-only
 	allow        map[string]bool // extra hosts allowed to write, see -allow-host
+	hub          *hubIssuer      // nil: no subscriber tokens
 	editMu       sync.Mutex
 	modelCatalog func(context.Context) []string
 	discordPost  func(webhook, message string) error
@@ -200,4 +210,9 @@ type dash struct {
 
 	// clock is the time source of the Home page; nil means time.Now.
 	clock func() time.Time
+}
+
+func defaultHubEnv() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "dots", "hub.env")
 }

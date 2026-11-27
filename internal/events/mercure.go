@@ -47,21 +47,36 @@ type Event struct {
 	Data  string
 }
 
-// token signs a JWT with the Mercure claim for one role ("publish" or "subscribe"), for all
-// topics. Narrower topic sets belong to the hub's own configuration.
+// token signs a JWT with the Mercure claim for one role ("publish" or "subscribe"), for the
+// topics the hub is configured with (every topic by default).
 func (h Hub) token(role string) string {
+	return h.sign(role, "dots", h.URL, []map[string]string{h.selector()}, tokenLifetime)
+}
+
+// SubscriberToken signs a token a person's client follows the hub with: the topics are exactly
+// those named, nothing else. audience is the hub's own endpoint as the hub sees a request (a hub
+// behind a TLS proxy sees http and the forwarded host); sub names who asked, for the hub's logs.
+func (h Hub) SubscriberToken(sub, audience string, topics []string, ttl time.Duration) string {
+	sel := make([]map[string]string, 0, len(topics))
+	for _, t := range topics {
+		sel = append(sel, map[string]string{"match": t, "match_type": "exact"})
+	}
+	return h.sign("subscribe", sub, audience, sel, ttl)
+}
+
+func (h Hub) sign(role, sub, audience string, topics []map[string]string, ttl time.Duration) string {
 	enc := base64.RawURLEncoding
 	header := enc.EncodeToString([]byte(`{"alg":"HS256","typ":"at+jwt"}`)) // RFC 9068, which hub 1.1 requires
 	now := time.Now()
 	claims := map[string]any{
 		// RFC 9396, the form hub 1.x reads: the pre-1.0 "mercure" claim is not accepted.
-		"authorization_details": []map[string]any{{"type": detailType, "actions": []string{role}, "topics": []map[string]string{h.selector()}}},
-		"sub":                   "dots",
+		"authorization_details": []map[string]any{{"type": detailType, "actions": []string{role}, "topics": topics}},
+		"sub":                   sub,
 		"jti":                   fmt.Sprintf("%d", now.UnixNano()),
 		"client_id":             "dots",
-		"aud":                   h.URL, // the hub's resource identifier: its own endpoint, without a query
+		"aud":                   audience, // the hub's resource identifier: its own endpoint, without a query
 		"iat":                   now.Unix(),
-		"exp":                   now.Add(tokenLifetime).Unix(),
+		"exp":                   now.Add(ttl).Unix(),
 	}
 	if h.Issuer != "" {
 		claims["iss"] = h.Issuer
@@ -216,3 +231,8 @@ type ClaimUpdate struct {
 
 // ClaimTopic is the topic of the claims of one work item.
 func ClaimTopic(workItemID string) string { return "dots/claim/" + workItemID }
+
+// RepoTopic is the topic every event about one repository goes to: jobs for a worker, claims,
+// pickups. A subscriber token names these topics, so what a person may follow is the set of
+// repositories they may reach. The name is lower-cased, as GitHub compares them.
+func RepoTopic(repo string) string { return "dots/repo/" + strings.ToLower(repo) }
