@@ -1,7 +1,7 @@
 # Dashboard sign-in with GitHub
 
-ADR 0044, first step. A person who reaches the dashboard through the tailnet signs in with GitHub and
-sees only the repositories GitHub says they can read. It is off unless you give the dashboard a
+ADR 0044 and ADR 0046. A person who reaches the dashboard through the tailnet signs in with GitHub and
+sees only the repositories where GitHub gives them at least the configured permission (`push` by default). It is off unless you give the dashboard a
 GitHub OAuth client id; with it off the dashboard behaves exactly as before.
 
 ## Turn it on
@@ -15,19 +15,23 @@ GitHub OAuth client id; with it off the dashboard behaves exactly as before.
 
    ```
    DOTS_GITHUB_CLIENT_ID=<the client id>
-   GH_TOKEN=<the dot's own token>
+   DOTS_MIN_PERMISSION=push
    ```
 
-   The dashboard reads the dot's token from `GH_TOKEN` (it holds no other GitHub access). It uses it
-   only to ask GitHub what a login may read, never to write, and never prints or logs it. The token
-   needs read access to the repositories' collaborator permissions: GitHub answers that call only
-   for a token that has push access to the repository.
+   The dot needs no GitHub token of its own for visitors: each visitor brings theirs. `GH_TOKEN` is
+   not read by the dashboard any more.
 3. Restart the dashboard (`systemctl --user restart dots-dashboard.service`).
 4. Keep `DOTS_ALLOW_HOST` set to the tailnet name: a visitor's request must come from a trusted host.
 
 The flags are `-github-client-id`, `-github-url` (default `https://github.com`) and `-github-api`
 (default `https://api.github.com`); the environment names are `DOTS_GITHUB_CLIENT_ID`,
 `DOTS_GITHUB_URL` and `DOTS_GITHUB_API_URL`. The last two exist for tests.
+
+`-min-permission` (`DOTS_MIN_PERMISSION`) is `push` (the default) or `pull`; any other value stops the
+dashboard at start with a message. With `push` a visitor sees a repository when their permission is
+write, maintain or admin; with `pull`, when it is read, triage, write, maintain or admin (triage
+counts as read). The sign-in page says which one is in force ("you see the repositories where you can
+push").
 
 ## Who is the owner
 
@@ -40,13 +44,23 @@ which is what `tailscale serve` forwards. A visitor sees nothing until they sign
 
 ## Signing in
 
-The page shows a sign-in button. It asks GitHub for a code (the OAuth **device flow**, with no
-scope), shows it with a link to github.com, and polls until the visitor approves. The dashboard then
-asks GitHub once who the token belongs to, keeps the **login** and drops the token: it is never
-stored, written to a log or put in a cookie. The session is in the dashboard's memory only: the
-login, an expiry of 8 hours and a random 256-bit id sent as an `HttpOnly`, `SameSite=Strict` cookie
-(`Secure` when the request came over https). A restart signs everyone out. "Sign out" in the nav ends
-it at once.
+The page shows a sign-in button. It asks GitHub for a code (the OAuth **device flow**, scope `repo`),
+shows it with a link to github.com, and polls until the visitor approves.
+
+**The scope.** `repo` is wide: it is the scope `gh auth login` asks everyone for, and it is the one that
+lets GitHub answer "what is my permission on this repository" for private repositories. It is
+acceptable because the dashboard uses the token **once**, inside the poll that sees the approval: it
+reads the login (`GET /user`) and, for every repository in the dot's own list, the visitor's
+permission (one GraphQL call with `viewerPermission` per 50 repositories; if GraphQL fails, `GET
+/repos/{owner}/{repo}` for each one). Then it drops the token. It is never stored in the session, a
+cache, a log, an error, an audit row or a cookie. A GitHub App with metadata permission only would hold
+less; it is a later option (ADR 0046).
+
+**The session.** It lives in the dashboard's memory: the login, the set of visible repositories, an
+expiry of **one hour** and a random 256-bit id sent as an `HttpOnly`, `SameSite=Strict` cookie
+(`Secure` when the request came over https). Rights are as fresh as the session: a right removed on
+GitHub disappears at the latest when it ends, and signing in again refreshes it. A restart signs
+everyone out. "Sign out" in the nav ends it at once.
 
 Endpoints: `POST /auth/device/start`, `POST /auth/device/poll`, `POST /auth/logout`, `GET /api/session`.
 The first three are rate limited per client and check the host, the origin, a JSON content type and a
@@ -55,12 +69,10 @@ expires with GitHub's `expires_in`.
 
 ## What a visitor sees
 
-For each configured repository (the watcher config, the daily list, the path map, the `state/tend`
-directories), the dashboard asks GitHub `GET /repos/{owner}/{repo}/collaborators/{login}/permission`
-with the dot's token. The repository is shown when the permission is `read`, `triage`, `write`,
-`maintain` or `admin`. Any error, any non-2xx answer, an unknown repository or a missing token hides
-it: the check fails closed. With sign-in on and no `GH_TOKEN`, a visitor sees no repository and the
-page says why.
+A repository of the dot's list is shown when the visitor's permission reaches `min_permission` (above),
+as computed at sign-in. A repository GitHub does not return, a 403 or 404, and any error hide it: the
+check fails closed, and a failure of GitHub shows the visitor nothing. Authorization is a lookup in the
+session's set; the dashboard does not call GitHub again until the visitor signs in again.
 
 Filtered to those repositories: artifacts (reviews, replies, seen), a run's log, stream, price,
 steps, sessions and replay, `/api/logs`, `/api/usage` (the total, the run count and the unpriced
@@ -88,19 +100,19 @@ and target a minute, so a page that polls does not flood the table). See `docs/a
 
 ## Limits
 
-- Permissions are cached for 60 seconds (5 seconds after a failure), so a revoked right takes up to a
-  minute to show.
-- A repository whose permission the dot's token cannot read is hidden from every visitor.
+- Rights are read at sign-in: a revoked right takes up to one hour to show, and a new right needs a new
+  sign-in.
+- The consent screen asks for `repo`, which some people will hesitate over.
 - The list of repositories is the dot's own; a run or a record of a repository outside it is hidden
   from visitors.
-- No organisation-level rules: the answer is GitHub's permission on the repository, per login.
+- No organisation-level rules: the answer is the visitor's own permission on the repository.
 - Sessions live in memory: a restart signs visitors out.
 - The Activity page does not work for a visitor yet; runs show on the Cost page and through
   `/api/logs`.
 
 ## What was checked
 
-On 2026-11-27, against a fake GitHub (nothing real was contacted), with the merged code and a scratch state:
+Before ADR 0046 (the flow without a scope and the dot's token), on 2026-11-27, against a fake GitHub (nothing real was contacted), with the merged code and a scratch state:
 
 - **In a browser, as a visitor** (`box.localhost`, so not loopback): the sign-in page, the device code and the
   "Open GitHub" link, the automatic move to the Cost page once approved, and an Autonomy page that listed the note of

@@ -160,7 +160,7 @@ account behind the workflow's token. `GET /api/autonomy` also lists `released`. 
 else `overall`, `checks` and `mtime`; the page treats a file over 30 minutes old
 as stale.
 
-## VISITORS (ADR 0044, docs/dashboard-auth.md)
+## VISITORS (ADR 0044 and 0046, docs/dashboard-auth.md)
 
 Off unless `-github-client-id` (`DOTS_GITHUB_CLIENT_ID`) is set: `dash.auth` is nil, `scoped` and
 `ownerOnly` return the handler itself, and nothing changes. On, the owner is a request directly on
@@ -174,10 +174,17 @@ loopback with no `Tailscale-User-Login` (`ownerRequest`); every other request is
   visitor, 401 for one who is not. Put `ownerOnly` inside `audited` so a refused write is a row.
 - A new read endpoint keyed by repository needs a rule in `routes.go`: without one it reaches a visitor
   unfiltered. A new write endpoint needs `ownerOnly`.
-- The device flow sends an empty scope, reads the login once with `GET /user` and drops the token. A
-  session holds a login, an expiry and a 256-bit id, in memory only. The dot's token (`GH_TOKEN`) only
-  reads `GET /repos/{r}/collaborators/{login}/permission`, cached 60 seconds, fail closed. Never log
-  or store either token: `secret` hides the dot's.
+- The device flow asks for the scope `repo`. In the poll handler the visitor's token is used once
+  (`loginOf`, then `visibleRepos` in `rights.go`: one aliased GraphQL `viewerPermission` call per 50
+  repositories, REST `GET /repos/{r}` per repository when GraphQL fails) and dropped. A session holds
+  the login, the set of visible repositories, an expiry of one hour (`sessionTTL`, `authState.now` is
+  injectable) and a 256-bit id, in memory only. Authorization is a lookup in that set (`viewer.can`);
+  there is no per-request call to GitHub, no cache and no dot token. Anything not returned, any error
+  and a total failure hide the repository. Never pass the token to a log, an error, a session field or
+  an audit row; `TestDeviceFlowSignsAVisitorIn` scans for it.
+- `min_permission` (`-min-permission`, `DOTS_MIN_PERMISSION`): `push` (default, write or better) or
+  `pull` (read or better). An invalid value stops the start (`parseMinPermission`). `/api/session`
+  reports it for the sign-in page.
 - Tests run against a fake GitHub (`auth_test.go`); the GitHub base URLs are fields of `authState`.
 
 ## RULES
@@ -310,7 +317,8 @@ holds `workflows/`, the local configs and `model-presets.yaml`), `-allow-host`
 (default `DOTS_ALLOW_HOST`), `-awf` (default `AWF_URL`), `-ui`,
 `-awfgh` (default `awf-gh.yaml`), `-opencode` (default the opencode config under
 `$XDG_CONFIG_HOME`), `-github-client-id` (default `DOTS_GITHUB_CLIENT_ID`; empty turns visitor
-sign-in off), `-github-url` and `-github-api` (defaults `DOTS_GITHUB_URL`, `DOTS_GITHUB_API_URL`).
+sign-in off), `-github-url` and `-github-api` (defaults `DOTS_GITHUB_URL`, `DOTS_GITHUB_API_URL`),
+`-min-permission` (default `DOTS_MIN_PERMISSION`, `push` or `pull`).
 
 ## NOTES
 

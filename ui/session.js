@@ -1,4 +1,4 @@
-// Who is looking (ADR 0044). The server decides what a visitor may read; this module only
+// Who is looking (ADR 0044, ADR 0046). The server decides what a visitor may read; this module only
 // shapes the page around the answer: the sign-in page, the identity in the nav, and which
 // sections a visitor is offered.
 import { h, mount } from "./dom.js";
@@ -7,12 +7,12 @@ import { getJSON, postJSON } from "./api.js";
 // Sections that read or change what only the host's own user may touch.
 export const OWNER_ONLY = new Set(["activity", "workflows", "config", "repos", "health"]);
 
-export const session = { enabled: false, role: "owner", login: "", tokenMissing: false };
+export const session = { enabled: false, role: "owner", login: "", minPermission: "push" };
 
 export async function loadSession() {
   try {
     const s = await getJSON("/api/session");
-    Object.assign(session, { enabled: !!s.enabled, role: s.role || "owner", login: s.login || "", tokenMissing: !!s.token_missing });
+    Object.assign(session, { enabled: !!s.enabled, role: s.role || "owner", login: s.login || "", minPermission: s.min_permission === "pull" ? "pull" : "push" });
   } catch {
     // 404: sign-in is off. Any other failure: leave the page as it always was.
   }
@@ -35,11 +35,6 @@ export function shapeNav() {
     h("span", { class: "muted", title: "Signed in with GitHub" }, h("span", { class: "who-prefix" }, "signed in as "), session.login),
     h("button", { class: "btn ghost sm", type: "button", onclick: signOut }, "Sign out"),
   );
-  if (session.tokenMissing) {
-    const banner = document.querySelector("#banner");
-    banner.hidden = false;
-    banner.textContent = "The dot has no GitHub token to check what you may read, so no repository is shown. Ask the owner to set GH_TOKEN for the dashboard.";
-  }
 }
 
 async function signOut() {
@@ -59,7 +54,7 @@ export function showSignIn(el) {
   const body = h("div", {});
   mount(el, h("div", { class: "signin" },
     h("h1", {}, "Sign in"),
-    h("p", { class: "muted" }, "This dashboard shows each person the repositories GitHub says they can read. Signing in asks GitHub who you are, nothing more: no access to your code is requested."),
+    h("p", { class: "muted" }, `You see the repositories where you can ${session.minPermission === "pull" ? "read" : "push"}. Signing in asks GitHub for the repo scope, the one the gh tool asks for. The dashboard uses your token once, to read who you are and your rights on the repositories it works on, then forgets it. Your session lasts one hour.`),
     body,
   ));
   let timer = null;
