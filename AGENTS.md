@@ -78,6 +78,14 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
   (ADR 0013).
 - An accepted ADR is never rewritten. A new decision supersedes it, and both
   files name the other.
+- Build Go commands with `make go-build` (or `go build -o bin/NAME ./cmd/NAME`):
+  the output goes to `bin/`, which git ignores. A bare `go build` inside
+  `cmd/NAME` leaves a binary next to the sources, and a binary that reaches
+  history cannot be taken back without rewriting a public branch.
+  `bin/check-binaries` refuses a committed ELF, Mach-O or PE program and any file
+  over 1 MiB (`.binaries-allowed` lists exceptions). `make ci` and CI run it, and
+  `make hooks` installs it as a pre-commit hook for the clone. Run `make hooks`
+  once per clone, and stage files by name, never with `git add -A`.
 
 ## ANTI-PATTERNS
 
@@ -107,6 +115,8 @@ make repos       # regenerate awf-gh.yaml, tend.list, repos.map, sync.map from r
 make script-tests # bin/test-publish-gate, test-classify, test-sandbox (offline)
 make health      # build bin/health and run it
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
+make go-build    # build the dashboard, repos and health commands into bin/
+make hooks       # refuse a commit that adds a binary (once per clone)
 make health      # go build ./cmd/health, then run it: exit 0 healthy, 1 degraded, 2 down
 bin/tend         # one tend-repo run per repository with tend enabled (tend.list)
 bin/claim start OWNER/REPO#N BRANCH   # hold the branch: the dot stops pushing to it (ADR 0026)

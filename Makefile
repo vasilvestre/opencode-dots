@@ -8,7 +8,7 @@ COMPOSE ?= docker compose
 # local clone is the only source.
 AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
-.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test deploy-offline-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests ci
+.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test deploy-offline-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests go-build hooks ci
 
 configure: ## choose local or image for opencode, awf, gh, awf-gh and (optional) claude; writes .env
 	bin/configure
@@ -102,10 +102,20 @@ health: ## build bin/health and run it: exit 0 healthy, 1 degraded, 2 down
 	go build -o bin/health ./cmd/health
 	./bin/health
 
+go-build: ## build every Go command into bin/ (a bare `go build` inside cmd/NAME drops a binary there)
+	go build -o bin/dashboard ./cmd/dashboard
+	go build -o bin/repos ./cmd/repos
+	go build -o bin/health ./cmd/health
+
+hooks: ## use the tracked git hooks of this clone: refuses a commit that adds a binary
+	git config core.hooksPath .githooks
+
 ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
 	go vet ./...
 	go test ./...
 	bin/adr check
+	bin/check-binaries tracked
+	test/binaries.sh
 	test/shim.sh
 	test/workspace.sh
 	test/watchers.sh

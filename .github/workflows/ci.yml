@@ -14,6 +14,8 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: bin/adr check
+      - run: bin/check-binaries tracked
+      - run: test/binaries.sh
       - run: test/shim.sh
       - run: test/workspace.sh
       - run: test/watchers.sh

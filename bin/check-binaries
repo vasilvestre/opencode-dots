@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Refuses a committed binary or a large file: a compiled program (ELF, Mach-O, PE) or any file over
+# 1 MiB. The repository is public and a binary in history cannot be taken back without rewriting it.
+#
+#   bin/check-binaries [tracked|staged]     tracked: every file in the index (CI, make ci)
+#                                           staged: what is about to be committed (the git hook)
+#
+# `.binaries-allowed` (optional) lists paths that may be large or binary, one per line, `#` comments.
+# CHECK_BINARIES_MAX changes the size limit in bytes.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+mode=${1:-tracked}
+max=${CHECK_BINARIES_MAX:-1048576}
+case "$mode" in
+  tracked) files() { git ls-files -z; } ;;
+  staged) files() { git diff --cached --name-only -z --diff-filter=AM; } ;;
+  *) echo "usage: bin/check-binaries [tracked|staged]" >&2; exit 2 ;;
+esac
+allowed=()
+if [ -f .binaries-allowed ]; then
+  while IFS= read -r line; do
+    case "$line" in '' | '#'*) ;; *) allowed+=("$line") ;; esac
+  done <.binaries-allowed
+fi
+bad=0
+while IFS= read -r -d '' f; do
+  for a in "${allowed[@]:-}"; do [ "$f" = "$a" ] && continue 2; done
+  # Read the staged blob, not the work tree: that is what would be committed.
+  size=$(git cat-file -s ":$f" 2>/dev/null) || continue
+  magic=$(git show ":$f" 2>/dev/null | head -c4 | od -An -tx1 | tr -d ' \n') || true
+  kind=
+  case "$magic" in
+    7f454c46) kind="an ELF program" ;;
+    cffaedfe | cefaedfe | feedface | feedfacf | cafebabe) kind="a Mach-O program" ;;
+    4d5a*) kind="a PE program" ;;
+  esac
+  if [ -n "$kind" ]; then
+    echo "check-binaries: $f is $kind ($size bytes)" >&2
+    bad=1
+  elif [ "$size" -gt "$max" ]; then
+    echo "check-binaries: $f is $size bytes, over the $max limit" >&2
+    bad=1
+  fi
+done < <(files)
+if [ "$bad" = 1 ]; then
+  echo "check-binaries: build with \`make go-build\` (output goes to bin/, which git ignores), never commit a binary." >&2
+  echo "check-binaries: a file that must be large goes in .binaries-allowed." >&2
+  exit 1
+fi

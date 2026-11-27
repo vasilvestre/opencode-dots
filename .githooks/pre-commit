@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Enabled by `make hooks`. Refuses a commit that adds a compiled binary or a file over 1 MiB.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+exec bin/check-binaries staged
