@@ -1,6 +1,6 @@
 # 0036. Model spending has a payer, a budget and a hard cap
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none
@@ -54,8 +54,9 @@ unreadable spend fails closed unless `BUDGET_FAIL=open`. `bin/tend` skips a capp
 `fix-issue` stops before any agent step, and `bin/publish-gate` turns push, open-pr, merge and
 file-issue into a note when `GATE_BUDGET_OVER=1`, leaving comments alone. Without the key every
 generated file, workflow input and run is unchanged. Still open: the three questions below, the
-payer, a monthly view and a per-person cap, and aborting a run in progress. The record stays
-`proposed`.
+payer, a monthly view and a per-person cap, and aborting a run in progress. The record is
+accepted for this first step, as built. A payer, a monthly view, a per-person cap and aborting a run in
+progress are not decided here: each waits for a need and its own record.
 
 ### Options
 

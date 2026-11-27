@@ -36,25 +36,27 @@ your mind by writing a new one that supersedes it.
 | [0026](0026-claims-and-presence.md) | A claim says a human works on a work item | accepted | 2026-11-26 |
 | [0027](0027-eu-vps-native-local-mode.md) | The dot runs on one EU VPS in native local mode | accepted | 2026-11-26 |
 | [0028](0028-deployment-is-code-in-two-layers.md) | Deployment is code, in two layers | accepted | 2026-11-26 |
-| [0029](0029-independent-servers-and-contexts.md) | Servers are independent and each device picks a context | proposed | 2026-11-26 |
+| [0029](0029-independent-servers-and-contexts.md) | Servers are independent and each device picks a context | accepted | 2026-11-26 |
 | [0030](0030-watcher-is-opt-in.md) | The GitHub watcher is opt-in | accepted | 2026-11-26 |
 | [0031](0031-executor-per-repository.md) | A repository names the executor that runs its tasks | accepted | 2026-11-26 |
 | [0032](0032-trust-levels-per-repository.md) | A repository has a trust level that limits the rest of its configuration | accepted | 2026-11-26 |
-| [0033](0033-hybrid-executors.md) | An executor can be a list, and what every executor runs is checked | proposed | 2026-11-26 |
+| [0033](0033-hybrid-executors.md) | An executor can be a list, and what every executor runs is checked | superseded by 0048 | 2026-11-26 |
 | [0034](0034-dot-identity-in-github.md) | The dot says who it is in GitHub, and the identity is a per-repository choice | accepted | 2026-11-26 |
 | [0035](0035-a-dot-is-an-engine-instance-with-a-policy-profile.md) | A dot is an instance of the engine with a policy profile | accepted | 2026-11-26 |
-| [0036](0036-model-budgets-and-caps.md) | Model spending has a payer, a budget and a hard cap | proposed | 2026-11-26 |
+| [0036](0036-model-budgets-and-caps.md) | Model spending has a payer, a budget and a hard cap | accepted | 2026-11-26 |
 | [0037](0037-dashboard-users-and-roles.md) | The dashboard has users, roles and an audit trail | accepted | 2026-11-26 |
 | [0038](0038-what-two-dots-share.md) | Two dots on one repository share metadata and reviewed lessons, never code or raw memory | superseded by 0045 | 2026-11-26 |
 | [0039](0039-work-sources-are-adapters.md) | Work sources are adapters that feed work items | accepted | 2026-11-26 |
 | [0040](0040-classification-and-autonomy-ceiling.md) | Each item is classified, each repository has an autonomy ceiling, the action is the lower of the two | accepted | 2026-11-26 |
 | [0041](0041-linking-work-items-is-a-proposal.md) | Linking work items across sources is a proposal; merging stays explicit | accepted | 2026-11-26 |
 | [0042](0042-workstations-are-workers-of-an-instance.md) | A workstation is a worker that joins an instance | accepted | 2026-11-26 |
-| [0043](0043-dot-files-issues-on-named-upstream-repositories.md) | The dot may file issues on named upstream repositories | proposed | 2026-11-26 |
+| [0043](0043-dot-files-issues-on-named-upstream-repositories.md) | The dot may file issues on named upstream repositories | accepted | 2026-11-26 |
 | [0044](0044-dashboard-shows-only-the-repositories-a-viewer-can-reach.md) | The dashboard shows a viewer only the repositories GitHub says they can read | superseded by 0046 | 2026-11-27 |
 | [0045](0045-dots-do-not-talk-to-each-other.md) | Dots do not talk to each other; the owner keeps a repository on one dot | accepted | 2026-11-27 |
 | [0046](0046-the-visitor-brings-their-own-token.md) | The dashboard reads a visitor's rights with the visitor's own token | accepted | 2026-11-27 |
-| [0047](0047-owner-is-whoever-reaches-loopback.md) | The owner is whoever reaches the dashboard on loopback; an identity-based owner waits | proposed | 2026-11-27 |
+| [0047](0047-owner-is-whoever-reaches-loopback.md) | The owner is whoever reaches the dashboard on loopback; an identity-based owner waits | accepted | 2026-11-27 |
+| [0048](0048-workers-pull-jobs-from-a-queue.md) | Workers pull jobs from a queue, through one public entry | proposed | 2026-11-27 |
+| [0049](0049-one-tick-timer-per-machine.md) | One tick timer per machine, installed by role | proposed | 2026-11-27 |
 
 ## When to write one
 

@@ -1,6 +1,6 @@
 # 0029. Servers are independent and each device picks a context
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none
@@ -80,6 +80,8 @@ servers.
   ([0028](0028-deployment-is-code-in-two-layers.md)), with its own variables.
 - A repository can change owner of its running copy without a hand copy, as long
   as the workspace is the thing that moves.
+- The four-step move of a workspace between servers is described here and not built yet; until it is,
+  a repository moves by hand.
 - Two servers cost two machines to maintain, update and back up, and two sets of
   credentials to protect.
 - Nothing shows one view of everything. A device sees one server at a time, so a

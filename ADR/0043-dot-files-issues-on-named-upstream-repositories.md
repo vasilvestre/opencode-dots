@@ -1,6 +1,6 @@
 # 0043. The dot may file issues on named upstream repositories
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-26
 - Supersedes: none
 - Superseded by: none
@@ -68,6 +68,12 @@ it may report to, and a new gate action for it.
 - Still open: whether the "filed by an automated agent" line is mandatory (recommended: yes), and which
   upstream repositories first with which weekly cap. Until the owner names any, the feature lists none and
   writes nowhere.
+
+### Answers
+
+The owner answered both: `auto` is the minimum ceiling to file upstream, and the visible "filed by an
+automated agent" line is mandatory (the `silent` mode is refused for any repository the owner does not
+control). The first step is built, opt-in and off by default (`docs/upstream.md`).
 
 ## Consequences
 

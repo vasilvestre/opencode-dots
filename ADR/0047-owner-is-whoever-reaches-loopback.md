@@ -1,6 +1,6 @@
 # 0047. The owner is whoever reaches the dashboard on loopback; an identity-based owner waits
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-27
 - Supersedes: none
 - Superseded by: none
@@ -45,6 +45,9 @@ view is needed without a tunnel, or the audit trail must name who acted.
 
 ## Consequences
 
+- A developer who reaches the dashboard through the team listener (`-team-addr`, docs/team-ui.md) is a visitor,
+  not an owner: only a direct loopback request is the owner, so SSH access to the server is owner access and
+  SSH access to the team port is not.
 - No code change now, and the security posture stays simple to state: SSH access is owner access.
 - A tailnet visitor, the owner included, stays a visitor until this is revisited.
 - The extension, when built, costs a new trust input (a GitHub account becomes owner-grade, so its 2FA and keys

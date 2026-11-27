@@ -1,9 +1,9 @@
 # 0033. An executor can be a list, and what every executor runs is checked
 
-- Status: proposed
+- Status: superseded by 0048
 - Date: 2026-11-26
 - Supersedes: none
-- Superseded by: none
+- Superseded by: 0048
 
 ## Context
 

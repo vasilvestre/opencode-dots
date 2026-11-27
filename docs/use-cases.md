@@ -184,26 +184,27 @@ never on a public interface. The agent writes nothing remote, shell steps do
 
 ## Where the project stands
 
-Built means code and tests exist. Wired means a workflow or service calls it. Nothing
-below has run end to end on a real repository yet.
+Built means code and tests exist. Wired means a workflow or service calls it. State on 2026-11-27: the core has
+run end to end on scratch repositories, on `opencode-dots` itself (at `auto`), and on a company repository
+through a server and a worker.
 
 | Cases | State | Missing | Record |
 | --- | --- | --- | --- |
-| A1, A2, A3 | work today; `make health`, a 10-minute timer with a Discord alert on "down", and a Health page in the dashboard | installing the units on the host, the token in `.env` | 0027, 0031, 0033 |
-| A4 | `autonomy` key (observe, propose, act, auto) and the optional circuit breaker with its timer and generated list | budgets, one-click pause, a per-repository merge-scope key | 0036, 0040 |
+| A1 to A3 | work today: health page and alert, one tick timer per machine, backups of the workstation and the server | | 0027, 0031, 0049 |
+| A4 | `autonomy` (observe, propose, act, auto), the circuit breaker, a daily USD cap per repository | one-click pause (emergency stop), dry-run | 0036, 0040 |
 | A5 | outside text is data | first-contribution filters, read log | |
-| A6, B1, B2 | ADR only | an identity distinct from the owner | 0034 |
-| B3 | review charter read from the default branch, built | a real review end to end, contesting a comment | |
-| B4, B6, D2, D4, D6 | ADR only | roles, budgets, audit, client access, quotas | 0036, 0037 |
-| Personal and company profiles | reframed | policy profiles on one engine | 0035 |
-| C1 | proposed | unified view, context selector | 0029, 0035 |
-| C2 to C5 | ADR only | lock between bots, what two dots share, migration tool | 0038 |
-| D1, D3 | trust levels; runner proven in a real container | wiring the runner into a workflow, evidence export | 0032 |
-| F1 | advisory adapter, built | polling, reachability check, write-back | 0039 |
-| F2, F3 | Sentry and tracker adapters, built | polling or webhook endpoint, signature check, write-back | 0039 |
-| F4 | ADR only | link proposals | 0041 |
-| G1 to G3 | publish gate wired into five workflows; merge scope limited to the dot's and dependency bots' pull requests; classification wired into `fix-issue`; notes, held items and a Release button in the dashboard; release workflow; breaker | no end-to-end run on a real repository, `propose` fork case needs `push-repo` by hand | 0040 |
-| G4 | executor by tunnel | workers that connect out | 0033, 0042 |
+| A6, B1, B2 | an opt-in identity marker per repository or profile | a dedicated account or bot mode | 0034 |
+| B3 | review charter read from the default branch; reviews run end to end | contesting a comment | |
+| B4, B6, D2, D4, D6 | sign-in with GitHub, visibility by repository, audit of writes | roles beyond owner and visitor, client access, quotas | 0037, 0046, 0047 |
+| Personal and company profiles | one engine, a policy profile per repository | | 0035 |
+| C1 | independent servers, a context per device | unified view | 0029 |
+| C2 to C5 | dots do not talk: a person avoids a repository on two dots | migration tool | 0045 |
+| D1, D3 | trust levels; the untrusted-step runner is proven in a container | wiring the runner into a workflow, evidence export | 0032 |
+| F1 | advisory adapter | polling, reachability check, write-back | 0039 |
+| F2, F3 | Sentry and tracker adapters | polling or webhook endpoint, signature check, write-back | 0039 |
+| F4 | link proposals with a person's confirmation | automatic linking | 0041 |
+| G1 to G3 | publish gate in the workflows, merge scope, classification in `fix-issue`, held items, upstream issue filing, a daily cap | `propose` on a fork needs `push-repo` by hand | 0040, 0043 |
+| G4 | workers pull jobs from a queue, with a revocable token, over one public entry | revision check for a stale clone | 0042, 0048 |
 
 ## Open: what is offered
 
