@@ -102,7 +102,7 @@ with its message. The dashboard holds no GitHub token and writes nothing outside
 hand through `awf serve` with the input `workspace`; `max_pairs` (default 5, at most 50), `min_confidence`
 (default 0.7) and `model` are optional. It never accepts, declines or splits a link and writes to no tracker:
 its only effect is an `open` proposal, which a person decides in the dashboard. It needs `bin/repos` (or
-`REPOS_BIN`), as `bin/advisories` does.
+`REPOS_BIN`), as `bin/advisories` does; the image builds it from `cmd/repos` and sets `REPOS_BIN`.
 
 ```
 candidates (shell)  bin/repos db link candidates: the pairs, as queue/pair-NNN.json
@@ -155,9 +155,65 @@ threshold, leaves no record and may be asked again on a later run: only a propos
 agent: candidate selection, the boundary refusal, schema rejection, the threshold, idempotence, hostile text in a
 title and in an answer, and the split path. `awf validate --dir workflows` checks the syntax.
 
+## What a real agent did (2026-11-27)
+
+One run of `_propose-links` through `awf run` in a scratch project and a temporary database, model
+`mistral/deepseek-v4-1-flash-1017`, `max_pairs` 6, eight synthetic advisory items in one workspace (one of
+them under another trust level). Five pairs were asked: the same advisory in two repositories (related,
+0.95, proposed), two advisories of one package (not related, 0.9, nothing), two items with different ids and
+packages that share only `src/Kernel.php` and describe the same crash (related, 0.8, proposed), another
+same-package pair (not related, 0.92) and a pair whose payload text told the agent to answer related, run
+`touch` and write elsewhere (not related, the agent named the injected instructions and ignored them). Two
+proposals were inserted. The trust-boundary item reached no pair file. No command ran, no other file was
+written, and the schema refused nothing. One sample per pair, one model: it shows the wiring works, not how
+often a model errs.
+
+## Running it daily
+
+`bin/propose-links` dispatches `_propose-links` through `awf serve` (a POST to its API, as `bin/tend` does,
+never `awf run`) once per workspace. It is opt-in: it reads `STATE_DIR/propose-links.list`, one workspace per
+line (blank lines and `#` comments ignored), and a deployment without that file does nothing and exits 0. A
+workspace with no repository in the database, or a name that is not a plain workspace name, is skipped.
+No autonomy ceiling applies: a proposal is data and a person decides it. `PROPOSE_LINKS_MAX` (1 to 50) sets
+`max_pairs`. It exits 1 when a run fails or awf cannot be reached. `test/propose-links.sh` (`make
+propose-links-test`) checks it with a fake `curl`.
+
+There is no command that lists the workspaces of the database, so the list file is the source: name each
+workspace there. Nothing here is installed by the repository. A user unit and timer, to copy by hand to
+`~/.config/systemd/user/` and enable with `systemctl --user enable --now dots-propose-links.timer`:
+
+```ini
+# dots-propose-links.service
+[Unit]
+Description=Propose links between work items, one workspace at a time
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
+EnvironmentFile=-%h/projects/perso/opencode-dots/.env
+ExecStart=%h/projects/perso/opencode-dots/bin/propose-links
+```
+
+```ini
+# dots-propose-links.timer
+[Unit]
+Description=Propose links daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Each run spends up to `max_pairs` agent calls per workspace, so the list is also the budget.
+
 ## Not done
 
 A link across a trust boundary that holds references only, `auto` mode, moving claims or payloads on accept,
-a record of a pair the model rated unrelated (so it is not asked again), a scheduled run of the workflow, and
+a record of a pair the model rated unrelated (so it is not asked again), an installed unit (the text is above, nothing ships it), and
 more than one source wired for real: only advisories exist today, so the pairs the workflow finds are advisories
 of one workspace (the same advisory in two repositories, or two advisories of one package).

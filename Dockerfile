@@ -1,4 +1,4 @@
-# One image, four binaries: nothing lands in ~/.local/bin on this machine.
+# One image, five binaries: nothing lands in ~/.local/bin on this machine.
 
 # awf v0.11.10 cannot preflight opencode v2: it runs `opencode auth list`
 # without --format json and expects an "N credentials" footer that v2 dropped.
@@ -8,6 +8,16 @@ FROM golang:1.24-bookworm AS awf-build
 ENV GOTOOLCHAIN=auto
 ARG AWF_REF=v0.12.0
 RUN CGO_ENABLED=0 go install github.com/awf-project/cli/cmd/awf@${AWF_REF}
+
+# bin/repos: the workflows that read the database (_propose-links) call it. Built here,
+# statically, so the layer is the binary alone and nothing is fetched at run time.
+FROM golang:1.24-bookworm AS repos-build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY internal/ internal/
+COPY cmd/repos/ cmd/repos/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/repos ./cmd/repos
 
 FROM debian:stable-slim
 
@@ -53,6 +63,10 @@ ENV TOWER_EXTENSIONS_DIR=/opt/tower/extensions
 # awf-gh: built on the host by `make build`, copied here
 COPY bin/ /opt/agent/bin/
 RUN chmod +x /opt/agent/bin/*
+
+# repos: after the COPY above, so a host-built bin/repos never replaces the image's own.
+COPY --from=repos-build /out/repos /opt/agent/bin/repos
+ENV REPOS_BIN=/opt/agent/bin/repos
 
 # Pre-create every bind-mount target: Docker creates missing parents as root,
 # and then the agent cannot write next to them.
