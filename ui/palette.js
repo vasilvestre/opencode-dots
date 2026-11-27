@@ -12,6 +12,7 @@ const SECTIONS = [
   ["Autonomy", "autonomy"],
   ["Health", "health"],
   ["Audit", "audit"],
+  ["Links", "links"],
 ];
 
 // Ctrl+K: jump to a section, a workflow or a config file by typing a few

@@ -156,6 +156,26 @@ var migrations = []string{
 		data         TEXT NOT NULL DEFAULT '{}'
 	);
 	CREATE INDEX work_item_event_item ON work_item_event(work_item_id, id);`,
+	// 6: link proposals (ADR 0041, first step). A proposal is data and changes nothing by
+	// itself; accepting one moves references (link.go). A pair is unique, in either order,
+	// while it is open. merged_into points a merged work item at the one that took its
+	// references; its history is in work_item_event.
+	`ALTER TABLE work_item ADD COLUMN merged_into TEXT NOT NULL DEFAULT '';
+	CREATE TABLE link_proposal (
+		id           TEXT PRIMARY KEY,
+		work_item_a  TEXT NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
+		work_item_b  TEXT NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
+		confidence   REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+		reason       TEXT NOT NULL DEFAULT '',
+		evidence     TEXT NOT NULL DEFAULT '{}',
+		state        TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'accepted', 'declined')),
+		proposed_by  TEXT NOT NULL,
+		created_at   TEXT NOT NULL,
+		decided_by   TEXT NOT NULL DEFAULT '',
+		decided_at   TEXT NOT NULL DEFAULT '',
+		CHECK (work_item_a <> work_item_b)
+	);
+	CREATE UNIQUE INDEX link_proposal_open_pair ON link_proposal(min(work_item_a, work_item_b), max(work_item_a, work_item_b)) WHERE state = 'open';`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
