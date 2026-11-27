@@ -56,6 +56,9 @@ states:
     type: agent
     provider: opencode
     options:
+      # Claude Code refuses a write outside its working directory unless the tool is allowed;
+      # the run files live under STATE_DIR. Other providers ignore the option.
+      allowed_tools: "Read,Grep,Glob,Write,Edit"
       model: "{{.inputs.model}}"
     prompt: |
       You classify one work item of {{.inputs.repo}}, reference {{.inputs.key}}.

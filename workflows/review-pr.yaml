@@ -426,6 +426,9 @@ states:
     type: agent
     provider: "{{.inputs.provider}}"
     options:
+      # Claude Code refuses a write outside its working directory unless the tool is allowed;
+      # the run files live under STATE_DIR. Other providers ignore the option.
+      allowed_tools: "Read,Grep,Glob,Write,Edit"
       # A free default model hits the shared rate limit within minutes. A
       # different model from the one that fixes, so the review has a second
       # point of view instead of approving its own output.
@@ -759,6 +762,9 @@ states:
     type: agent
     provider: "{{.inputs.provider}}"
     options:
+      # Claude Code refuses a write outside its working directory unless the tool is allowed;
+      # the run files live under STATE_DIR. Other providers ignore the option.
+      allowed_tools: "Read,Grep,Glob,Write,Edit"
       model: "{{.states.pick_address_model.Output}}"
     prompt: |
       You clear the review findings on my pull request

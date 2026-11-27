@@ -101,6 +101,9 @@ states:
     type: agent
     provider: opencode
     options:
+      # Claude Code refuses a write outside its working directory unless the tool is allowed;
+      # the run files live under STATE_DIR. Other providers ignore the option.
+      allowed_tools: "Read,Grep,Glob,Write,Edit"
       model: "{{.inputs.model}}"
     prompt: |
       You decide whether a finding belongs to an upstream repository. The
@@ -391,6 +394,9 @@ states:
     type: agent
     provider: opencode
     options:
+      # Claude Code refuses a write outside its working directory unless the tool is allowed;
+      # the run files live under STATE_DIR. Other providers ignore the option.
+      allowed_tools: "Read,Grep,Glob,Write,Edit"
       model: "{{.inputs.model}}"
     prompt: |
       You draft a bug report for an upstream project, from one finding.
