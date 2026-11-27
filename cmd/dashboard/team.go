@@ -78,3 +78,19 @@ func sameAddr(a, b string) bool {
 	}
 	return ai.Equal(bi)
 }
+
+// checkWorkerAddr refuses a worker listener address that is not a loopback IP literal with a
+// port, or that is another listener's own.
+func checkWorkerAddr(worker, owner, team string) error {
+	host, port, err := net.SplitHostPort(worker)
+	if err != nil || port == "" {
+		return fmt.Errorf("-worker-addr %q: want an IP address and a port, for example 127.0.0.1:8096", worker)
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("-worker-addr %q: the worker listener binds a loopback IP address only", worker)
+	}
+	if worker == owner || worker == team {
+		return fmt.Errorf("-worker-addr %q is already another listener's address", worker)
+	}
+	return nil
+}

@@ -93,6 +93,15 @@ func (d *dash) hubToken(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r) // after the session check: an anonymous caller learns nothing about the setup
 		return
 	}
+	d.answerHubToken(w, sub, repos)
+}
+
+// answerHubToken signs the token for the topics of repos and writes the answer.
+func (d *dash) answerHubToken(w http.ResponseWriter, sub string, repos []string) {
+	if d.hub == nil {
+		writeJSONStatus(w, http.StatusNotFound, map[string]string{"error": "no hub configured"})
+		return
+	}
 	topics := make([]string, 0, len(repos))
 	for _, repo := range repos {
 		topics = append(topics, events.RepoTopic(repo))

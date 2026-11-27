@@ -115,6 +115,8 @@ func main() {
 		"public endpoint of the Mercure hub; subscriber tokens are issued only when it is set (docs/remote.md)")
 	hubAud := flag.String("hub-audience", envOr("DOTS_HUB_AUDIENCE", ""),
 		"the hub endpoint as the hub itself sees a request (http behind a TLS proxy); empty means -hub-url")
+	workerAddr := flag.String("worker-addr", envOr("DOTS_WORKER_ADDR", ""),
+		"loopback address of a listener that serves only the worker token exchange (docs/remote.md)")
 	hubEnv := flag.String("hub-env", envOr("DOTS_HUB_ENV", defaultHubEnv()), "the hub's settings file holding its subscriber key")
 	flag.Parse()
 	if err := checkTeamAddr(*teamAddr, *addr, *ghClient != ""); err != nil {
@@ -138,6 +140,7 @@ func main() {
 
 	d := &dash{state: *state, root: *repoRoot, awf: *awf, awfgh: *awfgh, transcripts: *transcripts, opencode: *opencode, opencodeDB: *opencodeDB, allow: map[string]bool{}, active: map[string]bool{}, tried: map[string]bool{}, notified: map[string]bool{}}
 	d.discordPost = postDiscord
+	d.wtokens = newWorkerStore(*state)
 	if d.hub, err = newHubIssuer(*hubURL, *hubAud, *hubEnv); err != nil {
 		log.Fatal(err)
 	}
@@ -165,6 +168,16 @@ func main() {
 		}()
 	}
 
+	if *workerAddr != "" {
+		if err := checkWorkerAddr(*workerAddr, *addr, *teamAddr); err != nil {
+			log.Fatal(err)
+		}
+		go func() {
+			log.Printf("dots dashboard, worker token exchange on http://%s", *workerAddr)
+			log.Fatal(http.ListenAndServe(*workerAddr, d.workerHandler()))
+		}()
+	}
+
 	log.Printf("dots dashboard on http://%s (awf at %s)", *addr, *awf)
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }
@@ -179,6 +192,7 @@ type dash struct {
 	opencodeDB   string          // opencode SQLite database, read-only
 	allow        map[string]bool // extra hosts allowed to write, see -allow-host
 	hub          *hubIssuer      // nil: no subscriber tokens
+	wtokens      *workerStore
 	editMu       sync.Mutex
 	modelCatalog func(context.Context) []string
 	discordPost  func(webhook, message string) error

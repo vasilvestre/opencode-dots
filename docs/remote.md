@@ -65,3 +65,31 @@ DOTS_HUB_AUDIENCE=http://hub.example.org/.well-known/mercure
 
 A hub 1.x subscriber follows `?match=<topic>`, and only an update published `private` is held back
 from a subscriber whose token does not name its topic.
+
+### Worker token (a worker nobody watches)
+
+A sign-in session lasts an hour, so an unattended `dots-worker` cannot renew its 15 minute hub token
+from it. The owner issues a **worker token** instead, once, where the dashboard runs:
+
+```bash
+bin/worker-token issue laptop-ada --login ada --repos org/app,org/other --days 30
+bin/worker-token list
+bin/worker-token revoke ID
+```
+
+The secret (`dwt_…`) is printed once and kept nowhere: the dashboard stores only its SHA-256, in
+`STATE_DIR/worker-tokens.json` (mode 0600). It binds a label, a login and the repositories the
+worker may follow (none listed: every repository the dot knows), lives 30 days by default and 90
+at most, and `revoke` ends it at once: the next exchange answers 401, and the hub drops the worker
+within the 15 minutes of the token it holds.
+
+The worker trades it for a hub token, again before each one ends:
+
+```
+GET /api/hub-token    Authorization: Bearer dwt_…
+```
+
+That exchange is served on the worker listener (`-worker-addr` or `DOTS_WORKER_ADDR`, a loopback
+IP and a port, for example `127.0.0.1:8096`), which serves this one path and 404s everything else,
+so the token opens nothing of the dashboard. Reach it like the hub: a second path on the proxy.
+A wrong token costs half a second, and nothing of a token is logged.

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Issues, lists and revokes the tokens a dots-worker keeps following the hub with (ADR 0042,
+# docs/remote.md). Run it where the dashboard runs: the owner is whoever reaches its loopback.
+#
+#   bin/worker-token issue LABEL [--login LOGIN] [--repos a/b,c/d] [--days N]
+#   bin/worker-token list
+#   bin/worker-token revoke ID
+#
+# `issue` prints the secret once: nothing keeps it, copy it to the worker's machine. A token with
+# no --repos covers every repository the dot knows; it lives 30 days unless --days says up to 90.
+# DOTS_DASHBOARD_URL changes the address (default http://127.0.0.1:8099).
+set -euo pipefail
+url=${DOTS_DASHBOARD_URL:-http://127.0.0.1:8099}
+die() { echo "worker-token: $*" >&2; exit 1; }
+call() { # METHOD PATH [JSON]
+  local out code
+  out=$(curl -sS -m 10 -w '\n%{http_code}' -X "$1" -H 'Content-Type: application/json' ${3:+-d "$3"} "$url$2") \
+    || die "the dashboard does not answer at $url"
+  code=${out##*$'\n'}; out=${out%$'\n'*}
+  [ "$code" = 200 ] || die "$(printf '%s' "$out" | jq -r '.error // .' 2>/dev/null || printf '%s' "$out") (HTTP $code)"
+  printf '%s\n' "$out"
+}
+command -v jq >/dev/null || die "jq is required"
+case ${1:-} in
+  issue)
+    label=${2:-}; [ -n "$label" ] || die "a LABEL is required"; shift 2
+    login=""; repos=""; days=0
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --login) login=${2:-}; shift 2 ;;
+        --repos) repos=${2:-}; shift 2 ;;
+        --days) days=${2:-}; shift 2 ;;
+        *) die "unknown option $1" ;;
+      esac
+    done
+    [[ $days =~ ^[0-9]+$ ]] || die "--days is a number"
+    body=$(jq -n --arg l "$label" --arg u "$login" --arg r "$repos" --argjson d "$days" \
+      '{label:$l, login:$u, days:$d, repos:($r|split(",")|map(select(length>0)))}')
+    out=$(call POST /api/worker-tokens "$body")
+    printf 'id:      %s\nexpires: %s\nrepos:   %s\n' "$(jq -r .id <<<"$out")" "$(jq -r .expires_at <<<"$out")" \
+      "$(jq -r '(.repos // []) | if length==0 then "every known repository" else join(", ") end' <<<"$out")"
+    printf 'token:   %s\n(shown once: copy it now)\n' "$(jq -r .token <<<"$out")" ;;
+  list)
+    call GET /api/worker-tokens | jq -r '.tokens[] | [.id, .label, (.login // "-"), (if .revoked then "revoked" else "live until " + .expires end), ("last used " + (.last_used // "never"))] | @tsv' ;;
+  revoke)
+    [ -n "${2:-}" ] || die "an ID is required"
+    call POST /api/worker-tokens/revoke "$(jq -n --arg i "$2" '{id:$i}')" >/dev/null && echo "revoked $2" ;;
+  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
