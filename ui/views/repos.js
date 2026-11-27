@@ -19,7 +19,7 @@ const FEATURES = [
 const ghPath = (name) => name.split("/").map(encodeURIComponent).join("/");
 
 // One row per repository, one checkbox per thing the dot does on it. A click
-// edits repos.yaml at once (comments are kept, a backup is stamped) and the
+// edits repos.yaml at once (the file is rewritten without its comments, a backup is stamped) and the
 // generated files follow. The rules, the pull requests already seen and the
 // Tower warning stay in the row's details.
 export function mountRepos(el) {

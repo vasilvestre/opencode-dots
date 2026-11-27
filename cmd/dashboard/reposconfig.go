@@ -13,15 +13,13 @@ import (
 	"slices"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"opencode-dots/internal/repos"
 )
 
-// The repositories table edits repos.yaml one key at a time. It works on the
-// YAML tree, not on a decoded copy, so comments, quoting and key order survive
-// a toggle. Every change goes through repos.Build before it reaches the disk,
-// exactly like a save from the editor: a refused change leaves the file as it was.
+// The repositories table edits repos.yaml one key at a time: it parses the file, changes the
+// decoded document and writes it again with Document.Marshal, so the first change reformats the
+// file (comments are not kept; keys are sorted). Every change goes through repos.Build before it
+// reaches the disk, exactly like a save from the editor: a refused change leaves the file as it was.
 
 // toggles are the keys the table switches on and off with a checkbox.
 var toggles = []string{"review", "reply", "fix_issue", "fix_ci", "tend", "sync"}
@@ -346,196 +344,103 @@ func (d *dash) patchReposConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"changed": true, "backup": backup, "generated": changed, "config": cfg})
 }
 
-// applyReposPatch edits the YAML tree and encodes it again. The encoder keeps
-// comments and scalar styles; indentation is normalised to two spaces.
+// applyReposPatch edits the parsed document and writes it again with Document.Marshal. A change
+// that leaves the document as it was returns data untouched, so a no-op keeps the file as it is.
 func applyReposPatch(data []byte, p reposPatch) ([]byte, error) {
-	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
+	doc, err := repos.Parse(data)
+	if err != nil {
 		return nil, httpError{http.StatusUnprocessableEntity, err.Error()}
-	}
-	if len(root.Content) != 1 || root.Content[0].Kind != yaml.MappingNode {
-		return nil, httpError{http.StatusUnprocessableEntity, "repos.yaml must be a mapping"}
-	}
-	reposNode := mapValue(root.Content[0], "repos")
-	if reposNode == nil || reposNode.Kind != yaml.MappingNode {
-		return nil, httpError{http.StatusUnprocessableEntity, "repos.yaml has no repos mapping"}
 	}
 	if !repoNameOK.MatchString(p.Repo) {
 		return nil, httpError{http.StatusBadRequest, fmt.Sprintf("%q is not an owner/repo name", p.Repo)}
 	}
-
+	before, err := doc.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(doc.Repos, func(e repos.Entry) bool { return e.Name == p.Repo })
 	switch p.Op {
 	case "add":
-		if mapValue(reposNode, p.Repo) != nil {
+		if i >= 0 {
 			return nil, httpError{http.StatusConflict, p.Repo + " is already listed"}
 		}
-		reposNode.Content = append(reposNode.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.Repo},
-			&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle})
+		doc.Repos = append(doc.Repos, repos.Entry{Name: p.Repo, Config: map[string]any{}})
 	case "remove":
-		if !deleteKey(reposNode, p.Repo) {
+		if i < 0 {
 			return nil, httpError{http.StatusNotFound, p.Repo + " is not listed"}
 		}
+		doc.Repos = slices.Delete(doc.Repos, i, i+1)
 	case "", "set":
-		block := mapValue(reposNode, p.Repo)
-		if block == nil {
+		if i < 0 {
 			return nil, httpError{http.StatusNotFound, p.Repo + " is not listed"}
 		}
-		if block.Kind != yaml.MappingNode {
-			return nil, httpError{http.StatusUnprocessableEntity, p.Repo + " has no block to edit"}
-		}
-		if err := setKey(root.Content[0], block, p); err != nil {
+		if err := setKey(doc, doc.Repos[i].Config, p); err != nil {
 			return nil, err
 		}
 	default:
 		return nil, httpError{http.StatusBadRequest, "unknown op " + p.Op}
 	}
-
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&root); err != nil {
+	after, err := doc.Marshal()
+	if err != nil {
 		return nil, err
 	}
-	if err := enc.Close(); err != nil {
-		return nil, err
+	if bytes.Equal(before, after) {
+		return data, nil
 	}
-	return buf.Bytes(), nil
+	return after, nil
 }
 
-func setKey(top, block *yaml.Node, p reposPatch) error {
-	profiles := mapValue(top, "profiles")
+func setKey(doc *repos.Document, cfg map[string]any, p reposPatch) error {
 	switch {
-	case isToggle(p.Key):
+	case slices.Contains(toggles, p.Key):
 		on, ok := p.Value.(bool)
 		if !ok {
 			return httpError{http.StatusBadRequest, p.Key + " takes true or false"}
 		}
-		fromProfile := profileEnables(profiles, block, p.Key)
-		if on {
-			if fromProfile && mapValue(block, p.Key) == nil {
-				return nil // already on through a profile
-			}
-			if cur := mapValue(block, p.Key); cur != nil && (cur.Kind != yaml.ScalarNode || cur.Tag != "!!bool" || cur.Value != "false") {
-				return nil // already on, keep its options
-			}
-			putKey(block, p.Key, boolNode(true))
-			return nil
-		}
-		// Off: a profile key needs an explicit false, anything else just goes.
-		if fromProfile {
-			putKey(block, p.Key, boolNode(false))
-		} else {
-			deleteKey(block, p.Key)
+		fromProfile := profileEnables(doc, cfg, p.Key)
+		cur, own := cfg[p.Key]
+		switch {
+		case on && (own && cur != false || fromProfile && !own):
+			// already on, keep its options
+		case on:
+			cfg[p.Key] = true
+		case fromProfile: // a profile key needs an explicit false
+			cfg[p.Key] = false
+		default:
+			delete(cfg, p.Key)
 		}
 	case p.Key == "rules":
-		return setRules(block, p)
+		return setRules(cfg, p)
 	case p.Key == "auto_merge":
-		return setAutoMerge(profiles, block, p)
+		return setAutoMerge(doc, cfg, p)
 	case p.Key == "provider":
 		if p.Value == nil || p.Value == "" {
-			deleteKey(block, "provider")
+			delete(cfg, "provider")
 			return nil
 		}
-		s, ok := p.Value.(string)
-		if !ok || (s != "opencode" && s != "claude") {
+		if s, ok := p.Value.(string); !ok || !slices.Contains(providers, s) {
 			return httpError{http.StatusBadRequest, "provider must be opencode or claude"}
 		}
-		putKey(block, "provider", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: s})
+		cfg["provider"] = p.Value
 	default:
 		return httpError{http.StatusBadRequest, fmt.Sprintf("the table does not edit %q: use the repos.yaml editor", p.Key)}
 	}
 	return nil
 }
 
-func isToggle(key string) bool {
-	return slices.Contains(toggles, key)
-}
-
-// profileEnables reports whether one of the block's `use` profiles switches the
-// key on.
-func profileEnables(profiles, block *yaml.Node, key string) bool {
-	use := mapValue(block, "use")
-	if use == nil || profiles == nil {
-		return false
-	}
-	var names []string
-	switch use.Kind {
-	case yaml.ScalarNode:
-		names = []string{use.Value}
-	case yaml.SequenceNode:
-		for _, n := range use.Content {
-			names = append(names, n.Value)
-		}
-	}
-	for _, name := range names {
-		prof := mapValue(profiles, name)
-		if prof == nil {
-			continue
-		}
-		v := mapValue(prof, key)
-		if v == nil {
-			continue
-		}
-		if v.Kind == yaml.ScalarNode && v.Tag == "!!bool" && v.Value == "false" {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-func boolNode(v bool) *yaml.Node {
-	s := "false"
-	if v {
-		s = "true"
-	}
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: s}
-}
-
-func mapValue(m *yaml.Node, key string) *yaml.Node {
-	if m == nil || m.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
-	}
-	return nil
-}
-
-// putKey sets key to value, replacing in place so order and comments stay.
-func putKey(m *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			old := m.Content[i+1]
-			value.HeadComment, value.LineComment, value.FootComment = old.HeadComment, old.LineComment, old.FootComment
-			m.Content[i+1] = value
-			return
-		}
-	}
-	// A flow mapping such as `{}` grows into a block once it holds keys.
-	m.Style &^= yaml.FlowStyle
-	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
-}
-
-func deleteKey(m *yaml.Node, key string) bool {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+// profileEnables reports whether one of the repository's `use` profiles switches the key on.
+func profileEnables(doc *repos.Document, cfg map[string]any, key string) bool {
+	for _, name := range useNames(cfg["use"]) {
+		if v, ok := doc.Profiles[name][key]; ok && v != false {
 			return true
 		}
 	}
 	return false
 }
 
-// ruleKeyOrder is the order a rule's keys are written in.
-var ruleKeyOrder = []string{"on", "label", "only_authors", "ignore_authors", "scope", "labels", "inputs"}
-
-// setRules writes the rules of a watcher feature: `true` for one empty rule, a
-// block for one, a list for several. The feature must be one the table knows.
-func setRules(block *yaml.Node, p reposPatch) error {
+// setRules writes the rules of a watcher feature: `true` for one empty rule, a block for one, a
+// list for several. The feature must be one the table knows.
+func setRules(cfg map[string]any, p reposPatch) error {
 	if _, ok := repos.WatchSchemaOf(p.Feature); !ok {
 		return httpError{http.StatusBadRequest, fmt.Sprintf("%q has no rules to edit", p.Feature)}
 	}
@@ -543,141 +448,68 @@ func setRules(block *yaml.Node, p reposPatch) error {
 	if !ok || len(list) == 0 {
 		return httpError{http.StatusBadRequest, "rules take a non-empty list"}
 	}
-	items := make([]*yaml.Node, 0, len(list))
+	rules := make([]any, 0, len(list))
 	for _, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
 			return httpError{http.StatusBadRequest, "each rule must be an object"}
 		}
-		node, err := ruleNode(m)
-		if err != nil {
-			return err
-		}
-		items = append(items, node)
-	}
-	var value *yaml.Node
-	switch {
-	case len(items) == 1 && len(items[0].Content) == 0:
-		value = boolNode(true)
-	case len(items) == 1:
-		value = items[0]
-	default:
-		value = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		for _, n := range items {
-			if len(n.Content) == 0 {
-				n = boolNode(true)
+		rule := map[string]any{}
+		for k, v := range m {
+			if v != nil {
+				rule[k] = v
 			}
-			value.Content = append(value.Content, n)
+		}
+		if len(rule) == 0 {
+			rules = append(rules, true)
+		} else {
+			rules = append(rules, rule)
 		}
 	}
-	putKey(block, p.Feature, value)
+	if len(rules) == 1 {
+		cfg[p.Feature] = rules[0]
+	} else {
+		cfg[p.Feature] = rules
+	}
 	return nil
 }
 
-func ruleNode(m map[string]any) (*yaml.Node, error) {
-	node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	seen := map[string]bool{}
-	add := func(key string) error {
-		v, ok := m[key]
-		if !ok || v == nil {
-			return nil
-		}
-		seen[key] = true
-		var vn yaml.Node
-		if err := vn.Encode(v); err != nil {
-			return httpError{http.StatusBadRequest, key + ": " + err.Error()}
-		}
-		if vn.Kind == yaml.SequenceNode {
-			vn.Style = yaml.FlowStyle
-		}
-		kn := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
-		if key == "on" {
-			kn.Style = yaml.DoubleQuotedStyle // a YAML 1.1 reader takes a bare `on` for a boolean
-		}
-		node.Content = append(node.Content, kn, &vn)
-		return nil
-	}
-	for _, key := range ruleKeyOrder {
-		if err := add(key); err != nil {
-			return nil, err
-		}
-	}
-	var rest []string
-	for key := range m {
-		if !seen[key] {
-			rest = append(rest, key)
-		}
-	}
-	slices.Sort(rest)
-	for _, key := range rest {
-		if err := add(key); err != nil {
-			return nil, err
-		}
-	}
-	return node, nil
-}
-
 // setAutoMerge sets tend's auto_merge, turning `tend: true` into a block.
-func setAutoMerge(profiles, block *yaml.Node, p reposPatch) error {
+func setAutoMerge(doc *repos.Document, cfg map[string]any, p reposPatch) error {
 	on, ok := p.Value.(bool)
 	if !ok {
 		return httpError{http.StatusBadRequest, "auto_merge takes true or false"}
 	}
-	tend := mapValue(block, "tend")
-	if tend == nil && !profileEnables(profiles, block, "tend") {
+	cur, own := cfg["tend"]
+	tend, isMap := cur.(map[string]any)
+	switch {
+	case !own && !profileEnables(doc, cfg, "tend"):
 		return httpError{http.StatusConflict, "tend is switched off on this repository: tick Tend first"}
-	}
-	if tend == nil {
-		// Tend comes from a profile: an own block with auto_merge overrides it.
-		tend = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
-		putKey(block, "tend", tend)
-	}
-	if tend.Kind == yaml.ScalarNode && tend.Tag == "!!bool" {
-		if tend.Value == "false" {
-			return httpError{http.StatusConflict, "tend is switched off on this repository"}
-		}
-		tend = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
-		putKey(block, "tend", tend)
-	}
-	if tend.Kind != yaml.MappingNode {
+	case !own || cur == true: // from a profile or a bare true: an own block with auto_merge overrides it
+		tend = map[string]any{}
+	case cur == false:
+		return httpError{http.StatusConflict, "tend is switched off on this repository"}
+	case !isMap:
 		return httpError{http.StatusUnprocessableEntity, "tend has a shape the table does not edit"}
 	}
-	if on {
-		putKey(tend, "auto_merge", boolNode(true))
-	} else if profileAutoMerge(profiles, block) {
-		// An inherited auto_merge is only switched off by saying false.
-		putKey(tend, "auto_merge", boolNode(false))
-	} else {
-		deleteKey(tend, "auto_merge")
-		if len(tend.Content) == 0 {
-			*tend = *boolNode(true)
-		}
+	switch {
+	case on:
+		tend["auto_merge"] = true
+	case profileAutoMerge(doc, cfg): // an inherited auto_merge is only switched off by saying false
+		tend["auto_merge"] = false
+	default:
+		delete(tend, "auto_merge")
 	}
+	cfg["tend"] = tend // an empty block is written as true
 	return nil
 }
 
 // profileAutoMerge reports whether a `use` profile sets tend.auto_merge to true.
-func profileAutoMerge(profiles, block *yaml.Node) bool {
-	for _, name := range profileNames(block) {
-		tend := mapValue(mapValue(profiles, name), "tend")
-		if v := mapValue(tend, "auto_merge"); v != nil && v.Value == "true" {
+func profileAutoMerge(doc *repos.Document, cfg map[string]any) bool {
+	for _, name := range useNames(cfg["use"]) {
+		if tend, _ := doc.Profiles[name]["tend"].(map[string]any); tend["auto_merge"] == true {
 			return true
 		}
 	}
 	return false
-}
-
-func profileNames(block *yaml.Node) []string {
-	use := mapValue(block, "use")
-	if use == nil {
-		return nil
-	}
-	if use.Kind == yaml.ScalarNode {
-		return []string{use.Value}
-	}
-	var names []string
-	for _, n := range use.Content {
-		names = append(names, n.Value)
-	}
-	return names
 }

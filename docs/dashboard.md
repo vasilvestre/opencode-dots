@@ -42,7 +42,7 @@ It shows:
   and the facts in `memory.md`, with the date the last pass covered
 - a Repos tab: one row per repository in `repos.yaml`, with a checkbox for
   review, reply, fix issue, fix CI, tend and sync and a select for the agent CLI.
-  A click edits `repos.yaml` at once (comments are kept, the previous file is
+  A click edits `repos.yaml` at once (the file is written again from its parsed content, so comments are lost; the previous file is
   stamped as a backup) and the watcher files are regenerated; a change the
   generator refuses is not written. The row's details show the watcher rules, the
   PRs already seen and a warning when Tower indexes a repository whose

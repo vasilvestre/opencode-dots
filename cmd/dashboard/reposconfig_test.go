@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -62,15 +63,26 @@ func TestReposConfigReportsEffectiveState(t *testing.T) {
 	}
 }
 
-func TestToggleOnAddsTrueAndKeepsComments(t *testing.T) {
+func TestToggleOnAddsTrueAndLeavesTheRestOfTheFileAlone(t *testing.T) {
 	out := patch(t, sampleRepos, reposPatch{Repo: "acme/plain", Key: "review", Value: true})
 	if !rowOf(t, out, "acme/plain").Features["review"].On {
 		t.Fatal("review should be on")
 	}
-	for _, want := range []string{"# header comment", "# keeps this comment"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("lost %q:\n%s", want, out)
+	// The file is written again from the parsed document: comments go, content stays.
+	for _, name := range []string{"acme/managed", "acme/empty"} {
+		if !reflect.DeepEqual(rowOf(t, out, name), rowOf(t, sampleRepos, name)) {
+			t.Fatalf("%s changed:\n%s", name, out)
 		}
+	}
+	if out != patch(t, out, reposPatch{Repo: "acme/plain", Key: "review", Value: true}) {
+		t.Fatal("a second toggle on must change nothing")
+	}
+}
+
+func TestANoOpKeepsTheFileByteForByte(t *testing.T) {
+	out, err := applyReposPatch([]byte(sampleRepos), reposPatch{Repo: "acme/plain", Key: "reply", Value: true})
+	if err != nil || string(out) != sampleRepos {
+		t.Fatalf("a no-op rewrote the file (err %v):\n%s", err, out)
 	}
 }
 
@@ -174,13 +186,12 @@ func TestSetRulesWritesTheShortestForm(t *testing.T) {
 		map[string]any{},
 		map[string]any{"on": []any{"command"}, "only_authors": []any{"me"}, "ignore_authors": []any{}},
 	}})
-	for _, want := range []string{`"on": [command]`, "only_authors: [me]", "ignore_authors: []"} {
-		if !strings.Contains(two, want) {
-			t.Fatalf("missing %q:\n%s", want, two)
-		}
-	}
-	if r := rowOf(t, two, "acme/plain").Features["reply"]; len(r.Rules) != 2 {
+	r := rowOf(t, two, "acme/plain").Features["reply"]
+	if len(r.Rules) != 2 {
 		t.Fatalf("two rules expected: %+v", r)
+	}
+	if rule, _ := r.Rules[1].(map[string]any); !reflect.DeepEqual(rule["on"], []any{"command"}) || !reflect.DeepEqual(rule["only_authors"], []any{"me"}) {
+		t.Fatalf("the second rule lost its keys: %+v", r.Rules[1])
 	}
 }
 
