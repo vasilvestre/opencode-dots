@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -174,9 +175,7 @@ func (d *dash) remoteRuns(w http.ResponseWriter, r *http.Request) {
 // executor that is now down is not running: the answer is stale.
 func tagged(e map[string]any, executor string, up bool) map[string]any {
 	c := make(map[string]any, len(e)+2)
-	for k, v := range e {
-		c[k] = v
-	}
+	maps.Copy(c, e)
 	c["executor"] = executor
 	if !up && strings.EqualFold(str(c["status"]), "running") {
 		c["status"] = "unknown"
@@ -187,7 +186,7 @@ func tagged(e map[string]any, executor string, up bool) map[string]any {
 // parseExecutorDashboards reads "name=url,name=url". Only http addresses are kept.
 func parseExecutorDashboards(spec string) map[string]string {
 	out := map[string]string{}
-	for _, part := range strings.Split(spec, ",") {
+	for part := range strings.SplitSeq(spec, ",") {
 		name, addr, ok := strings.Cut(strings.TrimSpace(part), "=")
 		if u, err := url.Parse(addr); ok && err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
 			out[strings.TrimSpace(name)] = strings.TrimRight(addr, "/")

@@ -47,7 +47,7 @@ var (
 func parseSuggest(text string) (string, []suggestion) {
 	kept := []string{}
 	var out []suggestion
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		m := suggestRE.FindStringSubmatch(line)
 		if m == nil {
 			kept = append(kept, line)

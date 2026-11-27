@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -113,10 +114,8 @@ func (q *Queue) held(id, by string, states ...State) (*Job, error) {
 	if j.By != by {
 		return nil, ErrNotYours
 	}
-	for _, s := range states {
-		if j.State == s {
-			return j, nil
-		}
+	if slices.Contains(states, j.State) {
+		return j, nil
 	}
 	return nil, ErrNotYours
 }

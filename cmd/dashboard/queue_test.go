@@ -305,7 +305,7 @@ func TestWorkerHintsAreLimitedToTheOwnersItServes(t *testing.T) {
 	var got struct{ Hints map[string]string }
 	rec := workerDo(r, "GET", "/api/hints", secret, "")
 	json.Unmarshal(rec.Body.Bytes(), &got)
-	owner := strings.SplitN(openRepo, "/", 2)[0]
+	owner, _, _ := strings.Cut(openRepo, "/")
 	if rec.Code != 200 {
 		t.Fatalf("hints = %d %s", rec.Code, rec.Body)
 	}

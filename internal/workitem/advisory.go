@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -235,7 +236,7 @@ func matchFloor(name string, floor []string) []string {
 // starting with # skipped.
 func ParseFloor(data []byte) []string {
 	var out []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -246,10 +247,8 @@ func ParseFloor(data []byte) []string {
 }
 
 func appendUnique(list []string, s string) []string {
-	for _, v := range list {
-		if v == s {
-			return list
-		}
+	if slices.Contains(list, s) {
+		return list
 	}
 	return append(list, s)
 }
@@ -264,7 +263,7 @@ func parseVersion(s string) ([3]int, bool) {
 	if m == nil {
 		return v, false
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if m[i+1] == "" {
 			continue
 		}

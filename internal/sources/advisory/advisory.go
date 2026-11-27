@@ -188,7 +188,7 @@ var upperBound = regexp.MustCompile(`(?:^|,)<([0-9][^,|\s]*)`)
 
 func fixedIn(affected string) []string {
 	var out []string
-	for _, rng := range strings.Split(affected, "|") {
+	for rng := range strings.SplitSeq(affected, "|") {
 		if m := upperBound.FindStringSubmatch(strings.TrimSpace(rng)); m != nil && !slices.Contains(out, m[1]) {
 			out = append(out, m[1])
 		}

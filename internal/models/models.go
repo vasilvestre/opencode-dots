@@ -159,7 +159,7 @@ func LoadCatalog(ctx context.Context) []string {
 func parseCatalog(data []byte) []string {
 	models := []string{}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		model := strings.TrimSpace(line)
 		if !idRE.MatchString(model) || seen[model] {
 			continue

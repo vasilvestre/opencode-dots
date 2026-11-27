@@ -192,7 +192,7 @@ func TestTheStoreIsCapped(t *testing.T) {
 	r, dir := persistRig(t)
 	a := r.d.auth
 	first := ""
-	for i := 0; i < maxSessions+5; i++ {
+	for i := range maxSessions + 5 {
 		id := a.openSession("bob", map[string]bool{openRepo: true})
 		if i == 0 {
 			first = id
@@ -221,7 +221,7 @@ func TestConcurrentSignInsKeepTheFileValid(t *testing.T) {
 	r, dir := persistRig(t)
 	a := r.d.auth
 	var wg sync.WaitGroup
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

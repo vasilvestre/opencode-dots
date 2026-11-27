@@ -100,10 +100,8 @@ func (d *dash) resolveEditable(rel string) (string, bool) {
 	if rel == "" || filepath.IsAbs(rel) || strings.Contains(rel, `\`) {
 		return "", false
 	}
-	for _, seg := range strings.Split(rel, "/") {
-		if seg == ".." {
-			return "", false
-		}
+	if slices.Contains(strings.Split(rel, "/"), "..") {
+		return "", false
 	}
 	rel = strings.TrimPrefix(filepath.Clean(rel), "./")
 	for _, f := range localFiles {

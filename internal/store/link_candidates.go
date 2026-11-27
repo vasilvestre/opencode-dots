@@ -192,7 +192,7 @@ func (s *Store) LinkCandidates(ctx context.Context, workspace string, max int) (
 	type pair struct{ i, j int }
 	shared := map[pair][]string{}
 	for tok, idx := range tokens {
-		for x := 0; x < len(idx); x++ {
+		for x := range idx {
 			for y := x + 1; y < len(idx); y++ {
 				p := pair{idx[x], idx[y]} // idx is ascending: i < j, i is the older
 				shared[p] = append(shared[p], tok)

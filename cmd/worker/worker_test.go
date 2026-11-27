@@ -235,8 +235,7 @@ func TestHubMessageWakesTheWorkerBeforeItsPoll(t *testing.T) {
 	srv, awf := newFakeServer(t), newFakeAWF(t, "completed")
 	w := fast(newWorker(srv.URL, tok, awf.URL))
 	w.poll = time.Hour // only the hub can wake it
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go w.run(ctx)
 	time.Sleep(150 * time.Millisecond) // first drain: nothing pending
 	j, _ := srv.q.Enqueue("local", "review-pr", map[string]any{"repo": "org/app"})

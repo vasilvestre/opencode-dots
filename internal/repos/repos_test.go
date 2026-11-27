@@ -255,7 +255,7 @@ repos:
 
 func body(b []byte) string {
 	var out []string
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if !strings.HasPrefix(line, "#") {
 			out = append(out, line)
 		}
@@ -412,7 +412,7 @@ func ruleKeys(t *testing.T, data []byte) []ruleKey {
 
 func lines(data []byte) []string {
 	var out []string
-	for _, l := range strings.Split(string(data), "\n") {
+	for l := range strings.SplitSeq(string(data), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
 			out = append(out, l)
 		}

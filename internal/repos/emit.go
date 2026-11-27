@@ -141,7 +141,7 @@ func Render(out *Output, s Settings) (map[string][]byte, error) {
 
 func commentHeader() string {
 	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(header, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(header, "\n"), "\n") {
 		b.WriteString("# " + line + "\n")
 	}
 	return b.String()

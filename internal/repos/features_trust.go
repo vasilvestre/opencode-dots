@@ -208,10 +208,5 @@ func checkTrust(s Settings) error {
 }
 
 func inList(list []string, v string) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, v)
 }

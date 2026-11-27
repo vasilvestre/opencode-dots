@@ -917,9 +917,9 @@ func TestModelsEnforcesRoleMapping(t *testing.T) {
 		want   string
 	}{
 		{"missing input", "ask-pr.yaml", func(s string) string {
-			start := strings.Index(s, "  - name: model\n")
+			before, _, _ := strings.Cut(s, "  - name: model\n")
 			end := strings.Index(s, "\nstates:\n")
-			return s[:start] + s[end+1:]
+			return before + s[end+1:]
 		}, false, `missing model input "model"`},
 		{"missing workflow", "ask-pr.yaml", nil, true, "missing workflow ask-pr.yaml"},
 		{"mismatched workflow name", "ask-pr.yaml", func(s string) string {

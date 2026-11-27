@@ -151,7 +151,7 @@ func main() {
 	}
 	d.auth = newAuth(authConfig{ClientID: *ghClient, GitHubURL: *ghURL, APIURL: *ghAPI, MinPermission: *minPerm, StateDir: *state})
 	d.execDash = parseExecutorDashboards(envOr("DOTS_EXECUTOR_DASHBOARDS", ""))
-	for _, h := range strings.Split(*allowHost, ",") {
+	for h := range strings.SplitSeq(*allowHost, ",") {
 		if h = strings.TrimSpace(h); h != "" {
 			d.allow[h] = true
 		}

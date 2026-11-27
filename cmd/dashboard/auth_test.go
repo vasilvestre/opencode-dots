@@ -535,7 +535,7 @@ func TestSignInEndpointsCheckTheRequest(t *testing.T) {
 	}
 	// 4 refused requests above did not reach the limiter before the checks; the limit is 10 a minute.
 	got := 0
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		if do("POST", "box.ts.net", "application/json", "{}") == 429 {
 			got++
 		}
@@ -634,7 +634,7 @@ func TestGraphQLFailureFallsBackToREST(t *testing.T) {
 func TestGraphQLAsksForEveryRepositoryInChunks(t *testing.T) {
 	r := newRig(t)
 	var repos []string
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		repos = append(repos, fmt.Sprintf("acme/r%d", i))
 		r.gh.perms[repos[i]] = "write"
 	}

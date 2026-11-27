@@ -173,7 +173,7 @@ func TestAuditListsNewestFirstWithALimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		st.RecordAudit(context.Background(), "PUT /api/save", "f"+string(rune('a'+i%26)), "local", 200)
 	}
 	st.Close()

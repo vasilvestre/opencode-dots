@@ -134,7 +134,7 @@ func (d *dash) upstreamOf(text, target string) (string, string) {
 			lists[e.Repo] = l
 		}
 	}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if v, ok := strings.CutPrefix(line, "source: "); ok {
 			if m := fileUpstreamSourceRE.FindStringSubmatch(strings.TrimSpace(v)); m != nil {
 				return m[1], lists[m[1]]
@@ -144,7 +144,7 @@ func (d *dash) upstreamOf(text, target string) (string, string) {
 	}
 	found, list := "", ""
 	for repo, l := range lists {
-		for _, e := range strings.Split(l, ",") {
+		for e := range strings.SplitSeq(l, ",") {
 			if strings.EqualFold(strings.SplitN(e, "=", 2)[0], target) {
 				if found != "" {
 					return "", ""

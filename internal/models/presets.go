@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -348,9 +349,7 @@ func configurationsEqual(a, b *Configuration) bool {
 
 func cloneStrings(values map[string]string) map[string]string {
 	copied := make(map[string]string, len(values))
-	for key, value := range values {
-		copied[key] = value
-	}
+	maps.Copy(copied, values)
 	return copied
 }
 

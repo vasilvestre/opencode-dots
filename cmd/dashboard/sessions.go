@@ -128,7 +128,7 @@ ORDER BY s.time_created`, eq, like, from, to)
 func stepWindows(transcript string) []stepWindow {
 	var steps []stepWindow
 	open := map[string]int{}
-	for _, line := range strings.Split(readFile(transcript, 8<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(transcript, 8<<20), "\n") {
 		var e transcriptEvent
 		if line == "" || json.Unmarshal([]byte(line), &e) != nil {
 			continue

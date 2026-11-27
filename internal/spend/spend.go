@@ -60,7 +60,7 @@ func SetRepo(in map[string]string, repo string) {
 // opening sentence. A repository only mentioned later, or inside the text of a pull request
 // or an issue, is data and is not read.
 func PromptRepo(text string) string {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "data:"))
 		if !strings.Contains(line, `"message.user"`) {
 			continue
@@ -104,7 +104,7 @@ func PromptRepo(text string) string {
 func SumCost(text string) (float64, int) {
 	var usd float64
 	var steps int
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		for _, m := range costUSDRE.FindAllStringSubmatch(line, -1) {
 			var v float64
 			if _, err := fmt.Sscanf(m[1], "%g", &v); err == nil && v > 0 {
@@ -141,10 +141,7 @@ func ReplayInputs(text string) map[string]string {
 		// fix-issue names the repository before the issue ("in owner/repo,
 		// issue #7") instead of as owner/repo#7.
 		if out["repo"] == "" {
-			from := idx[0] - 200
-			if from < 0 {
-				from = 0
-			}
+			from := max(idx[0]-200, 0)
 			if r := namedRepoRE.FindStringSubmatch(text[from:idx[0]]); r != nil {
 				out["repo"] = r[1]
 			}
@@ -208,7 +205,7 @@ func Day(state string, dirs []string, day time.Time) (perRepo map[string]float64
 	want := day.UTC().Format("2006-01-02")
 	perRepo = map[string]float64{}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		var ent struct {
 			ID      string `json:"execution_id"`
 			Started string `json:"started_at"`

@@ -97,7 +97,7 @@ func TestCheckoutCloneFailureIsShownNotHidden(t *testing.T) {
 		t.Fatalf("clone = %d", code)
 	}
 	var row checkoutRow
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		row = c.rows()["acme/webapp"]
 		if row.State == "failed" {
 			break

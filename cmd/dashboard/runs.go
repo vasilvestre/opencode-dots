@@ -75,7 +75,7 @@ func (d *dash) pruneLogs() {
 	// The index outlives nothing: drop the lines whose log file is gone.
 	var keep strings.Builder
 	indexed := map[string]bool{}
-	for _, line := range strings.Split(readFile(filepath.Join(dir, "index.jsonl"), 8<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(filepath.Join(dir, "index.jsonl"), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) != nil || !live[e.ID+".jsonl"] {
 			continue
@@ -354,7 +354,7 @@ func logID(id string) bool {
 }
 
 func (d *dash) indexEntry(id string) (logIndex, bool) {
-	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID == id {
 			return e, true
@@ -387,7 +387,7 @@ func (d *dash) indexFile() string {
 
 func (d *dash) loadIndexed() map[string]bool {
 	out := map[string]bool{}
-	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID != "" {
 			out[e.ID] = true
@@ -436,7 +436,7 @@ func (d *dash) logs(w http.ResponseWriter, r *http.Request) {
 	out := []row{}
 	children := d.childStates()
 	roundOwner := map[string]int{}
-	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) == nil && e.ID != "" {
 			usd, _ := d.runCost(e.ID)

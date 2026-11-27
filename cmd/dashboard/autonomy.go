@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ func parseGateFile(name, kind, text string) (gateItem, bool) {
 		it.At = t.UTC().Format(time.RFC3339)
 	}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		key, val, ok := strings.Cut(line, ":")
 		if !ok || seen[key] {
 			continue
@@ -99,10 +100,8 @@ func resolveArtifact(state, recorded string) (string, bool) {
 	if recorded == "" || strings.ContainsRune(recorded, 0) {
 		return "", false
 	}
-	for _, p := range strings.Split(filepath.ToSlash(recorded), "/") {
-		if p == ".." {
-			return "", false
-		}
+	if slices.Contains(strings.Split(filepath.ToSlash(recorded), "/"), "..") {
+		return "", false
 	}
 	root, err := filepath.EvalSymlinks(state)
 	if err != nil {
@@ -138,8 +137,8 @@ func resolveReleasedArtifact(state, recorded string) (string, bool) {
 		return real, true
 	}
 	const from, to = "held/artifacts/", "held/released/artifacts/"
-	if i := strings.Index(recorded, from); i >= 0 {
-		return resolveArtifact(state, recorded[:i]+to+recorded[i+len(from):])
+	if before, after, ok := strings.Cut(recorded, from); ok {
+		return resolveArtifact(state, before+to+after)
 	}
 	return "", false
 }

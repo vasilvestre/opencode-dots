@@ -70,7 +70,7 @@ func towerIgnoreState(dir string) string {
 	if err != nil {
 		return "missing"
 	}
-	for _, line := range strings.Split(string(body), "\n") {
+	for line := range strings.SplitSeq(string(body), "\n") {
 		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
 			return ""
 		}
@@ -81,7 +81,7 @@ func towerIgnoreState(dir string) string {
 // repoPaths reads repos.map: one `owner/repo=/absolute/checkout` per line.
 func repoPaths(path string) map[string]string {
 	out := map[string]string{}
-	for _, line := range strings.Split(readFile(path, 1<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(path, 1<<20), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -128,12 +128,12 @@ func (d *dash) knownRepos() []string {
 			add(e.Repo)
 		}
 	}
-	for _, line := range strings.Split(readFile(filepath.Join(d.root, "tend.list"), 1<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(filepath.Join(d.root, "tend.list"), 1<<20), "\n") {
 		if fields := strings.Fields(line); len(fields) > 0 {
 			add(fields[0])
 		}
 	}
-	for _, line := range strings.Split(readFile(filepath.Join(d.root, "repos.map"), 1<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(filepath.Join(d.root, "repos.map"), 1<<20), "\n") {
 		if i := strings.IndexByte(line, '='); i > 0 {
 			add(line[:i])
 		}

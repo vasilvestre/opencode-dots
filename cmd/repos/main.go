@@ -363,7 +363,7 @@ func resolveDB(dir, dbPath string) string {
 
 func parseNumbers(list string) ([]int, error) {
 	var out []int
-	for _, part := range strings.Split(list, ",") {
+	for part := range strings.SplitSeq(list, ",") {
 		if part = strings.TrimSpace(part); part == "" {
 			continue
 		}

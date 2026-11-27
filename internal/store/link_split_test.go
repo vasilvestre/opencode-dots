@@ -170,7 +170,7 @@ func TestMigration7RebuildsLinkProposalAndKeepsItsRows(t *testing.T) {
 	if _, err := raw.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		if _, err := raw.Exec(migrations[i]); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
 		}

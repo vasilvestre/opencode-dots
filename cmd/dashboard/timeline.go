@@ -48,7 +48,7 @@ func (d *dash) runTimeline(w http.ResponseWriter, r *http.Request) {
 	open := map[string]*runStep{}
 	var started time.Time
 
-	for _, line := range strings.Split(readFile(path, 8<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(path, 8<<20), "\n") {
 		if line == "" {
 			continue
 		}

@@ -448,12 +448,7 @@ func setKey(top, block *yaml.Node, p reposPatch) error {
 }
 
 func isToggle(key string) bool {
-	for _, t := range toggles {
-		if t == key {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(toggles, key)
 }
 
 // profileEnables reports whether one of the block's `use` profiles switches the

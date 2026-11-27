@@ -96,7 +96,7 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 		f.Cost += usd
 	}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
+	for line := range strings.SplitSeq(readFile(d.indexFile(), 8<<20), "\n") {
 		var e logIndex
 		if json.Unmarshal([]byte(line), &e) != nil || e.ID == "" || seen[e.ID] {
 			continue
