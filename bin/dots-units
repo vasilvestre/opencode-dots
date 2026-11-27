@@ -57,7 +57,7 @@ masked() { [ -L "$dst/$1" ] && [ "$(readlink "$dst/$1")" = /dev/null ]; }
 role_units() {
   local u
   for u in $(units_for "$1"); do
-    masked "${u%.timer}.service" && continue
+    masked "${u%.*}.service" && continue
     if [ "$u" = dots-opencode.service ] && [ -e "$dst/opencode.service" ] && [ ! -e "$dst/dots-opencode.service" ]; then continue; fi
     # An opencode already serves the port (started by hand or by another unit): a second one would
     # exit at once and fail the install, so the manifest leaves opencode to whoever runs it.
@@ -112,7 +112,7 @@ cmd_install() {
   if [ "$dry" = 1 ]; then echo "  would write $HOME/.config/dots/role ($role)"; else echo "$role" >"$HOME/.config/dots/role"; fi
   local u
   for u in $list; do write_unit "$u"; done
-  for u in $(units_for "$role"); do masked "${u%.timer}.service" && echo "  $u is masked by you: left alone"; done
+  for u in $(units_for "$role"); do masked "${u%.*}.service" && echo "  $u is masked by you: left alone"; done
   run "$sc" --user daemon-reload
   local failed=""
   for u in $(enabled_for "$role"); do run "$sc" --user enable --now "$u" || failed="$failed $u"; done
@@ -156,7 +156,7 @@ cmd_status() {
   echo "role $role"
   want_enabled=$(enabled_for "$role")
   want_all=$(role_units "$role")
-  for u in $(units_for "$role"); do masked "${u%.timer}.service" && printf '  masked    %s (by you, left alone)\n' "$u"; done
+  for u in $(units_for "$role"); do masked "${u%.*}.service" && printf '  masked    %s (by you, left alone)\n' "$u"; done
   for u in $want_all; do
     if [ ! -e "$dst/$u" ]; then printf '  MISSING   %s\n' "$u"; bad=1; continue; fi
     if has "$want_enabled" "$u"; then
