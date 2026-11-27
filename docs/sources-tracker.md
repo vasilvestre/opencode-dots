@@ -76,12 +76,37 @@ project, so they are attacker-influenced data.
 - Flattening is not sanitising. The text may still contain markup, URLs and control
   characters.
 
+## Wired: `bin/jira-poll`
+
+Jira is read over its REST API, not through an MCP server or `jira-cli`: the poll is a
+deterministic shell step with no agent in it (ADR 0002), and the search response is exactly the
+shape this adapter parses. An MCP server needs an interactive OAuth sign-in and puts a model in
+the loop; `jira-cli --raw` prints its own structure, not the API's.
+
+```yaml
+repos:
+  acme/shop:
+    jira: ABC        # the Jira project whose tickets become work items of acme/shop
+```
+
+`make repos` writes `jira.list` (`ABC acme/shop`, gitignored). `bin/jira-poll` then, per line, runs
+`GET /rest/api/3/search/jql` for `project = ABC AND updated >= -7d` and pipes the answer to
+`bin/repos db ingest -source jira -repo acme/shop -project ABC`. The credentials come from the
+environment (`JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`), go to curl on stdin, and are never printed.
+`JIRA_LOOKBACK` (default `7d`) and `JIRA_MAX` (default 100) bound a poll.
+
+Only the tickets are recorded, one work item per `jira:ABC-12`. A ticket of another project in the
+answer is left out and named. A repeat adds nothing; an edit (a new `updated` stamp) replaces the
+payload and records `jira.changed`. Run it from a timer like `bin/advisories`
+(`docs/advisories.md`). Tests: `bin/test-jira-poll`, `go test ./internal/workitem`.
+
 ## Not done
 
-- No polling and no webhook endpoint: the caller supplies the bytes.
+- No webhook endpoint: the caller supplies the bytes (the poll covers the pull side).
+- Comments are parsed but not recorded as part of a poll; no classification or note yet.
+- No pagination beyond `JIRA_MAX`.
 - No write-back: nothing comments on or transitions a Jira issue. An internal note on
   the issue is a shell step, later (ADR 0002).
-- No authentication, pagination or JQL; no attachments, links between issues, sub-tasks
+- No attachments, links between issues, sub-tasks
   or sprint data.
-- No loading of the mapping from `repos.yaml`; the table is built by the caller.
 - Jira Server webhooks that use the v2 wiki markup are read as plain text, not parsed.

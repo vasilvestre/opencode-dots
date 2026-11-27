@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# bin/jira-poll against a fake curl and the search fixture of internal/sources/jira. No network,
+# no Jira: the repos.yaml, the state and the database live in a temporary directory.
+#
+#   bin/test-jira-poll
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+fx=$root/internal/sources/jira/testdata
+command -v jq >/dev/null || { echo "bin/test-jira-poll: jq is required" >&2; exit 2; }
+command -v go >/dev/null || { echo "bin/test-jira-poll: go is required to build bin/repos" >&2; exit 2; }
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+fail=0
+check() { local name=$1; shift; if "$@"; then echo "ok   $name"; else echo "FAIL $name"; fail=1; fi; }
+
+go build -o "$work/repos" ./cmd/repos || { echo "FAIL cannot build cmd/repos"; exit 1; }
+
+# A fake curl: logs its arguments and stdin (the credential config), then answers.
+mkdir -p "$work/fake"
+cat > "$work/curl" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE/argv"
+cat >> "$FAKE/stdin"
+if [ -f "$FAKE/fail" ]; then echo "curl: (22) denied https://user:hunter2@acme.atlassian.net" >&2; exit 22; fi
+cat "$FAKE/search.json"
+FAKE
+chmod +x "$work/curl"
+export FAKE=$work/fake JIRA_CURL=$work/curl
+
+proj=$work/proj; mkdir -p "$proj"
+cat > "$proj/repos.yaml" <<YAML
+version: 1
+repos:
+  acme/app:
+    jira: ABC
+  acme/plain:
+    review: true
+YAML
+"$work/repos" generate -dir "$proj" > "$work/generate.out" 2>&1 || { cat "$work/generate.out"; echo "FAIL generate"; exit 1; }
+check "jira.list maps the project to its repository" grep -qx 'ABC acme/app' "$proj/jira.list"
+! grep -q 'acme/plain' "$proj/jira.list" || { echo "FAIL plain repository listed"; fail=1; }
+
+export STATE_DIR=$work/state JIRA_LIST=$proj/jira.list REPOS_BIN=$work/repos \
+  JIRA_URL=https://acme.atlassian.net JIRA_EMAIL=bot@acme.test JIRA_API_TOKEN=tok_notforprinting
+"$work/repos" db import -dir "$proj" > /dev/null || { echo "FAIL db import"; exit 1; }
+run() { out=$(bin/jira-poll 2>&1); rc=$?; }
+
+cp "$fx/search.json" "$FAKE/search.json"
+run
+check "first poll exits 0" test "$rc" = 0
+check "first poll: one new ticket" grep -q 'ABC -> acme/app: 1 new, 0 changed, 0 seen' <<<"$out"
+check "the ticket of another project is named and left out" grep -q 'ZZZ-3' <<<"$out"
+check "the query is for the mapped project" grep -q 'project%20%3D%20ABC\|project = ABC' "$FAKE/argv"
+check "the credential went through stdin, not argv" bash -c '! grep -q tok_notforprinting "$1"' _ "$FAKE/argv"
+check "the credential did reach curl" grep -q tok_notforprinting "$FAKE/stdin"
+check "no token is printed" bash -c '! grep -q tok_notforprinting <<<"$1"' _ "$out"
+
+run
+check "repeat: seen, nothing new" grep -q '0 new, 0 changed, 1 seen' <<<"$out"
+
+sed -i 's/11:15:30.456/13:00:00.000/' "$FAKE/search.json"
+run
+check "an edit is a change" grep -q '0 new, 1 changed, 0 seen' <<<"$out"
+
+touch "$FAKE/fail"
+run
+check "a failing search exits 1" test "$rc" = 1
+check "a failing search names the project and masks credentials" bash -c 'grep -q "ABC: search failed" <<<"$1" && ! grep -q hunter2 <<<"$1"' _ "$out"
+rm -f "$FAKE/fail"
+
+check "no credentials: exit 1" bash -c 'unset JIRA_API_TOKEN; ! bin/jira-poll >/dev/null 2>&1'
+check "no list: exit 0" bash -c 'JIRA_LIST=/nonexistent bin/jira-poll >/dev/null 2>&1'
+
+[ "$fail" = 0 ] && echo "all ok" || { echo "FAILED"; exit 1; }

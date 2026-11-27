@@ -55,4 +55,5 @@ carried as data and never read for references or commands.
 ## Wired end to end
 
 The advisory source is wired: `bin/advisories` feeds the adapter, `bin/repos db ingest` records the
-work items, and a classification and a note follow. See `docs/advisories.md`. Sentry and Jira are not.
+work items, and a classification and a note follow. See `docs/advisories.md`. Jira is wired as far as the work item: `bin/jira-poll`
+(`docs/sources-tracker.md`). Sentry is not.

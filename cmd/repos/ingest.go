@@ -19,19 +19,20 @@ const maxIngest = 16 << 20
 
 // dbIngest holds the flags of `repos db ingest`.
 type dbIngest struct {
-	Source string // only "advisory"
-	Repo   string
-	Lock   string // optional composer.lock, for the installed versions
-	Floor  string // optional classify-floor.txt (default: <dir>/workflows/data/classify-floor.txt)
-	JSON   bool   // one JSON object per line instead of a tab separated line
+	Source  string // "advisory" or "jira"
+	Project string // jira: the Jira project key of the report
+	Repo    string
+	Lock    string // optional composer.lock, for the installed versions
+	Floor   string // optional classify-floor.txt (default: <dir>/workflows/data/classify-floor.txt)
+	JSON    bool   // one JSON object per line instead of a tab separated line
 }
 
 // ingestCommand reads one source report on in and records it as work items of Repo
 // (ADR 0039). It prints one line per advisory: status (new, seen, changed), reference,
 // level, severity and package names, or the JSON of the result with -json.
 func ingestCommand(ctx context.Context, st *store.Store, in io.Reader, out, errOut io.Writer, dir, workspace string, f dbIngest) error {
-	if f.Source != "advisory" {
-		return fmt.Errorf("repos db ingest: -source must be advisory, got %q", f.Source)
+	if f.Source != "advisory" && f.Source != "jira" {
+		return fmt.Errorf("repos db ingest: -source must be advisory or jira, got %q", f.Source)
 	}
 	if f.Repo == "" {
 		return errors.New("repos db ingest: -repo OWNER/REPO is required")
@@ -42,6 +43,9 @@ func ingestCommand(ctx context.Context, st *store.Store, in io.Reader, out, errO
 	}
 	if len(raw) > maxIngest {
 		return fmt.Errorf("repos db ingest: input is larger than %d bytes", maxIngest)
+	}
+	if f.Source == "jira" {
+		return ingestJira(ctx, st, raw, out, errOut, workspace, f)
 	}
 	var lock []byte
 	if f.Lock != "" {
@@ -90,4 +94,32 @@ func oneLine(s string) string {
 		}
 		return r
 	}, s)), " ")
+}
+
+// ingestJira records the issues of one search-issues response (docs/sources-tracker.md). It
+// prints one line per issue: status (new, seen, changed), reference and summary, or the JSON of
+// the result with -json.
+func ingestJira(ctx context.Context, st *store.Store, raw []byte, out, errOut io.Writer, workspace string, f dbIngest) error {
+	if f.Project == "" {
+		return errors.New("repos db ingest: -project KEY is required for -source jira")
+	}
+	results, leftOut, err := workitem.IngestJira(ctx, st, workspace, f.Repo, f.Project, raw)
+	if leftOut != nil {
+		fmt.Fprintln(errOut, "repos: left out:", oneLine(leftOut.Error()))
+	}
+	for _, r := range results {
+		if f.JSON {
+			b, merr := json.Marshal(r)
+			if merr != nil {
+				return merr
+			}
+			fmt.Fprintf(out, "%s\n", b)
+			continue
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\n", r.Outcome, r.Ref, r.Summary)
+	}
+	if errors.Is(err, workitem.ErrUnknownProject) {
+		return fmt.Errorf("%w (run `repos db import` first)", err)
+	}
+	return err
 }

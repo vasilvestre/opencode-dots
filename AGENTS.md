@@ -49,7 +49,7 @@ state/         runtime state, gitignored: reviews, replies, tend, logs, clones
 | Which repositories, and what the dot does on each | `repos.yaml` (copy `repos.example.yaml`) | source of truth, see ADR 0022 and `internal/repos/AGENTS.md` |
 | Autonomy ceiling at publishing steps | `bin/publish-gate`, `docs/autonomy.md` | optional `autonomy` input, empty stays legacy |
 | Classify a work item (level 1, 2, 3) | `workflows/_classify-item.yaml`, `docs/classification.md` | hidden, posts nothing |
-| Work source adapters | `internal/sources`, `docs/sources.md` | not wired to a watcher yet |
+| Work source adapters | `internal/sources`, `docs/sources.md` | advisory: `bin/advisories`; jira: `bin/jira-poll`; sentry not wired |
 | Run untrusted steps in a container | `bin/sandbox-run`, `bin/patch-guard`, `docs/runner.md` | not wired to a workflow yet |
 | Debug a failed run | `bin/dots show last`, `docs/debug.md` | `internal/runlog` reads state/logs and transcripts |
 | Is the dot alive | `cmd/health`, `docs/health.md` | `make health` |

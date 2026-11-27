@@ -64,7 +64,8 @@ func main() {
 	linked := fs.String("linked", "", "db observe: issue numbers GitHub links to the pull request, comma separated")
 	fs.StringVar(&ev.Repo, "repo", "", "db observe, db work-items, db ingest: the repository")
 	var ing dbIngest
-	fs.StringVar(&ing.Source, "source", "", "db ingest: the source of the report on stdin (advisory)")
+	fs.StringVar(&ing.Source, "source", "", "db ingest: the source of the report on stdin (advisory, jira)")
+	fs.StringVar(&ing.Project, "project", "", "db ingest -source jira: the Jira project key of the report")
 	fs.StringVar(&ing.Lock, "lock", "", "db ingest: the composer.lock whose installed versions classify the advisories")
 	fs.StringVar(&ing.Floor, "floor", "", "db ingest: the sensitive vocabulary file (default <dir>/workflows/data/classify-floor.txt)")
 	fs.BoolVar(&ing.JSON, "json", false, "db ingest: print one JSON object per advisory")
@@ -141,6 +142,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       repos db import|export|check|list|work-items [-dir DIR] [-db FILE] [-workspace NAME] [-prune]")
 	fmt.Fprintln(os.Stderr, "       repos db observe -repo R -kind K -number N -actor LOGIN [-branch B] [-linked 12,13] [-title T]")
 	fmt.Fprintln(os.Stderr, "       repos db ingest -source advisory -repo R [-lock composer.lock] [-json] < composer-audit.json")
+	fmt.Fprintln(os.Stderr, "       repos db ingest -source jira -repo R -project KEY [-json] < jira-search.json")
 	fmt.Fprintln(os.Stderr, "       repos db claim -actor LOGIN -machine M (-work-item ID | -ref REF) [-branch B] [-ttl 90s]")
 	fmt.Fprintln(os.Stderr, "       repos db heartbeat|release -claim ID    repos db claims -work-item ID")
 	fmt.Fprintln(os.Stderr, "       repos db worker register -name N -machine M [-capabilities JSON] [-ttl 90s]   heartbeat|expire -name N   list")
