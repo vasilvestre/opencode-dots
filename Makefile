@@ -8,7 +8,7 @@ COMPOSE ?= docker compose
 # local clone is the only source.
 AWF_GH_SRC ?= $(HOME)/projects/oss/awf-gh
 
-.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests ci
+.PHONY: configure need-configure build image validate adr check up down logs awf-gh dashboard health lint repos deploy-test deploy-offline-test shim-test workspace-test held-test watchers-test tend-test propose-links-test script-tests ci
 
 configure: ## choose local or image for opencode, awf, gh, awf-gh and (optional) claude; writes .env
 	bin/configure
@@ -58,7 +58,11 @@ script-tests: ## run bin/test-publish-gate, bin/test-classify, bin/test-sandbox,
 	bin/test-dot-sign
 	bin/test-budget
 
+deploy-offline-test: ## test mcp.sh, skills.sh and the opencode config offline (no docker, no network)
+	deploy/test/offline.sh
+
 deploy-test: ## run the deploy scripts in a Debian 13 container (needs docker and the network)
+	deploy/test/offline.sh
 	deploy/test/run.sh
 
 validate: adr ## parse every workflow and stop on the first failure
@@ -109,4 +113,5 @@ ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
 	test/tend.sh
 	test/propose-links.sh
 	$(MAKE) script-tests
+	deploy/test/offline.sh
 	deslop-please ./...

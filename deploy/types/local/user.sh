@@ -151,6 +151,11 @@ opencode_config() {
   fi
   printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "experimental": { "location_idle_timeout": "%s" }\n}\n' "$idle" >"$conf/opencode.jsonc"
   log "opencode config: idle locations are unloaded after $idle"
+  # The memory MCP, only when the binary is there (push.sh --tower). mcp.sh does the same later.
+  if [ -x "$HOME/.local/bin/tower" ]; then
+    merge_tower_mcp "$conf/opencode.jsonc" >/dev/null || die "could not add the tower MCP to $conf/opencode.jsonc"
+    log "opencode config: tower MCP added"
+  fi
 }
 
 start_services() {
