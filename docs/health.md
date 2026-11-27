@@ -13,7 +13,7 @@ bin/health --json     # machine summary: {"overall": "...", "checks": [...]}
 | Check | Fails or warns when |
 | --- | --- |
 | `awf` | `GET $AWF_URL/api/workflows` does not answer (default `http://127.0.0.1:2511`). Critical. |
-| `executor <name>` | an executor of `repos.yaml` (`settings.executors`) does not answer. |
+| `executor <name>` | an executor of `repos.yaml` (`settings.executors`) does not answer. With the job queue the executor is the dashboard, which always answers: this check does not say that a worker is connected (a job that waits too long is not reported yet). |
 | `github token` | `GH_TOKEN` (environment, then `.env`) is missing or refused (critical); warns under 7 days left, read from the `github-authentication-token-expiration` header, when GitHub sends it; warns when GitHub is unreachable. |
 | `unit <name>` | an enabled systemd user unit of the project is not `active`. Skipped when there is no user systemd. |
 | `state dir` | `STATE_DIR` is not writable. Critical. |

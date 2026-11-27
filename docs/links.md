@@ -1,6 +1,6 @@
 # Link proposals
 
-ADR 0041, first step (the ADR stays `proposed`). A workflow may notice that two work items are one
+ADR 0041, first step (accepted: a proposal with a person's confirmation is the only mode). A workflow may notice that two work items are one
 piece of work, a GitHub issue and a Jira ticket for instance. It writes a **proposal**. A person
 accepts or declines it, and can split an accepted one again. Nothing is linked, merged or written to a
 tracker until a person accepts, and there is no automatic mode.

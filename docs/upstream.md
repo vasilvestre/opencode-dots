@@ -1,6 +1,6 @@
 # Reporting to upstream repositories
 
-ADR 0043 (proposed; `auto` as the minimum is settled). The dot can create an issue on a repository it
+ADR 0043 (accepted: `auto` is the minimum ceiling, and the visible "filed by an automated agent" line is mandatory). The dot can create an issue on a repository it
 depends on when a workflow meets a defect there. It is off unless a repository lists upstreams, so a
 configuration without the key behaves exactly as before.
 

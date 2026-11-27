@@ -1,6 +1,6 @@
 # Classification
 
-Status: built for ADR 0040, which is still proposed. `fix-issue` calls it when a
+Status: built for ADR 0040 (accepted). `fix-issue` calls it when a
 repository has an autonomy ceiling; nothing else does yet.
 
 `workflows/_classify-item.yaml` rates one work item after reading it. It is

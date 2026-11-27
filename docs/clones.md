@@ -29,9 +29,8 @@ never answers the same comment twice. To replay one on purpose, drop its key
 and let the next run see it again:
 
 ```bash
-docker compose --profile jobs run --rm awf-gh \
-  awf-gh --config /work/awf-gh.yaml --forget 7086166143
-systemctl --user start dots-awf-gh.service
+bin/awf-gh --config awf-gh.yaml --forget 7086166143   # natively; in Docker: docker compose --profile jobs run --rm awf-gh awf-gh --config /work/awf-gh.yaml --forget ...
+bin/tick run awf-gh                                    # a polling pass now (the `awf-gh` task of bin/tick)
 ```
 
 `--forget` matches any part of a key, so a comment id or `owner/repo#42` both

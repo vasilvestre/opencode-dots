@@ -1,6 +1,6 @@
 # Audit of dashboard writes
 
-ADR 0037, first step. Every write the dashboard serves leaves one row in the `audit` table of
+ADR 0037 (accepted; roles beyond owner and visitor are not built). Every write the dashboard serves leaves one row in the `audit` table of
 the control-plane database (`state/dots.db`, see `docs/store.md`). It records, it never refuses:
 there is no role check and no behaviour change.
 
@@ -53,7 +53,7 @@ The first write creates `state/dots.db` when it does not exist yet.
 
 ## Visitors signed in with GitHub
 
-With GitHub sign-in on (`docs/dashboard-auth.md`, ADR 0044) the caller of a visitor's request is the
+With GitHub sign-in on (`docs/dashboard-auth.md`, ADR 0046) the caller of a visitor's request is the
 GitHub login of their session, and a request that is not signed in is recorded under its tailnet
 login, or `anonymous`. Besides writes, the log then holds a completed sign-in, a visitor's refused
 read of an owner-only page, and a visitor's reads of data endpoints (one row per login, path and

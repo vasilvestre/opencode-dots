@@ -1,6 +1,6 @@
 # Dashboard sign-in with GitHub
 
-ADR 0044 and ADR 0046. A person who reaches the dashboard through the tailnet signs in with GitHub and
+ADR 0046 (it replaces ADR 0044: the visitor brings their own GitHub token). A person who reaches the dashboard through the tailnet, or through the team port over SSH ([team-ui.md](team-ui.md)), signs in with GitHub and
 sees only the repositories where GitHub gives them at least the configured permission (`push` by default). It is off unless you give the dashboard a
 GitHub OAuth client id; with it off the dashboard behaves exactly as before.
 

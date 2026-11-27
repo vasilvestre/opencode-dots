@@ -1,8 +1,11 @@
 # Workers
 
-ADR 0042, first step: presence only. A worker is a machine that tells this instance it exists and
-keeps saying so. The instance sends it nothing: there is no task pulling, no protocol and no
-authentication yet, so a worker listed here cannot do anything.
+ADR 0042, first step: presence only. This page is about the **presence registry**: a machine tells this instance
+it exists and keeps saying so, and the dashboard's Workers card lists what the registry holds.
+
+Workers that **run jobs** are a different, later piece: they pull from the job queue with a revocable token and
+report results ([ADR 0048](../ADR/0048-workers-pull-jobs-from-a-queue.md), [remote.md](remote.md)). They do not appear
+in this registry: the queue knows them by their token's label (`bin/worker-token list`, `GET /api/queue`).
 
 ```bash
 bin/repos db worker register  -name ada-laptop -machine ada-laptop -capabilities '{"models":["local"]}' [-ttl 90s]

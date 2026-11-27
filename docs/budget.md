@@ -1,6 +1,6 @@
 # Daily budget
 
-ADR 0036, first step. A cap in USD on what the dot may spend in one UTC day on a repository.
+ADR 0036 (accepted for this first step; a payer, a monthly view and a per-person cap are not decided). A cap in USD on what the dot may spend in one UTC day on a repository.
 Once the repository's runs have cost that much, the dot stops what spends or publishes code on
 its own until the next day. It is opt-in: a configuration without the `budget` key is not capped,
 reads nothing and generates the same files and the same workflow inputs as before.

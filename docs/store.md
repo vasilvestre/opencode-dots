@@ -42,8 +42,9 @@ An event creates a work item when none of its references is known, attaches the 
 to the one work item that holds any of them, and fails with a conflict, attaching nothing, when they
 belong to two (a merge is explicit, ADR 0023). Observing the same event again changes nothing.
 
-Nothing calls `observe` yet: `awf-gh` is a separate project, so a workflow's shell step is the place
-to call it, once the owner chooses to.
+`bin/claim` calls `observe` when a claim starts, and the source adapters do when they ingest
+(`bin/repos db ingest`, docs/sources.md). `awf-gh` is a separate project and does not, so a workflow's shell step is the
+place to call it where an event should become a work item.
 
 ## Generating from the database
 

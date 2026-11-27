@@ -23,9 +23,9 @@ bin/workspace inbox owner/repo                 bin/workspace release            
 bin/workspace archive                          bin/workspace sync                  # pull, install, release
 ```
 
-`systemd/dots-workspace-sync.{service,timer}` run `sync` every fifteen minutes. Copy
-`dots-workspace.env.example` to `~/.config/dots/workspace.env` first; `deploy/types/local/user.sh`
-installs and enables the timer when that file exists. `dots-tend.service` reads the same file, so
+The `workspace-sync` task of `bin/tick` ([units.md](units.md)) runs `sync` every fifteen minutes. Copy
+`dots-workspace.env.example` to `~/.config/dots/workspace.env` first; the task does nothing while that file is
+missing (`bin/tick run workspace-sync` runs it now). `dots-tend.service` reads the same file, so
 `bin/tend` publishes what the pass learned (writer) or installs what another machine published
 (reader) at the end of a pass.
 

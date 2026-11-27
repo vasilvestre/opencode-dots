@@ -7,17 +7,12 @@ label. Both are never fatal, and `autonomy: observe` writes nothing.
 It is a signal for people. It is not a lock and no dot reads it (ADR 0045: dots do not talk).
 A branch veto is still `bin/claim` (ADR 0026).
 
-## Task on one machine, watch on another (ADR 0031)
+## Who took it
 
-The server watches GitHub and sends each event to the `awf serve` of the machine named by the
-repository's `executor`. From the workstation:
+On a team's server the watcher queues each event and a worker claims it ([remote.md](remote.md),
+[executors.md](executors.md)): the claim is what says which machine took the work, and the dashboard's Activity
+view shows the worker. The label is for the people looking at the pull request.
 
-```bash
-make executor-tunnel SERVER=user@host    # server 127.0.0.1:2512 -> local awf serve 2511
-```
-
-On the server `repos.yaml` has `settings.executors.workstation: http://127.0.0.1:2512` and the
-repository says `executor: workstation`. With the tunnel closed the event is not marked seen,
-so it is retried on the next pass.
+Only `review-pr` sets the label today; `reply-pr`, `fix-issue` and `fix-ci` do not yet.
 
 Test: `bin/test-pickup`.

@@ -1,8 +1,8 @@
 # Workflows
 
-Six workflows live in `workflows/`. Each one is a small state machine that
-`awf` runs to completion. You can run any of them by hand; the timers only
-decide when.
+The workflows live in `workflows/`. Each one is a small state machine that `awf` runs to completion. You can run any
+of them by hand; `awf-gh`, `bin/tend` and the dashboard decide when. On a team's server they reach a worker through the
+job queue ([remote.md](remote.md)) instead of running where they are triggered.
 
 | Workflow | Trigger | Spends an agent pass | Can push code |
 | --- | --- | --- | --- |
@@ -12,10 +12,13 @@ decide when.
 | `fix-issue` | `awf-gh`, on `issue-labeled` | yes, one per issue | yes, one branch per issue |
 | `fix-ci` | `awf-gh`, on `checks-failed` | yes, one per red commit | yes, on your own pull request branch |
 | `ask-pr` | the Ask button on a pull request card | yes, one per message | no |
+| `publish-held` | the Release button, or by hand | no | what the held record says, once a person releases it ([publish-held.md](publish-held.md)) |
+| `file-upstream` | `tend-repo`, or by hand | yes | no: it files an issue on an upstream repository ([upstream.md](upstream.md)) |
 
-A hidden workflow, `_classify-item`, is not in this table: another workflow
-calls it, or you run it by hand. It rates one work item 1, 2 or 3 and posts
-nothing. See `docs/classification.md`.
+Hidden workflows (a name starting with `_`) are not in this table: another workflow calls them, or you run one by
+hand. `_classify-item` rates one work item 1, 2 or 3 and posts nothing ([classification.md](classification.md)).
+`_propose-links` writes a link proposal between two work items ([links.md](links.md)). `_fix-issue-owned` and
+`_fix-issue-external` are the two paths of `fix-issue`.
 
 Every workflow reads `STATE_DIR` from the environment. With `opencode=local`
 that is an absolute host path, because the local opencode server resolves paths
@@ -35,6 +38,25 @@ step runs `bin/publish-gate` when the input is set, and a declined action exits
 0 without publishing. An empty input never calls the script, so the workflow
 behaves as it did before the gate. `tend-repo` passes its value to the nested
 `review-pr` run. Details and exit codes: `docs/autonomy.md`.
+
+## Inputs the generator fills
+
+`bin/repos generate` hands each rule the inputs of the features a repository turned on in `repos.yaml`
+([repos.md](repos.md)); a workflow that does not declare an input ignores it. The ones that guard a publication:
+
+| Input | Feature | What it does |
+| --- | --- | --- |
+| `autonomy` | `autonomy` | the ceiling: `observe`, `propose`, `act`, `auto` ([autonomy.md](autonomy.md)) |
+| `budget` | `budget` | a daily USD cap on autonomous actions ([budget.md](budget.md)) |
+| `identity` | `identity` | whether the dot marks what it writes ([identity.md](identity.md)) |
+| `sandbox` | `sandbox` | base64 of the repository's `sandbox` block: before a push, the patch guard and an optional container test ([runner.md](runner.md)) |
+| `upstream` | `upstream` | the repositories the dot may file issues on ([upstream.md](upstream.md)) |
+| `provider` and the `*_model` inputs | `provider`, the presets | the agent CLI and the model of each agent step (below) |
+
+All of them go through `bin/publish-gate`, which also refuses everything while an emergency stop applies
+([pause.md](pause.md)). `review-pr` also puts a `dots:working` label on the pull request while it runs and takes it off when it ends,
+whichever way ([pickup.md](pickup.md)); the other workflows do not yet. The gate's `sandbox` check covers all four
+pushing workflows (`review-pr`, `reply-pr`, `fix-ci`, `fix-issue`).
 
 ## `_classify-item`
 

@@ -52,8 +52,10 @@ use one dot is not decided.
   own network or an SSH bastion (ADR 0029). Do not put a colleague on the owner's personal tailnet.
 - **Which repositories.** Personal and client work sit on different servers (ADR 0029). Nothing of a
   client goes through the personal one.
-- **Which models see the code.** A repository can carry a trust level (ADR 0032), proposed, not
-  built. Until it exists, ask the owner which models a repository uses.
+- **Which models see the code.** A repository carries a trust level (ADR 0032, 0050): from
+  `client` up its models must come from a zero data retention provider the owner declared, on machines in Europe, and
+  `private` and `strict` repositories use only models the owner hosts (see `docs/repos.md`, `repos.example.yaml`).
+  The generator checks what the owner wrote, not the contract behind it.
 - **Whose credentials.** A personal Claude subscription is not shared. Each person brings their own,
   or the team gets API keys.
 
