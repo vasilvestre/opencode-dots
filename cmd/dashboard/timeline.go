@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -418,6 +419,19 @@ func (d *dash) replay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := replayRun{Inputs: map[string]string{}, Source: "none"}
+	if j, ok := d.queuedJob(id); ok {
+		// A run a worker did has no log here, but the queue kept what it was given.
+		out.Workflow, out.Scope, out.Source = j.Workflow, j.Scope, "queue"
+		for k, v := range j.Inputs {
+			if str, isStr := v.(string); isStr {
+				out.Inputs[k] = str
+			} else {
+				out.Inputs[k] = fmt.Sprint(v)
+			}
+		}
+		writeJSON(w, out)
+		return
+	}
 	if entry, ok := d.indexEntry(id); ok {
 		out.Workflow = entry.WorkflowName
 	}

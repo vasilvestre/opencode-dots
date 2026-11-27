@@ -493,7 +493,7 @@ export function mountActivity(el) {
           title: e.logId ? "Steps, timing and log of this run" : e.executor ? `The log of this run is on ${e.executor}` : "No log recorded for this run",
           onclick: () => showLog(e),
         }, "Details"),
-        h("button", { class: "btn ghost sm", disabled: !!e.executor, title: e.executor ? `Replay from ${e.executor}` : `Run ${e.workflow_name} again`, onclick: () => replay(e) }, "Replay"),
+        h("button", { class: "btn ghost sm", disabled: !!e.executor && !e.replayable, title: e.executor && !e.replayable ? `Replay from ${e.executor}` : `Run ${e.workflow_name} again`, onclick: () => replay(e) }, "Replay"),
       ),
     )));
   }
@@ -535,6 +535,7 @@ export function mountActivity(el) {
     openRunModal({
       scope: info.scope,
       name: info.workflow,
+      queue: !!entry.replayable, // a run a worker did is run again through the queue, not on this awf
       inputs: detail.Inputs || [],
       prefill,
       note,

@@ -250,3 +250,48 @@ func TestWorkerRunsCountInUsageAndHomeAndStayScoped(t *testing.T) {
 		t.Fatalf("unpriced grew by %d, want 1", got)
 	}
 }
+
+// The Replay button of the Activity view was dead for every run a worker did: it was disabled for
+// anything an executor ran, and the server had no log to read the inputs back from. The queue
+// keeps what each run was given, so Replay must return it and say the run goes back through the
+// queue. These tests keep both halves.
+func TestReplayOfAWorkersRunReadsTheQueueNotALog(t *testing.T) {
+	r := workerRig(t)
+	ada, _ := issueToken(t, r, `{"label":"ada"}`)
+	body := `{"inputs":{"repo":"` + openRepo + `","pr":"7","sha":"abc","dry_run":false,"rounds":3}}`
+	rec := ask(r.h, "POST", "/queue/api/workflows/local/review-pr/run", "owner", "", body)
+	var enq struct {
+		Body struct {
+			ID string `json:"execution_id"`
+		}
+	}
+	json.Unmarshal(rec.Body.Bytes(), &enq)
+	workerDo(r, "POST", "/api/jobs/"+enq.Body.ID+"/claim", ada, "")
+	workerDo(r, "POST", "/api/jobs/"+enq.Body.ID+"/finish", ada, `{"status":"done"}`)
+
+	rep := r.owner("/api/replay?id=" + enq.Body.ID)
+	var got replayRun
+	json.Unmarshal(rep.Body.Bytes(), &got)
+	if rep.Code != 200 || got.Source != "queue" || got.Workflow != "review-pr" || got.Scope != "local" {
+		t.Fatalf("replay = %d %+v", rep.Code, got)
+	}
+	if got.Inputs["repo"] != openRepo || got.Inputs["pr"] != "7" || got.Inputs["dry_run"] != "false" || got.Inputs["rounds"] != "3" {
+		t.Fatalf("inputs = %v: every input must come back, as text", got.Inputs)
+	}
+
+	var hist struct {
+		Body struct{ Entries []map[string]any }
+	}
+	json.Unmarshal(r.owner("/queue/api/history").Body.Bytes(), &hist)
+	if len(hist.Body.Entries) != 1 || hist.Body.Entries[0]["replayable"] != true {
+		t.Fatalf("a worker's run must be marked replayable, or the button stays disabled: %v", hist.Body.Entries)
+	}
+	// What Replay submits goes back through the queue, and a worker can take it.
+	again := ask(r.h, "POST", "/queue/api/workflows/local/review-pr/run", "owner", "", `{"inputs":{"repo":"`+openRepo+`","pr":"7"}}`)
+	if again.Code != 202 || len(pendingIDs(t, r, ada)) != 1 {
+		t.Fatalf("replayed run = %d, pending %v", again.Code, pendingIDs(t, r, ada))
+	}
+	if got := r.owner("/api/replay?id=job-unknown&workflow=review-pr"); got.Code != 200 {
+		t.Fatalf("an id the queue does not know falls back to the log path, got %d", got.Code)
+	}
+}

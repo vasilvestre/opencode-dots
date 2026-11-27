@@ -210,7 +210,7 @@ func (d *dash) queueExecutions(w http.ResponseWriter, r *http.Request) {
 	for _, j := range d.queue.All() {
 		if j.State == jobs.Pending || j.State == jobs.Taken {
 			list = append(list, map[string]any{"execution_id": j.ID, "workflow_name": j.Workflow, "status": awfStatus(j.State),
-				"started_at": j.Created.Format(time.RFC3339Nano), "updated_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By})
+				"started_at": j.Created.Format(time.RFC3339Nano), "updated_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By, "replayable": true})
 		}
 	}
 	writeJSON(w, map[string]any{"body": map[string]any{"executions": list}})
@@ -224,7 +224,7 @@ func (d *dash) queueHistory(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		e := map[string]any{"id": j.ID, "execution_id": j.ID, "workflow_name": j.Workflow, "status": awfStatus(j.State),
-			"started_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By, "note": j.Note, "cost": j.Cost}
+			"started_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By, "note": j.Note, "cost": j.Cost, "replayable": true}
 		if !j.Finished.IsZero() {
 			e["completed_at"] = j.Finished.Format(time.RFC3339Nano)
 			e["duration_ms"] = j.Finished.Sub(j.Created).Milliseconds()
@@ -250,4 +250,17 @@ func (d *dash) queueSpend() []jobs.Job {
 		}
 	}
 	return out
+}
+
+// queuedJob is the job with that id, when the queue knows it.
+func (d *dash) queuedJob(id string) (jobs.Job, bool) {
+	if d.queue == nil || !strings.HasPrefix(id, "job-") {
+		return jobs.Job{}, false
+	}
+	for _, j := range d.queue.All() {
+		if j.ID == id {
+			return j, true
+		}
+	}
+	return jobs.Job{}, false
 }

@@ -1,12 +1,12 @@
 import { h, mount } from "./dom.js";
-import { awf, getJSON } from "./api.js";
+import { awf, getJSON, request } from "./api.js";
 import { toast } from "./toast.js";
 import { openModal } from "./modal.js";
 
 // Collects the inputs of a workflow and starts it. Used by the editor and by
 // the Replay action on a finished run, so both start a run the same way and
 // both leave the same record behind for the next replay.
-export function openRunModal({ scope, name, inputs, prefill = {}, note = "", onStarted }) {
+export function openRunModal({ scope, name, inputs, prefill = {}, note = "", queue = false, onStarted }) {
   let closeFn = () => {};
   const repoList = h("datalist", { id: "run-repos" });
   const isRepo = (input) => /^repos?(itory)?$/i.test(input.Name);
@@ -103,12 +103,15 @@ export function openRunModal({ scope, name, inputs, prefill = {}, note = "", onS
       else values[input.Name] = raw;
     }
     try {
-      const res = await awf(`/api/workflows/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/run`, {
+      const runPath = `/api/workflows/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/run`;
+      const opts = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ inputs: values }),
         timeout: 30000,
-      });
+      };
+      // A run a worker did is run again through the queue: this machine's awf would not hold it.
+      const res = await (queue ? request(`/queue${runPath}`, opts) : awf(runPath, opts));
       const id = res.body?.execution_id || "";
       rememberRun(id, { scope, name, inputs: values });
       close();
