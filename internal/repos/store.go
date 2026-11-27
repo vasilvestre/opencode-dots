@@ -6,11 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"slices"
-
-	"gopkg.in/yaml.v3"
 
 	"opencode-dots/internal/store"
 )
@@ -148,68 +145,7 @@ func ExportYAML(ctx context.Context, st *store.Store, workspace string) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	root := &yaml.Node{Kind: yaml.MappingNode}
-	put := func(m *yaml.Node, key string, value *yaml.Node) {
-		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
-	}
-	scalar := func(tag, v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: v} }
-	put(root, "version", scalar("!!int", "1"))
-	if settings := settingsNode(doc.Settings); settings != nil {
-		put(root, "settings", settings)
-	}
-	repos := &yaml.Node{Kind: yaml.MappingNode}
-	for _, e := range doc.Repos {
-		put(repos, e.Name, featureNode(e.Config))
-	}
-	put(root, "repos", repos)
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), enc.Close()
-}
-
-func settingsNode(s Settings) *yaml.Node {
-	m := map[string]any{}
-	if s.AwfURL != "" {
-		m["awf_url"] = s.AwfURL
-	}
-	if s.StatePath != "" {
-		m["state_path"] = s.StatePath
-	}
-	if s.MaxPerRun > 0 {
-		m["max_per_run"] = s.MaxPerRun
-	}
-	if len(s.Executors) > 0 {
-		m["executors"] = s.Executors
-	}
-	if len(m) == 0 {
-		return nil
-	}
-	var n yaml.Node
-	if err := n.Encode(m); err != nil {
-		return nil
-	}
-	return &n
-}
-
-// featureNode renders one repository's features. An empty mapping is a feature switched
-// on with no options, which is written as `true`.
-func featureNode(features map[string]any) *yaml.Node {
-	m := &yaml.Node{Kind: yaml.MappingNode}
-	keys := slices.Sorted(maps.Keys(features))
-	for _, k := range keys {
-		var v yaml.Node
-		if block, ok := features[k].(map[string]any); ok && len(block) == 0 {
-			_ = v.Encode(true)
-		} else if err := v.Encode(features[k]); err != nil {
-			_ = v.Encode(fmt.Sprint(features[k]))
-		}
-		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: k}, &v)
-	}
-	return m
+	return doc.Marshal()
 }
 
 // DiffStoreAndFile builds the generated files from the database and from the file and

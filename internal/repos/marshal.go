@@ -2,6 +2,9 @@ package repos
 
 import (
 	"bytes"
+	"fmt"
+	"maps"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -66,6 +69,23 @@ func dropEmpty(m map[string]any) map[string]any {
 				delete(m, k)
 			}
 		}
+	}
+	return m
+}
+
+// featureNode renders one repository's features. An empty mapping is a feature switched
+// on with no options, which is written as `true`.
+func featureNode(features map[string]any) *yaml.Node {
+	m := &yaml.Node{Kind: yaml.MappingNode}
+	keys := slices.Sorted(maps.Keys(features))
+	for _, k := range keys {
+		var v yaml.Node
+		if block, ok := features[k].(map[string]any); ok && len(block) == 0 {
+			_ = v.Encode(true)
+		} else if err := v.Encode(features[k]); err != nil {
+			_ = v.Encode(fmt.Sprint(features[k]))
+		}
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: k}, &v)
 	}
 	return m
 }
