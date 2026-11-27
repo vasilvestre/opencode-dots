@@ -192,6 +192,20 @@ loopback with no `Tailscale-User-Login` (`ownerRequest`); every other request is
   reports it for the sign-in page.
 - Tests run against a fake GitHub (`auth_test.go`); the GitHub base URLs are fields of `authState`.
 
+## TEAM LISTENER (docs/team-ui.md)
+
+`-team-addr` (`DOTS_TEAM_ADDR`) starts a second listener for developers who reach the dashboard through an
+SSH forward, whose tunnel ends on loopback where the owner is. `teamHandler` (`team.go`) wraps the same mux for
+that listener only and marks the request context; `ownerRequest` is false for a marked request, so every
+request there is a visitor whatever its address, `Host` or headers. Never infer it from the `Host` port.
+
+- `checkTeamAddr` stops the start for a non-loopback IP (a host name too), no GitHub client id, or the owner's address.
+- Host: any loopback host and port, else 403. A request with an `Origin` needs it to equal the `Host`.
+- A new route must be listed in `TestNoRouteIsReachableAsOwnerThroughTheTeamListener` as visitor-readable
+  or owner only; the test fails on an unlisted one and on an owner-only route that is not 401 or 403 there.
+- Never forward or document forwarding the owner port; `deploy/types/local/team-access.sh` writes keys
+  whose `permitopen` is the team port.
+
 ## RULES
 
 - Bind `127.0.0.1` only. The default is `-addr 127.0.0.1:8099`. There is no
@@ -331,7 +345,7 @@ holds `workflows/`, the local configs and `model-presets.yaml`), `-allow-host`
 `-awfgh` (default `awf-gh.yaml`), `-opencode` (default the opencode config under
 `$XDG_CONFIG_HOME`), `-github-client-id` (default `DOTS_GITHUB_CLIENT_ID`; empty turns visitor
 sign-in off), `-github-url` and `-github-api` (defaults `DOTS_GITHUB_URL`, `DOTS_GITHUB_API_URL`),
-`-min-permission` (default `DOTS_MIN_PERMISSION`, `push` or `pull`).
+`-min-permission` (default `DOTS_MIN_PERMISSION`, `push` or `pull`), `-team-addr` (default `DOTS_TEAM_ADDR`, empty off).
 
 ## NOTES
 

@@ -42,6 +42,10 @@ The owner is the host's own user: a request that reaches the dashboard directly 
 Every other request is a visitor: one that carries the header, or one whose `Host` is not loopback,
 which is what `tailscale serve` forwards. A visitor sees nothing until they sign in.
 
+A request that arrives on the **team listener** (`-team-addr`, `DOTS_TEAM_ADDR`) is a visitor too, whatever
+its address, `Host` or headers: an SSH tunnel ends on loopback, where the owner is. See
+[team-ui.md](team-ui.md).
+
 ## Signing in
 
 The page shows a sign-in button. It asks GitHub for a code (the OAuth **device flow**, scope `repo`),
