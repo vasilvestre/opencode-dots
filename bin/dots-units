@@ -71,6 +71,8 @@ enabled_for() { # the units to enable --now: timers and the long-running service
   local u
   for u in $(role_units "$1"); do
     case $u in
+      # The daily tend pass spends agent tokens: it stays opt-in (DOTS_ENABLE_TEND=1) unless it is already on.
+      dots-tend.timer) { [ "${DOTS_ENABLE_TEND:-0}" = 1 ] || "$sc" --user is-enabled --quiet "$u" >/dev/null 2>&1; } && echo "$u" ;;
       *.timer) echo "$u" ;;
       dots-hub.service) [ -x "$HOME/.local/bin/mercure" ] && [ -f "$HOME/.config/dots/hub.env" ] && echo "$u" ;; # deploy/types/local/hub.sh sets it up
       dots-worker.service) [ -f "$HOME/.config/dots/worker.env" ] && echo "$u" ;; # needs DOTS_WORKER_URL

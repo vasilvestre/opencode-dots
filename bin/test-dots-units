@@ -49,6 +49,14 @@ touch "$u/dots-claim.timer"; : >"$h/sc.log"; SYSTEMCTL=$h/sc.fail DOTS_OPENCODE_
 [ $rc = 1 ] && [ ! -e "$u/dots-claim.timer" ] && grep -q "enable --now dots-tick.timer" "$h/sc.log" && ok "a unit that cannot start does not stop the rest, and the exit code says so" || ko "failure handling (rc=$rc)"
 rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
 
+# The daily tend pass spends tokens: an install does not turn it on by itself.
+export DOTS_TEND_LIST=$h/tend.list; echo "x/y" >"$DOTS_TEND_LIST"; rm -f "$u"/*; : >"$h/sc.log"
+NOT_ENABLED=1 bin/dots-units install --role server >/dev/null 2>&1
+! grep -q "enable --now dots-tend.timer" "$h/sc.log" && ok "tend stays off unless asked (DOTS_ENABLE_TEND=1) or already on" || ko "tend enabled by default"
+: >"$h/sc.log"; DOTS_ENABLE_TEND=1 bin/dots-units install --role server >/dev/null 2>&1
+grep -q "enable --now dots-tend.timer" "$h/sc.log" && ok "DOTS_ENABLE_TEND=1 turns it on" || ko "tend opt-in"
+unset DOTS_TEND_LIST
+
 # A unit the user masked stays masked: not written over, its timer not enabled, status says so.
 export DOTS_TEND_LIST=$h/tend.list; echo "x/y" >"$DOTS_TEND_LIST"
 rm -f "$u"/*; ln -s /dev/null "$u/dots-tend.service"; : >"$h/sc.log"
