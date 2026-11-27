@@ -32,3 +32,16 @@ opencode exits. Nothing is exposed on a network.
   `tailscale serve` on the server, and the password is the only gate. Decide that before you do it.
 - Claude on the server. `claude` is not logged in there; log it in on the server once.
 - Skills, agents and the tower MCP on a server: `deploy/types/local/mcp.sh` and `skills.sh`, see [skills.md](skills.md).
+
+## The hub under a public name (through a proxy you already run)
+
+The hub stays on `127.0.0.1:3901` of the server. A small container next to your reverse proxy
+(Dokploy and Traefik, for instance) opens `ssh -L 0.0.0.0:3901:127.0.0.1:3901` to the server with
+its own key, and the proxy routes one sub-domain, path `/.well-known/mercure` only, to it with a
+certificate. The key on the server is added with
+`deploy/types/local/team-access.sh user@host add hub-link KEYFILE --port 3901`: it can open that
+one forward and run nothing. The hub refuses an anonymous subscriber (401); a subscriber token
+is the next step (the dashboard issuing one after the GitHub sign-in).
+
+The hub binds to loopback itself (`bind 127.0.0.1` in `deploy/hub/Caddyfile`) and accepts any
+Host, so the name the proxy forwards does not matter.
