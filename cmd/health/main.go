@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -24,8 +25,8 @@ import (
 func main() {
 	root, _ := os.Getwd()
 	dir := flag.String("dir", root, "repository root: holds repos.yaml and .env")
-	state := flag.String("state", envOr("STATE_DIR", filepath.Join(root, "state")), "state directory")
-	awf := flag.String("awf", envOr("AWF_URL", "http://127.0.0.1:2511"), "awf API base URL")
+	state := flag.String("state", cmp.Or(os.Getenv("STATE_DIR"), filepath.Join(root, "state")), "state directory")
+	awf := flag.String("awf", cmp.Or(os.Getenv("AWF_URL"), "http://127.0.0.1:2511"), "awf API base URL")
 	asJSON := flag.Bool("json", false, "print a JSON report")
 	minFree := flag.Uint64("min-free-mb", 1024, "disk free threshold, in MiB")
 	warnDays := flag.Int("token-warn-days", 7, "warn when the token expires within this many days")
@@ -54,13 +55,6 @@ func main() {
 		fmt.Print(rep.Text())
 	}
 	os.Exit(rep.ExitCode())
-}
-
-func envOr(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
 }
 
 // ghToken reads GH_TOKEN from the environment, then from .env, as the units do.

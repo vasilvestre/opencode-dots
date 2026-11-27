@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -287,7 +288,7 @@ func (d *dash) patchReposConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The repository and the key or operation, never the value.
-	auditTarget(r, p.Repo+" "+firstNonEmpty(p.Key, p.Op))
+	auditTarget(r, p.Repo+" "+cmp.Or(p.Key, p.Op))
 	d.editMu.Lock()
 	defer d.editMu.Unlock()
 

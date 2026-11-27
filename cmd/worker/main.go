@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -61,12 +62,12 @@ type worker struct {
 func main() {
 	home, _ := os.UserHomeDir()
 	base := flag.String("url", os.Getenv("DOTS_WORKER_URL"), "the server's worker entry, such as https://hub.example/worker")
-	tokenFile := flag.String("token-file", envOr("DOTS_WORKER_TOKEN_FILE", filepath.Join(home, ".config", "dots", "worker-token")), "file holding the worker token (dwt_...)")
-	awf := flag.String("awf", envOr("DOTS_AWF_URL", "http://127.0.0.1:2511"), "the local awf serve")
-	dash := flag.String("dashboard", envOr("DOTS_LOCAL_DASHBOARD", "http://127.0.0.1:8099"), "the local dashboard, asked what each run cost (empty: report no price)")
+	tokenFile := flag.String("token-file", cmp.Or(os.Getenv("DOTS_WORKER_TOKEN_FILE"), filepath.Join(home, ".config", "dots", "worker-token")), "file holding the worker token (dwt_...)")
+	awf := flag.String("awf", cmp.Or(os.Getenv("DOTS_AWF_URL"), "http://127.0.0.1:2511"), "the local awf serve")
+	dash := flag.String("dashboard", cmp.Or(os.Getenv("DOTS_LOCAL_DASHBOARD"), "http://127.0.0.1:8099"), "the local dashboard, asked what each run cost (empty: report no price)")
 	poll := flag.Duration("poll", time.Minute, "how often the queue is read when the hub says nothing")
-	hints := flag.String("hints-file", envOr("DOTS_HINTS", filepath.Join(home, ".config", "dots", "hints")), "where the team's folder suggestions are written, for bin/where (empty: not kept)")
-	served := flag.String("served-file", envOr("DOTS_SERVED", filepath.Join(home, ".config", "dots", "served")), "where the repositories this worker serves are listed, for the local dashboard (empty: not kept)")
+	hints := flag.String("hints-file", cmp.Or(os.Getenv("DOTS_HINTS"), filepath.Join(home, ".config", "dots", "hints")), "where the team's folder suggestions are written, for bin/where (empty: not kept)")
+	served := flag.String("served-file", cmp.Or(os.Getenv("DOTS_SERVED"), filepath.Join(home, ".config", "dots", "served")), "where the repositories this worker serves are listed, for the local dashboard (empty: not kept)")
 	once := flag.Bool("once", false, "claim and run what is pending, then stop")
 	flag.Parse()
 	if *base == "" {
@@ -95,13 +96,6 @@ func main() {
 		return
 	}
 	w.run(ctx)
-}
-
-func envOr(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
 }
 
 func newWorker(base, token, awf string) *worker {

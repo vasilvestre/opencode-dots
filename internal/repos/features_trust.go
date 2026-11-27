@@ -67,14 +67,14 @@ func (trust) Modify(r *Resolved, out *Output, from int) error {
 	if p, ok := r.Values["provider"].(string); ok && p != "" {
 		provider = p
 	}
-	if !inList(allow.Providers, provider) {
+	if !slices.Contains(allow.Providers, provider) {
 		add("provider %q is not in settings.trust.allow.providers", provider)
 	}
 	// The code has to stay on a machine the owner named: an executor is
 	// required, and the watching machine alone is not one.
 	if name, _ := r.Values["executor"].(string); name == "" {
 		add("a %s repository must name an executor from settings.trust.allow.executors", level)
-	} else if !inList(allow.Executors, name) {
+	} else if !slices.Contains(allow.Executors, name) {
 		add("executor %q is not in settings.trust.allow.executors", name)
 	}
 	if m, ok := r.Values["tend"].(map[string]any); ok {
@@ -105,7 +105,7 @@ func (trust) Modify(r *Resolved, out *Output, from int) error {
 	// defaults live in the workflow files, which this package does not read.
 	for i := from; i < len(out.Rules); i++ {
 		for _, key := range sortedKeys(out.Rules[i].Inputs) {
-			if strings.HasSuffix(key, "model") && !inList(allow.Models, out.Rules[i].Inputs[key]) {
+			if strings.HasSuffix(key, "model") && !slices.Contains(allow.Models, out.Rules[i].Inputs[key]) {
 				add("%s %q is not in settings.trust.allow.models", key, out.Rules[i].Inputs[key])
 			}
 		}
@@ -148,14 +148,14 @@ func modelProvider(model, provider string) string {
 
 // checkModelProvider reports a model provider that breaks the zero retention rule of the level.
 func checkModelProvider(level, what, prov string, t TrustSettings, add func(string, ...any)) {
-	self := inList(t.SelfHosted, prov)
+	self := slices.Contains(t.SelfHosted, prov)
 	if level == "private" || level == "strict" {
 		if !self {
 			add("%s: provider %q is not in settings.trust.self_hosted, and a %s repository only uses a model the owner hosts", what, prov, level)
 		}
 		return
 	}
-	if !self && !inList(t.ZDR, prov) {
+	if !self && !slices.Contains(t.ZDR, prov) {
 		add("%s: provider %q has no zero data retention declared in settings.trust.zdr, which a %s repository requires", what, prov, level)
 	}
 }
@@ -205,8 +205,4 @@ func checkTrust(s Settings) error {
 		return errors.New(strings.Join(problems, "\n"))
 	}
 	return nil
-}
-
-func inList(list []string, v string) bool {
-	return slices.Contains(list, v)
 }

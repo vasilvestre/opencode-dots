@@ -137,13 +137,6 @@ func (d *dash) appendAudit(endpoint, target, caller string, status int) {
 	}
 }
 
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
 // auditView is one entry for the Audit page.
 type auditView struct {
 	ID       int64  `json:"id"`

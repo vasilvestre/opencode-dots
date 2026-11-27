@@ -9,6 +9,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -33,7 +34,7 @@ func run(args []string, out, errw io.Writer) int {
 	root, _ := os.Getwd()
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(errw)
-	state := fs.String("state", envOr("STATE_DIR", filepath.Join(root, "state")), "state directory")
+	state := fs.String("state", cmp.Or(os.Getenv("STATE_DIR"), filepath.Join(root, "state")), "state directory")
 	asJSON := fs.Bool("json", false, "print JSON")
 	workflow := fs.String("workflow", "", "runs: only this workflow")
 	failed := fs.Bool("failed", false, "runs: only failed runs")
@@ -223,11 +224,4 @@ func cost(c float64) string {
 		return ""
 	}
 	return fmt.Sprintf("$%.2f", c)
-}
-
-func envOr(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
 }
