@@ -40,6 +40,15 @@ rm -f "$u"/*; touch "$u/opencode.service"; : >"$h/sc.log"; bin/dots-units instal
 [ ! -e "$u/dots-opencode.service" ] && ! grep -q "dots-opencode" "$h/sc.log" && ok "an existing opencode.service is taken for dots-opencode" || ko "duplicate opencode"
 rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
 
+# A port already served by someone else's opencode: no dots-opencode, so no second server to fail.
+rm -f "$u"/*; : >"$h/sc.log"; DOTS_OPENCODE_PORT_BUSY=1 bin/dots-units install --role workstation >/dev/null 2>&1
+[ ! -e "$u/dots-opencode.service" ] && ok "opencode already serving its port is left alone" || ko "port busy"
+# A unit that fails to start does not stop the install: the rest is done and the exit code says so.
+rm -f "$u"/*; printf '#!/bin/sh\ncase "$*" in *"enable --now dots-dashboard.service"*) exit 1;; esac\necho "$*" >> "$HOME/sc.log"\nexit 0\n' >"$h/sc.fail"; chmod +x "$h/sc.fail"
+touch "$u/dots-claim.timer"; : >"$h/sc.log"; SYSTEMCTL=$h/sc.fail DOTS_OPENCODE_PORT_BUSY=1 bin/dots-units install --role workstation --prune >/dev/null 2>&1; rc=$?
+[ $rc = 1 ] && [ ! -e "$u/dots-claim.timer" ] && grep -q "enable --now dots-tick.timer" "$h/sc.log" && ok "a unit that cannot start does not stop the rest, and the exit code says so" || ko "failure handling (rc=$rc)"
+rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
+
 # status
 bin/dots-units status --role server >"$h/st" 2>&1; [ $? = 0 ] && ok "status of a clean machine passes" || { ko "status clean"; cat "$h/st"; }
 rm "$u/dots-awf.service"; bin/dots-units status --role server >"$h/st" 2>&1; rc=$?

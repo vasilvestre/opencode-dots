@@ -54,6 +54,10 @@ role_units() {
   local u
   for u in $(units_for "$1"); do
     if [ "$u" = dots-opencode.service ] && [ -e "$dst/opencode.service" ] && [ ! -e "$dst/dots-opencode.service" ]; then continue; fi
+    # An opencode already serves the port (started by hand or by another unit): a second one would
+    # exit at once and fail the install, so the manifest leaves opencode to whoever runs it.
+    if [ "$u" = dots-opencode.service ] && [ "${DOTS_OPENCODE_PORT_BUSY:-$(port_busy 4096 && echo 1)}" = 1 ] \
+      && ! "$sc" --user is-active --quiet dots-opencode.service >/dev/null 2>&1; then continue; fi
     echo "$u"
   done
 }
@@ -70,6 +74,8 @@ enabled_for() { # the units to enable --now: timers and the long-running service
   done
   return 0
 }
+
+port_busy() { ss -ltn 2>/dev/null | grep -q ":$1 "; }
 
 has() { case $'\n'"$1"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac; return 1; }
 
@@ -96,11 +102,13 @@ cmd_install() {
   local u
   for u in $list; do write_unit "$u"; done
   run "$sc" --user daemon-reload
-  for u in $(enabled_for "$role"); do run "$sc" --user enable --now "$u"; done
+  local failed=""
+  for u in $(enabled_for "$role"); do run "$sc" --user enable --now "$u" || failed="$failed $u"; done
   if [ "$prune" = 1 ]; then cmd_prune; else
     local o n=0; for o in $OBSOLETE; do [ -e "$dst/$o" ] && n=$((n + 1)); done
     [ "$n" = 0 ] || echo "$n unit(s) this replaces are still installed: run 'bin/dots-units prune' (or install --prune)"
   fi
+  if [ -n "$failed" ]; then echo "dots-units: could not start:$failed (journalctl --user -u UNIT)" >&2; return 1; fi
 }
 
 cmd_prune() {
