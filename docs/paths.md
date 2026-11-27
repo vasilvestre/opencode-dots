@@ -41,6 +41,7 @@ It is the developer's own working tree. A workflow only fetches into references 
 - A recommendation from the team ("our projects go in `~/example-org`") shown on the machine of someone who has not
   got the project.
 - A card in the local dashboard listing the repositories a worker serves, found here or not, with a clone button.
-- Both depend on how `trust` places code (ADR 0032, under discussion): a `strict` repository may be local-only.
+- A `strict` repository may keep no local checkout (ADR 0032, 0050); the resolver does not know about trust yet, so
+  for such a repository the checkout simply must not be mapped.
 
 Tests: `bin/test-where`, and the e2e cases that reuse a checkout (`bin/test-e2e`).

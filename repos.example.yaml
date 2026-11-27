@@ -18,12 +18,18 @@ settings:
   # awf-gh.<name>.yaml per executor (ADR 0031).
   executors:
     server: http://127.0.0.1:2512
-  # ADR 0032. `host` is the highest trust level this machine may hold: open (the
-  # default), client or strict. A repository at client or strict must stay
-  # inside the allow-list below: its provider, the models it sets on a rule, and
-  # the executor that holds its code.
+  # ADR 0032 and 0050. `host` is the highest trust level this machine may hold: open
+  # (the default), client, private or strict. A repository at client or above must stay
+  # inside the allow-list below (its provider, the models it sets on a rule, the executor
+  # that holds its code), in Europe at least (`region` for this machine, `regions` for each
+  # executor: a value starting with eu), and use only models from a provider with zero data
+  # retention (`zdr`: the prefix of a model id before "/", or anthropic for the claude CLI).
+  # A private or strict repository uses only a provider the owner hosts (`self_hosted`).
   trust:
     host: client
+    region: eu
+    regions: {server: eu}
+    zdr: [mistral]
     allow:
       providers: [opencode]
       models: [mistral/mistral-small-latest]

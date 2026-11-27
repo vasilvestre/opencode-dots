@@ -42,7 +42,7 @@ func TestExampleProfilesDifferOnlyByPolicy(t *testing.T) {
 
 // A company profile that asks for auto must be refused: trust client forbids it.
 func TestCompanyProfileRefusesAuto(t *testing.T) {
-	src := "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\n  trust:\n    host: client\n    allow: {providers: [opencode], models: [], executors: [server]}\n" +
+	src := "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\n  trust:\n    host: client\n    region: eu\n    regions: {server: eu}\n    allow: {providers: [opencode], models: [], executors: [server]}\n" +
 		"profiles:\n  company: {trust: client, autonomy: auto, identity: marker, review: true}\n" +
 		"repos:\n  acme/svc: {use: [company], executor: server}\n"
 	if _, err := Build([]byte(src), t.TempDir(), Settings{}); err == nil || !strings.Contains(err.Error(), "auto") {

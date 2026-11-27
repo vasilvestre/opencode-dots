@@ -636,6 +636,10 @@ func TestWatcherFileNames(t *testing.T) {
 const trustSettings = `settings:
   trust:
     host: %s
+    region: eu-fr-par
+    regions: {server: eu-pl-waw}
+    zdr: [mistral]
+    self_hosted: [local]
     allow:
       providers: [opencode]
       models: [mistral/small-latest]
@@ -680,7 +684,7 @@ func TestTrustRefusesWhatTheLevelForbids(t *testing.T) {
 }
 
 func TestTrustRefusesAnUnknownLevelAndABadSetting(t *testing.T) {
-	if got := buildErr(t, "version: 1\nrepos:\n  a/b:\n    trust: secret\n"); !strings.Contains(got, "must be one of open, client, strict") {
+	if got := buildErr(t, "version: 1\nrepos:\n  a/b:\n    trust: secret\n"); !strings.Contains(got, "must be one of open, client, private, strict") {
 		t.Fatalf("error = %q", got)
 	}
 	for _, c := range []struct{ name, settings, want string }{
@@ -702,7 +706,7 @@ func TestTrustRefusesAnUnknownLevelAndABadSetting(t *testing.T) {
 
 func TestAClientRepositoryNeedsASandboxBlock(t *testing.T) {
 	src := func(block string) string {
-		return "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\n  trust:\n    host: client\n    allow: {providers: [opencode], models: [], executors: [server]}\n" +
+		return "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\n  trust:\n    host: client\n    region: eu\n    regions: {server: eu}\n    allow: {providers: [opencode], models: [], executors: [server]}\n" +
 			"repos:\n  acme/svc:\n    trust: client\n    executor: server\n    identity: marker\n    review: true\n" + block
 	}
 	if _, err := budgetGen(t, src("")); err == nil || !strings.Contains(err.Error(), "needs a `sandbox` block") {
@@ -745,6 +749,66 @@ func TestSandboxBlockIsChecked(t *testing.T) {
 	} {
 		src := "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\nrepos:\n  acme/app:\n    review: true\n    sandbox: " + block + "\n"
 		if _, err := budgetGen(t, src); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// ADR 0050: from client up, the code stays in Europe and only models with zero data retention read it.
+func TestTrustNeedsEuropeAndZeroRetention(t *testing.T) {
+	base := func(settings string) string {
+		return "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\n  trust:\n" + settings +
+			"    allow: {providers: [opencode, claude], models: [mistral/small-latest, openai/gpt-x, local/qwen], executors: [server]}\n"
+	}
+	repo := func(level, extra string) string {
+		return "repos:\n  acme/app:\n    trust: " + level + "\n    executor: server\n    identity: marker\n    sandbox: {}\n" + extra
+	}
+	ok := "    host: strict\n    region: eu\n    regions: {server: eu-pl-waw}\n    zdr: [mistral]\n    self_hosted: [local]\n"
+	cases := []struct{ name, settings, repo, want string }{
+		{"a client repository in Europe with a ZDR model", ok, repo("client", "    review: {inputs: {review_model: mistral/small-latest}}\n"), ""},
+		{"a machine outside Europe", "    host: client\n    region: us-east\n    regions: {server: eu}\n    zdr: [mistral]\n", repo("client", ""), "is not in Europe"},
+		{"no machine region at all", "    host: client\n    regions: {server: eu}\n", repo("client", ""), "is not in Europe"},
+		{"an executor outside Europe", "    host: client\n    region: eu\n    regions: {server: us-west}\n", repo("client", ""), `executor "server" has region "us-west"`},
+		{"an executor with no region", "    host: client\n    region: eu\n", repo("client", ""), `executor "server" has region ""`},
+		{"a provider with no zero retention", ok, repo("client", "    review: {inputs: {review_model: openai/gpt-x}}\n"), `provider "openai" has no zero data retention`},
+		{"the claude CLI needs anthropic declared", ok, "repos:\n  acme/app:\n    trust: client\n    executor: server\n    identity: marker\n    sandbox: {}\n    provider: claude\n", `provider "anthropic" has no zero data retention`},
+		{"anthropic declared makes claude acceptable", "    host: client\n    region: eu\n    regions: {server: eu}\n    zdr: [anthropic]\n", "repos:\n  acme/app:\n    trust: client\n    executor: server\n    identity: marker\n    sandbox: {}\n    provider: claude\n", ""},
+		{"a private repository needs a hosted model", ok, repo("private", "    review: {inputs: {review_model: mistral/small-latest}}\n"), `provider "mistral" is not in settings.trust.self_hosted`},
+		{"a private repository with a hosted model", ok, repo("private", "    review: {inputs: {review_model: local/qwen}}\n"), ""},
+		{"a strict repository is as strict as private", ok, repo("strict", "    review: {inputs: {review_model: mistral/small-latest}}\n"), `provider "mistral" is not in settings.trust.self_hosted`},
+		{"claude is never self-hosted", ok, "repos:\n  acme/app:\n    trust: private\n    executor: server\n    identity: marker\n    sandbox: {}\n    provider: claude\n", `provider "anthropic" is not in settings.trust.self_hosted`},
+		{"open asks for none of it", "    host: open\n", "repos:\n  acme/app:\n    review: {inputs: {review_model: whatever/model}}\n", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, err := Parse([]byte(base(c.settings) + c.repo))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = Generate(doc)
+			switch {
+			case c.want == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)):
+				t.Fatalf("error = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}
+
+func TestTrustSettingsAreChecked(t *testing.T) {
+	for name, trust := range map[string]string{
+		"a region for an unknown executor": "{regions: {nobody: eu}}",
+		"an empty region":                  "{regions: {server: ''}}",
+		"a zdr entry with a slash":         "{zdr: ['mistral/small']}",
+		"an empty self_hosted entry":       "{self_hosted: ['']}",
+	} {
+		src := "version: 1\nsettings:\n  executors: {server: 'http://127.0.0.1:2512'}\n  trust: " + trust + "\nrepos:\n  a/b:\n    tend: true\n"
+		doc, err := Parse([]byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := BuildDocument(doc, t.TempDir(), Settings{}); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}

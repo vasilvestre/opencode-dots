@@ -44,11 +44,20 @@ type Settings struct {
 }
 
 // TrustSettings is settings.trust (ADR 0032). Host is the highest level this
-// machine may hold: open, client or strict. Allow names what a repository at
+// machine may hold: open, client, private or strict. Allow names what a repository at
 // client or strict may reach.
 type TrustSettings struct {
 	Host  string     `yaml:"host"`
 	Allow TrustAllow `yaml:"allow"`
+	// Region is where this machine runs; Regions says where each named executor runs. A repository at
+	// client or above needs Europe (a value starting with "eu"). ZDR names the model providers the owner
+	// has a zero data retention guarantee from (ADR 0050): the prefix of a model id before "/", or
+	// "anthropic" for the claude CLI. SelfHosted names the model providers the owner runs
+	// themselves, which count as zero retention and are all a private or strict repository may use.
+	Region     string            `yaml:"region"`
+	Regions    map[string]string `yaml:"regions"`
+	ZDR        []string          `yaml:"zdr"`
+	SelfHosted []string          `yaml:"self_hosted"`
 }
 
 // TrustAllow is the allow-list of settings.trust.allow: the providers, the
