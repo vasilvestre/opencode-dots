@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# One polling pass of every awf-gh watcher this machine has: the awf-gh.yaml and each
+# awf-gh.<executor>.yaml that `bin/repos generate` wrote. GH_TOKEN comes from .env, which is the
+# only thing the watcher needs from it. A machine with none has nothing to watch.
+#
+#   bin/awf-gh-run [CONFIG...]
+set -uo pipefail
+cd "$(dirname "$0")/.."
+token=$(sed -n 's/^GH_TOKEN=//p' .env 2>/dev/null | head -1)
+[ -n "$token" ] || { echo "awf-gh-run: no GH_TOKEN in .env" >&2; exit 1; }
+export GH_TOKEN=$token PATH="$HOME/.local/bin:$PATH"
+configs=("$@")
+[ ${#configs[@]} -gt 0 ] || { shopt -s nullglob; configs=(awf-gh.yaml awf-gh.*.yaml); }
+[ ${#configs[@]} -gt 0 ] || exit 0
+bin=bin/awf-gh; [ -x "$bin" ] || bin=$(command -v awf-gh) || { echo "awf-gh-run: no awf-gh binary" >&2; exit 1; }
+rc=0
+for c in "${configs[@]}"; do
+  [ -f "$c" ] || continue
+  "$bin" --config "$c" || rc=1
+done
+exit $rc

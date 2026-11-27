@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# bin/tick offline: what is due runs, what is not does not, a task that was due while the machine
+# was off runs once, a failing task never stops another, a task still running is left alone, a
+# timeout is recorded. A temporary task file and state stand for a machine.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+w=$(mktemp -d); trap 'rm -rf "$w"' EXIT
+fail=0
+ok() { echo "ok   $1"; }
+ko() { echo "FAIL $1"; fail=1; }
+tick() { DOTS_TICK_TASKS=$w/tasks STATE_DIR=$w/state "$root/bin/tick" "$@"; }
+
+cat >"$w/tasks" <<E2
+# a comment
+fast   1m  10  echo run >> $w/fast.runs
+rare   1d  10  echo run >> $w/rare.runs
+broken 1m  10  exit 3
+after  1m  10  echo run >> $w/after.runs
+slow   1m  10  sleep 30
+E2
+
+tick
+[ "$(wc -l <"$w/fast.runs")" = 1 ] && [ "$(wc -l <"$w/rare.runs")" = 1 ] && ok "a task never run is due, so a machine back from downtime catches up once" || ko "first pass"
+[ -s "$w/after.runs" ] && ok "a failing task does not stop the others" || ko "isolation"
+read -r rc _ <"$w/state/tick/broken.status"; [ "$rc" = 3 ] && ok "the exit code is recorded" || ko "status ($rc)"
+read -r rc _ <"$w/state/tick/slow.status"; [ "$rc" = 124 ] && ok "a task over its timeout is stopped and recorded" || ko "timeout ($rc)"
+
+tick
+[ "$(wc -l <"$w/fast.runs")" = 1 ] && ok "a task not yet due is left alone" || ko "ran again too soon"
+
+echo $(( $(date +%s) - 120 )) >"$w/state/tick/fast.last"
+tick
+[ "$(wc -l <"$w/fast.runs")" = 2 ] && [ "$(wc -l <"$w/rare.runs")" = 1 ] && ok "only the task whose time came runs again" || ko "second pass"
+
+# A task still running holds its lock: the next tick must not start a second copy.
+cat >"$w/tasks" <<E2
+hold 1m 20 echo start >> $w/hold.runs; sleep 3
+E2
+rm -f "$w/state/tick/hold.last"
+tick & sleep 1
+rm -f "$w/state/tick/hold.last"; tick
+wait
+[ "$(wc -l <"$w/hold.runs")" = 1 ] && ok "a task still running is not started twice" || ko "overlap ($(wc -l <"$w/hold.runs") starts)"
+
+tick list | grep -q '^hold' && ok "list shows the tasks" || ko "list"
+tick run nosuch >/dev/null 2>&1; [ $? = 2 ] && ok "an unknown task is refused" || ko "run nosuch"
+echo 'two 1m 10 echo hi' >"$w/tasks"; [ "$(tick run two)" = hi ] && ok "run NAME runs it now and prints its output" || ko "run NAME"
+for f in deploy/tick/*.tasks; do
+  while read -r name every timeout cmd; do
+    case $name in ''|'#'*) continue ;; esac
+    [[ $every =~ ^[0-9]+[smhd]$ && $timeout =~ ^[0-9]+$ && -n $cmd ]] || { ko "$f: bad line for $name"; continue; }
+    first=${cmd%% *}; case $first in bin/*) [ -x "$first" ] || ko "$f: $name runs $first, which is missing" ;; esac
+  done <"$f"
+done
+[ "$fail" = 0 ] && ok "every shipped task file parses and names scripts that exist"
+exit $fail

@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# Installs, checks and cleans the systemd user units of a machine from one manifest, by role.
+#
+#   bin/dots-units install --role workstation|server|worker [--prune] [--dry-run]
+#   bin/dots-units status  [--role ROLE]
+#   bin/dots-units prune   [--dry-run]
+#
+# install writes the units the role needs (paths fixed for this checkout), saves the role in
+# ~/.config/dots/role (bin/tick reads it), reloads systemd and enables what the role runs. --prune
+# also removes the units this one replaces (see OBSOLETE). status compares the machine with the
+# manifest and lists what is missing, not enabled, not running, or extra. prune only removes.
+#
+# Roles:   workstation  awf, dashboard, opencode, tick, tend (when tend.list has a repository)
+#          server       awf, dashboard, hub, opencode, tick, tend
+#          worker       awf, worker, tick
+# Settings of a unit (client ids, the hub URL...) stay in drop-ins or env files, never here.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+src=$root/systemd
+dst=${DOTS_UNIT_DIR:-$HOME/.config/systemd/user}
+sc=${SYSTEMCTL:-systemctl}
+dry=0 prune=0 role="" cmd=${1:-}
+[ $# -gt 0 ] && shift
+while [ $# -gt 0 ]; do
+  case $1 in
+    --role) role=${2:-}; shift 2 ;;
+    --prune) prune=1; shift ;;
+    --dry-run) dry=1; shift ;;
+    *) echo "dots-units: unknown option $1" >&2; exit 2 ;;
+  esac
+done
+
+# What the short recurring jobs became: bin/tick tasks (deploy/tick/*.tasks).
+OBSOLETE="dots-claim.service dots-claim.timer dots-health.service dots-health.timer dots-health-alert.service
+dots-breaker.service dots-breaker.timer dots-sync.service dots-sync.timer dots-workspace-sync.service
+dots-workspace-sync.timer dots-awf-gh.service dots-awf-gh.timer dots-awf-gh-local.service
+dots-awf-gh-executor@.service dots-awf-gh-executor@.timer dots-executor-tunnel.service
+dots-backup-server.service dots-backup-server.timer dots.service"
+
+units_for() { # role -> unit files, one per line
+  case $1 in
+    workstation) echo "dots-awf.service dots-dashboard.service dots-opencode.service dots-tick.service dots-tick.timer" ;;
+    server) echo "dots-awf.service dots-dashboard.service dots-hub.service dots-opencode.service dots-tick.service dots-tick.timer" ;;
+    worker) echo "dots-awf.service dots-worker.service dots-tick.service dots-tick.timer" ;;
+    *) echo "dots-units: the role is workstation, server or worker, not '$1'" >&2; return 1 ;;
+  esac | tr ' ' '\n'
+  if [ "$1" != worker ] && [ -s "$root/tend.list" ]; then printf 'dots-tend.service\ndots-tend.timer\n'; fi
+}
+
+enabled_for() { # the units to enable --now: timers and the long-running services
+  local u
+  for u in $(units_for "$1"); do
+    case $u in
+      *.timer) echo "$u" ;;
+      dots-hub.service) [ -x "$HOME/.local/bin/mercure" ] && [ -f "$HOME/.config/dots/hub.env" ] && echo "$u" ;; # deploy/types/local/hub.sh sets it up
+      dots-worker.service) [ -f "$HOME/.config/dots/worker.env" ] && echo "$u" ;; # needs DOTS_WORKER_URL
+      dots-awf.service|dots-dashboard.service|dots-opencode.service) echo "$u" ;;
+    esac
+  done
+  return 0
+}
+
+has() { case $'\n'"$1"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac; return 1; }
+
+run() { if [ "$dry" = 1 ]; then echo "  would: $*"; else "$@"; fi; }
+
+home_rel() { case $root in "$HOME"/*) echo "%h/${root#"$HOME"/}" ;; *) echo "$root" ;; esac; }
+
+write_unit() { # unit
+  local u=$1 f=$src/$1 at
+  [ -f "$f" ] || { echo "dots-units: $f is missing" >&2; return 1; }
+  at=$(home_rel)
+  local awfsed=cat
+  if [ ! -x /usr/local/bin/awf ] && [ -x "$HOME/.local/bin/awf" ]; then awfsed="sed s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |"; fi
+  if [ "$dry" = 1 ]; then echo "  would write $dst/$u"; return; fi
+  sed -e "s|%h/projects/perso/opencode-dots|$at|g" "$f" | $awfsed >"$dst/$u"
+}
+
+cmd_install() {
+  [ -n "$role" ] || { echo "dots-units: install needs --role" >&2; exit 2; }
+  local list; list=$(units_for "$role")
+  echo "role $role: $(echo "$list" | wc -l) units into $dst"
+  run mkdir -p "$dst" "$HOME/.config/dots"
+  if [ "$dry" = 1 ]; then echo "  would write $HOME/.config/dots/role ($role)"; else echo "$role" >"$HOME/.config/dots/role"; fi
+  local u
+  for u in $list; do write_unit "$u"; done
+  run "$sc" --user daemon-reload
+  for u in $(enabled_for "$role"); do run "$sc" --user enable --now "$u"; done
+  if [ "$prune" = 1 ]; then cmd_prune; else
+    local o n=0; for o in $OBSOLETE; do [ -e "$dst/$o" ] && n=$((n + 1)); done
+    [ "$n" = 0 ] || echo "$n unit(s) this replaces are still installed: run 'bin/dots-units prune' (or install --prune)"
+  fi
+}
+
+cmd_prune() {
+  local o inst found=0
+  for o in $OBSOLETE; do
+    case $o in
+      *@.*) # a template: stop its instances too
+        for inst in "$dst"/"${o%@.*}"@*."${o##*.}" ; do
+          [ -e "$inst" ] || continue
+          [ "$inst" = "$dst/$o" ] && continue
+          found=1; run "$sc" --user disable --now "$(basename "$inst")" || true; run rm -f "$inst"
+        done
+        for inst in "$dst"/timers.target.wants/"${o%@.*}"@*."${o##*.}"; do
+          [ -e "$inst" ] || [ -L "$inst" ] || continue
+          found=1; run "$sc" --user disable --now "$(basename "$inst")" || true
+        done ;;
+    esac
+    [ -e "$dst/$o" ] || [ -L "$dst/$o" ] || continue
+    found=1
+    echo "removing $o"
+    run "$sc" --user disable --now "$o" 2>/dev/null || true
+    run rm -f "$dst/$o"
+  done
+  [ "$found" = 1 ] && run "$sc" --user daemon-reload
+  [ "$found" = 1 ] || echo "nothing to prune"
+  return 0
+}
+
+cmd_status() {
+  [ -n "$role" ] || role=$(cat "$HOME/.config/dots/role" 2>/dev/null || true)
+  [ -n "$role" ] || { echo "dots-units: no role: pass --role (none saved in ~/.config/dots/role)" >&2; exit 2; }
+  local bad=0 u state want_enabled want_all
+  echo "role $role"
+  want_enabled=$(enabled_for "$role")
+  want_all=$(units_for "$role")
+  for u in $want_all; do
+    if [ ! -e "$dst/$u" ]; then printf '  MISSING   %s\n' "$u"; bad=1; continue; fi
+    if has "$want_enabled" "$u"; then
+      if ! "$sc" --user is-enabled --quiet "$u" 2>/dev/null; then printf '  DISABLED  %s\n' "$u"; bad=1; continue; fi
+      case $u in *.service)
+        state=$("$sc" --user is-active "$u" 2>/dev/null || true)
+        [ "$state" = active ] || { printf '  %-9s %s\n' "${state:-inactive}" "$u"; bad=1; continue; } ;;
+      esac
+    fi
+    printf '  ok        %s\n' "$u"
+  done
+  local o
+  for o in $OBSOLETE; do [ -e "$dst/$o" ] && { printf '  OBSOLETE  %s (bin/dots-units prune)\n' "$o"; bad=1; }; done
+  for f in "$dst"/dots-*.service "$dst"/dots-*.timer; do
+    [ -e "$f" ] || continue
+    u=$(basename "$f")
+    has "$want_all" "$u" && continue
+    case " $OBSOLETE " in *" $u "*|*" ${u%%@*}@.${u##*.} "*) continue ;; esac
+    printf '  extra     %s (not in the manifest of this role)\n' "$u"
+  done
+  return "$bad"
+}
+
+case $cmd in
+  install) cmd_install ;;
+  status) cmd_status ;;
+  prune) cmd_prune ;;
+  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

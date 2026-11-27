@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# bin/dots-units offline: a fake systemctl and a temporary home stand for a machine. Install writes
+# the role's units with this checkout's path and enables the right ones, status finds what is wrong,
+# prune removes what bin/tick replaced and nothing else, and every unit a manifest names exists.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+root=$PWD
+h=$(mktemp -d); trap 'rm -rf "$h"' EXIT
+export HOME=$h SYSTEMCTL=$h/sc
+mkdir -p "$h/.config/systemd/user"
+cat >"$h/sc" <<'E2'
+#!/bin/sh
+echo "$*" >> "$HOME/sc.log"
+case "$*" in *is-enabled*) [ -e "$HOME/.config/systemd/user/$(echo "$*" | awk '{print $NF}')" ] && [ -z "$NOT_ENABLED" ];; *is-active*) echo active;; esac
+exit 0
+E2
+chmod +x "$h/sc"
+fail=0
+ok() { echo "ok   $1"; }
+ko() { echo "FAIL $1"; fail=1; }
+u=$h/.config/systemd/user
+
+for role in workstation server worker; do
+  : >"$h/sc.log"; rm -f "$u"/*
+  bin/dots-units install --role $role >/dev/null 2>&1 || ko "install $role failed"
+  [ "$(cat "$h/.config/dots/role")" = $role ] && ok "$role: the role is saved for bin/tick" || ko "$role: role file"
+  [ -f "$u/dots-tick.timer" ] && [ -f "$u/dots-awf.service" ] && ok "$role: units written" || ko "$role: units missing"
+  grep -q "enable --now dots-tick.timer" "$h/sc.log" && ok "$role: the tick timer is enabled" || ko "$role: tick not enabled"
+  if grep -q "%h/projects/perso/opencode-dots" "$u"/dots-tick.service && [ "$root" != "$HOME/projects/perso/opencode-dots" ]; then ko "$role: the path of this checkout was not substituted"; fi
+done
+grep -q "dots-worker" "$h/sc.log" && ko "worker: a worker with no worker.env must not be started" || ok "worker: not started without DOTS_WORKER_URL"
+echo "DOTS_WORKER_URL=https://x/worker" >"$h/.config/dots/worker.env"; : >"$h/sc.log"
+bin/dots-units install --role worker >/dev/null 2>&1; grep -q "enable --now dots-worker.service" "$h/sc.log" && ok "worker: started once worker.env exists" || ko "worker start"
+[ -f "$u/dots-hub.service" ] && ko "worker: no hub unit expected"
+rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
+grep -q "enable --now dots-hub.service" "$h/sc.log" && ko "server: the hub must wait for its binary and keys" || ok "server: the hub unit is written but not started without its keys"
+
+# status
+bin/dots-units status --role server >"$h/st" 2>&1; [ $? = 0 ] && ok "status of a clean machine passes" || { ko "status clean"; cat "$h/st"; }
+rm "$u/dots-awf.service"; bin/dots-units status --role server >"$h/st" 2>&1; rc=$?
+[ $rc = 1 ] && grep -q "MISSING   dots-awf.service" "$h/st" && ok "status names a missing unit" || ko "status missing"
+bin/dots-units install --role server >/dev/null 2>&1
+touch "$u/dots-claim.timer" "$u/dots-custom.service"
+bin/dots-units status --role server >"$h/st" 2>&1
+grep -q "OBSOLETE  dots-claim.timer" "$h/st" && grep -q "extra     dots-custom.service" "$h/st" && ok "status names obsolete and extra units" || ko "status obsolete/extra"
+
+# prune removes only what tick replaced
+touch "$u/dots-health.timer" "$u/dots-awf-gh-executor@.timer" "$u/dots-awf-gh-executor@workstation.timer"
+bin/dots-units prune >/dev/null 2>&1
+[ ! -e "$u/dots-claim.timer" ] && [ ! -e "$u/dots-health.timer" ] && [ ! -e "$u/dots-awf-gh-executor@workstation.timer" ] && ok "prune removes the units tick replaced, and an executor instance" || ko "prune"
+[ -e "$u/dots-custom.service" ] && [ -e "$u/dots-awf.service" ] && ok "prune leaves the rest alone" || ko "prune too far"
+: >"$h/sc.log"; bin/dots-units prune --dry-run >/dev/null 2>&1; [ ! -s "$h/sc.log" ] && ok "--dry-run touches nothing" || ko "dry-run"
+
+# manifests only name unit files that exist
+for role in workstation server worker; do
+  for f in $(bash -c "source <(sed -n '/^units_for()/,/^}/p' bin/dots-units); root=$root; units_for $role" 2>/dev/null); do
+    [ -f "systemd/$f" ] || ko "role $role names $f, which is not in systemd/"
+  done
+done
+[ "$fail" = 0 ] && ok "every unit a role names exists in systemd/"
+exit $fail

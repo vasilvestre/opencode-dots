@@ -1,0 +1,4 @@
+# Tasks of a server, run by bin/tick. NAME EVERY TIMEOUT COMMAND...
+health         10m  120  bin/health-check
+workspace-sync 15m  120  [ -f "$HOME/.config/dots/workspace.env" ] || exit 0; set -a; . "$HOME/.config/dots/workspace.env"; set +a; bin/workspace sync
+awf-gh         2m   180  bin/awf-gh-run

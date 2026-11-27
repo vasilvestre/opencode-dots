@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# One systemd timer for every short recurring job of a machine. dots-tick.timer runs this every
+# minute; it reads the machine's task file and runs what is due. A task that was due while the
+# machine was off runs once when it is back (the catch-up Persistent=true gave each timer).
+#
+#   bin/tick                 run the tasks that are due
+#   bin/tick list            every task, when it last ran and how it ended
+#   bin/tick run NAME        run one task now, due or not
+#
+# The task file is deploy/tick/<role>.tasks (the role is DOTS_ROLE, or ~/.config/dots/role, or
+# workstation; DOTS_TICK_TASKS names a file). A line is:  NAME EVERY TIMEOUT COMMAND...
+# EVERY is 30s, 5m, 2h or 1d; TIMEOUT is in seconds. The command runs with `bash -c` from the
+# repository root, with STATE_DIR set and .env loaded. A task never blocks another (each has its
+# own lock and runs beside the others), one still running when it is due again is left alone, and a
+# failure is recorded under STATE_DIR/tick/ and never stops the pass.
+set -uo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root"
+role=${DOTS_ROLE:-$(cat "$HOME/.config/dots/role" 2>/dev/null || echo workstation)}
+tasks=${DOTS_TICK_TASKS:-$root/deploy/tick/$role.tasks}
+export STATE_DIR=${STATE_DIR:-$root/state}
+dir=$STATE_DIR/tick
+mkdir -p "$dir"
+[ -r "$tasks" ] || { echo "tick: no task file $tasks (role $role)" >&2; exit 1; }
+if [ -r "$root/.env" ]; then set -a; . "$root/.env"; set +a; fi
+
+seconds() { # 30s | 5m | 2h | 1d -> seconds
+  case $1 in
+    *s) echo "${1%s}" ;; *m) echo $(( ${1%m} * 60 )) ;; *h) echo $(( ${1%h} * 3600 )) ;;
+    *d) echo $(( ${1%d} * 86400 )) ;; *) echo "$1" ;;
+  esac
+}
+
+# each_task calls "$1 name every timeout command" for every task line.
+each_task() {
+  local name every timeout cmd
+  while read -r name every timeout cmd; do
+    case $name in ''|'#'*) continue ;; esac
+    [ -n "$cmd" ] || { echo "tick: bad line for $name in $tasks" >&2; continue; }
+    "$1" "$name" "$(seconds "$every")" "$timeout" "$cmd"
+  done <"$tasks"
+}
+
+run_task() { # name every timeout cmd: runs now, records how it ended
+  local name=$1 timeout=$3 cmd=$4 rc
+  (
+    flock -n 9 || exit 0 # still running from an earlier tick
+    started=$(date +%s)
+    timeout "$timeout" bash -c "$cmd" >"$dir/$name.log" 2>&1
+    rc=$?
+    echo "$started" >"$dir/$name.last"
+    printf '%s %s\n' "$rc" "$(( $(date +%s) - started ))" >"$dir/$name.status"
+  ) 9>"$dir/$name.lock"
+}
+
+due_task() { # name every timeout cmd: runs it when its time has come
+  local last=0
+  [ -r "$dir/$1.last" ] && last=$(cat "$dir/$1.last")
+  if [ $(( $(date +%s) - last )) -ge "$2" ]; then run_task "$@" & fi
+}
+
+list_task() {
+  local last="never" st="-"
+  [ -r "$dir/$1.last" ] && last=$(date -d "@$(cat "$dir/$1.last")" '+%F %T')
+  if [ -r "$dir/$1.status" ]; then read -r rc secs <"$dir/$1.status"; st="exit $rc, ${secs}s"; fi
+  printf '%-16s every %-6s last %-19s %s\n' "$1" "$2s" "$last" "$st"
+}
+
+case ${1:-} in
+  list) each_task list_task ;;
+  run)
+    [ -n "${2:-}" ] || { echo "usage: tick run NAME" >&2; exit 2; }
+    found=0
+    while read -r name every timeout cmd; do
+      [ "$name" = "$2" ] || continue
+      found=1; run_task "$name" "$(seconds "$every")" "$timeout" "$cmd"
+      read -r rc _ <"$dir/$name.status"; cat "$dir/$name.log"; exit "$rc"
+    done <"$tasks"
+    [ "$found" = 1 ] || { echo "tick: no task $2" >&2; exit 2; } ;;
+  ''|run-due) each_task due_task; wait ;;
+  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
+exit 0

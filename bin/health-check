@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# What dots-health.service did, for bin/tick: write state/health.json from bin/health --json, and
+# tell Discord once when the dot is down (exit 2 of bin/health), with the same webhook as the
+# workflow notifications. Exit 1 (degraded) is a state the page shows, not a failure.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+state=${STATE_DIR:-$PWD/state}
+mkdir -p "$state"
+bin/health --json >"$state/health.json.tmp"
+rc=$?
+mv "$state/health.json.tmp" "$state/health.json"
+if [ "$rc" -ge 2 ] && [ -n "${DISCORD_WEBHOOK:-}" ]; then
+  curl -fsS -m 10 -o /dev/null -H 'Content-Type: application/json' \
+    -d '{"content":"dot health: down, see state/health.json"}' "$DISCORD_WEBHOOK" || true
+fi
+[ "$rc" -le 1 ]

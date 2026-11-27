@@ -83,7 +83,7 @@ render_units() {
     *) at=$DOTS_HOME ;;
   esac
   local src="$DOTS_HOME/systemd" dst="$HOME/.config/systemd/user" u
-  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer dots-workspace-sync.service dots-workspace-sync.timer dots-claim.service dots-claim.timer dots-health.service dots-health.timer dots-health-alert.service dots-awf-gh-executor@.service dots-awf-gh-executor@.timer; do
+  for u in dots-opencode.service dots-awf.service dots-dashboard.service dots-tend.service dots-tend.timer dots-tick.service dots-tick.timer dots-worker.service dots-hub.service; do
     [ -f "$src/$u" ] || { warn "$src/$u is missing, skipped"; continue; }
     sed -e "s|%h/projects/perso/opencode-dots|$at|g" \
       -e "s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |" \
@@ -185,21 +185,9 @@ configure_dots() {
   (cd "$DOTS_HOME" && bin/configure --opencode=local --awf=local --gh=local >/dev/null && chmod 600 .env)
   log "bin/configure done (.env written, mode 600)"
   if have_systemd_user; then
-    systemctl --user enable --now dots-awf.service
-    if [ -x "$DOTS_HOME/bin/dashboard" ]; then systemctl --user enable --now dots-dashboard.service; fi
-    if [ "${DOTS_ENABLE_TEND:-0}" = 1 ] && [ -s "$DOTS_HOME/tend.list" ]; then
-      systemctl --user enable --now dots-tend.timer
-    fi
-    if [ -s "$HOME/.config/dots/workspace.env" ]; then
-      systemctl --user enable --now dots-workspace-sync.timer
-    else
-      warn "workspace sync stays off: copy systemd/dots-workspace.env.example to $HOME/.config/dots/workspace.env first"
-    fi
-    # Nothing to renew until 'bin/claim start' runs, and renewing an empty
-    # directory costs one process: enable it now so a claim never lapses.
-    systemctl --user enable --now dots-claim.timer
-    # The Health page reads state/health.json, which only this timer writes.
-    [ -x "$DOTS_HOME/bin/health" ] && systemctl --user enable --now dots-health.timer
+    # Units and what runs where come from one manifest per role (bin/dots-units): the recurring jobs
+    # are bin/tick tasks, so no timer is enabled here one by one. Replaced units are removed.
+    "$DOTS_HOME/bin/dots-units" install --role "${DOTS_ROLE:-server}" --prune
   fi
 }
 

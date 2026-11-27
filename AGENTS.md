@@ -125,16 +125,12 @@ bin/claim start OWNER/REPO#N BRANCH   # hold the branch: the dot stops pushing t
 bin/held REPO BRANCH                  # what a workflow step asks before a push: 0 free, 3 held
 ```
 
-Systemd install:
+Systemd install, one manifest per role (docs/units.md):
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp systemd/* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now dots.service dots-awf.service dots-awf-gh.timer dots-dashboard.service
-systemctl --user enable --now dots-health.timer   # every 10 min, writes state/health.json
-systemctl --user enable --now dots-breaker.timer   # every 15 min, bin/breaker check-all
-systemctl --user enable --now dots-tend.timer   # optional, daily
+bin/dots-units install --role workstation --prune   # or server, or worker
+bin/dots-units status
+bin/tick list                                       # the short recurring jobs, run by dots-tick.timer
 ```
 
 ## NOTES

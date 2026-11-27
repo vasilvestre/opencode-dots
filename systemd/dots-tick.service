@@ -1,0 +1,11 @@
+[Unit]
+Description=dots tick: run the short recurring jobs of this machine that are due (bin/tick)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/perso/opencode-dots
+Environment=STATE_DIR=%h/projects/perso/opencode-dots/state
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+# The role (workstation, server or worker) picks the task file; ~/.config/dots/role holds it.
+ExecStart=%h/projects/perso/opencode-dots/bin/tick
+TimeoutStartSec=600

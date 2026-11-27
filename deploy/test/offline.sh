@@ -183,13 +183,13 @@ check "a pinned older commit works" deploy/types/local/skills.sh "$user" --skill
 check "the older commit is live" grep -qx "$c1" "$s/.snapshot"
 check "no temporary snapshot is left" test ! -e "$srv/skills.new"
 
-# ---- the Health page needs state/health.json, which only the health timer writes: it was left out
-# of a server install twice, so the page stayed empty. The install must carry and enable it, and
-# the push must ship the binary the timer runs.
-check "user.sh installs the health service and timer" grep -q "dots-health.service dots-health.timer" deploy/types/local/user.sh
-check "user.sh enables the health timer" grep -q "enable --now dots-health.timer" deploy/types/local/user.sh
+# ---- the Health page needs state/health.json, which only the tick task `health` writes: it was left
+# out of a server install twice, so the page stayed empty. The install must run the role manifest
+# (which brings dots-tick), the server task file must carry health, and the push must ship the binary.
+check "user.sh installs the units of a role with bin/dots-units" grep -q 'bin/dots-units" install --role' deploy/types/local/user.sh
+check "the server tasks include health" grep -q '^health ' deploy/tick/server.tasks
+check "the workstation tasks include health" grep -q '^health ' deploy/tick/workstation.tasks
 check "push.sh ships bin/health" grep -q 'send "\$out/health" "\$remote/bin/health"' deploy/types/local/push.sh
-check "the health unit runs bin/health" grep -q "bin/health --json" systemd/dots-health.service
 
 # ---- team-access.sh (its own fakes and temporary home)
 check "team-access.sh passes its offline test" deploy/test/team-access.sh

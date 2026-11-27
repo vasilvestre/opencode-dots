@@ -1,0 +1,8 @@
+# Tasks of a workstation, run by bin/tick. NAME EVERY TIMEOUT COMMAND...
+claim          1m   30   bin/claim renew
+health         10m  120  bin/health-check
+breaker        15m  120  bin/breaker check-all
+sync           5m   300  bin/sync
+workspace-sync 15m  120  [ -f "$HOME/.config/dots/workspace.env" ] || exit 0; set -a; . "$HOME/.config/dots/workspace.env"; set +a; bin/workspace sync
+awf-gh         2m   180  bin/awf-gh-run
+backup-server  1d   300  [ -f "$HOME/.config/dots/executor.env" ] || exit 0; . "$HOME/.config/dots/executor.env"; [ -n "${DOTS_SERVER:-}" ] || exit 0; bin/backup-server "$DOTS_SERVER"

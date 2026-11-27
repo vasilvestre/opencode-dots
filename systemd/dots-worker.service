@@ -1,0 +1,14 @@
+[Unit]
+Description=dots-worker: takes the jobs a dots server queued and runs them on the local awf
+After=network-online.target dots-awf.service
+Wants=dots-awf.service
+
+[Service]
+# DOTS_WORKER_URL, and DOTS_WORKER_TOKEN_FILE if the token is not in ~/.config/dots/worker-token.
+EnvironmentFile=%h/.config/dots/worker.env
+ExecStart=%h/projects/perso/opencode-dots/bin/worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
