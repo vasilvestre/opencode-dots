@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"opencode-dots/internal/atomicfile"
 )
 
 // The sign-in sessions survive a restart (docs/dashboard-auth.md). They are kept in
@@ -200,33 +202,5 @@ func writeSessionsFile(path string, in storedSessions) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(dir, ".sessions-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	ok := false
-	defer func() {
-		if !ok {
-			f.Close()
-			os.Remove(tmp)
-		}
-	}()
-	if err := f.Chmod(0o600); err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	ok = true
-	return nil
+	return atomicfile.Write(path, data, 0o600)
 }

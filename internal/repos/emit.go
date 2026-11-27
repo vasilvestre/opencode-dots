@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"opencode-dots/internal/atomicfile"
 )
 
 // The generated files, which the other tools keep reading unchanged.
@@ -240,35 +242,12 @@ func Write(dir string, files map[string][]byte) ([]string, error) {
 		if info, err := os.Lstat(filepath.Join(dir, name)); err == nil && !info.Mode().IsRegular() {
 			return written, fmt.Errorf("write %s: not a regular file", name)
 		}
-		if err := atomicWrite(filepath.Join(dir, name), files[name]); err != nil {
+		if err := atomicfile.Write(filepath.Join(dir, name), files[name], 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", name, err)
 		}
 		written = append(written, name)
 	}
 	return written, nil
-}
-
-func atomicWrite(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }
 
 // Build is the whole pipeline from repos.yaml bytes to generated files: parse,

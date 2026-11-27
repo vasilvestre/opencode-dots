@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"opencode-dots/internal/atomicfile"
 )
 
 const (
@@ -95,11 +97,7 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return atomicfile.Write(s.path, raw, 0o600)
 }
 
 // Issue creates a token and returns its secret, which nothing keeps.

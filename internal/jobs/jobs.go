@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"opencode-dots/internal/atomicfile"
 )
 
 type State string
@@ -128,10 +130,7 @@ func (q *Queue) save() {
 	if err != nil {
 		return
 	}
-	tmp := q.path + ".tmp"
-	if os.WriteFile(tmp, raw, 0o600) == nil {
-		_ = os.Rename(tmp, q.path)
-	}
+	_ = atomicfile.Write(q.path, raw, 0o600) // the queue is rewritten on the next change
 }
 
 // settle moves what time has overtaken: an old pending job expires, an old finished one goes. The

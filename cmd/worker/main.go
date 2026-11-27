@@ -29,6 +29,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"opencode-dots/internal/atomicfile"
 )
 
 type job struct {
@@ -434,11 +436,7 @@ func writeHints(path string, hints map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, []byte(b.String()), 0o644)
 }
 
 // adviseIfMissing says in the log where a project could live when it is not on this machine. The run goes on
@@ -481,8 +479,5 @@ func (w *worker) keepServed(topics []string) {
 	if err := os.MkdirAll(filepath.Dir(w.servedFile), 0o755); err != nil {
 		return
 	}
-	tmp := w.servedFile + ".tmp"
-	if os.WriteFile(tmp, []byte(body), 0o644) == nil {
-		_ = os.Rename(tmp, w.servedFile)
-	}
+	_ = atomicfile.Write(w.servedFile, []byte(body), 0o644)
 }

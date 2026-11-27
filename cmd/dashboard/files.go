@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"opencode-dots/internal/atomicfile"
 	"opencode-dots/internal/repos"
 )
 
@@ -274,30 +275,11 @@ func pruneBackups(abs string, keep int) {
 	}
 }
 
+// atomicWrite replaces a file whole, keeping the mode it has (0644 for a new one).
 func atomicWrite(abs string, data []byte) error {
 	perm := os.FileMode(0o644)
 	if info, err := os.Stat(abs); err == nil {
 		perm = info.Mode().Perm()
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(abs), ".save-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(name, perm); err != nil {
-		return err
-	}
-	return os.Rename(name, abs)
+	return atomicfile.Write(abs, data, perm)
 }
