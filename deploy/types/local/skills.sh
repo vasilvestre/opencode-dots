@@ -47,8 +47,13 @@ bin=${SKILLSHARE_BIN:-$(command -v skillshare || true)}
 if [ "${DOTS_ELF_CHECK:-1}" != 0 ]; then
   [ "$(head -c4 "$bin" | od -An -c | tr -d ' ')" = '177ELF' ] || die "$bin is not an ELF binary"
   [ "$(od -An -tx1 -j18 -N1 "$bin" | tr -d ' ')" = 3e ] || die "$bin is not x86_64, the server is"
-  if command -v ldd >/dev/null 2>&1 && ! ldd "$bin" 2>&1 | grep -qiE 'not a dynamic|statically linked'; then
-    die "$bin is not statically linked"
+  # ldd exits non-zero on a static binary and prints its message in the user's language: ask in C,
+  # and read the text first so that `set -o pipefail` does not turn that exit status into a refusal.
+  if command -v ldd >/dev/null 2>&1; then
+    ldd_out=$(LC_ALL=C ldd "$bin" 2>&1 || true)
+    if ! printf '%s\n' "$ldd_out" | grep -qiE 'not a dynamic|statically linked'; then
+      die "$bin is not statically linked"
+    fi
   fi
 fi
 version=$("$bin" version 2>/dev/null | sed -n 's/\x1b\[[0-9;]*m//g;s/^.*\(v[0-9][0-9.]*\).*$/\1/p' | head -1)
