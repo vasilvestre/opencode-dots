@@ -41,6 +41,8 @@ type linkView struct {
 	CreatedAt  string          `json:"created_at"`
 	DecidedBy  string          `json:"decided_by,omitempty"`
 	DecidedAt  string          `json:"decided_at,omitempty"`
+	SplitBy    string          `json:"split_by,omitempty"`
+	SplitAt    string          `json:"split_at,omitempty"`
 	A          linkItemView    `json:"a"`
 	B          linkItemView    `json:"b"`
 	// Boundary is set when accepting would be refused: the two items differ in workspace
@@ -64,6 +66,10 @@ func toLinkView(p store.LinkProposal) linkView {
 		Boundary: p.ItemA.Workspace != p.ItemB.Workspace || p.ItemA.Trust != p.ItemB.Trust}
 	if !p.DecidedAt.IsZero() {
 		v.DecidedAt = p.DecidedAt.UTC().Format(time.RFC3339)
+	}
+	v.SplitBy = p.SplitBy
+	if !p.SplitAt.IsZero() {
+		v.SplitAt = p.SplitAt.UTC().Format(time.RFC3339)
 	}
 	if len(v.Evidence) == 0 {
 		v.Evidence = json.RawMessage(`{}`)
@@ -101,13 +107,17 @@ func (d *dash) links(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-func (d *dash) linksAccept(w http.ResponseWriter, r *http.Request)  { d.linksDecide(w, r, true) }
-func (d *dash) linksDecline(w http.ResponseWriter, r *http.Request) { d.linksDecide(w, r, false) }
+func (d *dash) linksAccept(w http.ResponseWriter, r *http.Request)  { d.linksDecide(w, r, "accept") }
+func (d *dash) linksDecline(w http.ResponseWriter, r *http.Request) { d.linksDecide(w, r, "decline") }
 
-// linksDecide accepts or declines one proposal: POST with {"id": "lp_..."}. The decider is
+// linksSplit undoes an accepted link: POST /api/links/split with {"id": "lp_..."}. The
+// references the accept moved go back to the second item (store.SplitLink).
+func (d *dash) linksSplit(w http.ResponseWriter, r *http.Request) { d.linksDecide(w, r, "split") }
+
+// linksDecide accepts, declines or splits one proposal: POST with {"id": "lp_..."}. The decider is
 // the caller the audit log records. A refusal of the store (a boundary, a decided
 // proposal) is a 409 with its message; the proposal stays as it was.
-func (d *dash) linksDecide(w http.ResponseWriter, r *http.Request, accept bool) {
+func (d *dash) linksDecide(w http.ResponseWriter, r *http.Request, action string) {
 	if r.Method != http.MethodPost {
 		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
 		return
@@ -141,9 +151,12 @@ func (d *dash) linksDecide(w http.ResponseWriter, r *http.Request, accept bool) 
 	defer st.Close()
 	by := d.auditCaller(r)
 	var p store.LinkProposal
-	if accept {
+	switch action {
+	case "accept":
 		p, err = st.AcceptLink(r.Context(), in.ID, by)
-	} else {
+	case "split":
+		p, err = st.SplitLink(r.Context(), in.ID, by)
+	default:
 		p, err = st.DeclineLink(r.Context(), in.ID, by)
 	}
 	switch {

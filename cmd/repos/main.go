@@ -85,7 +85,9 @@ func main() {
 	fs.Float64Var(&lk.Confidence, "confidence", 0, "db link propose: 0 to 1")
 	fs.StringVar(&lk.Reason, "reason", "", "db link propose: why, one short paragraph")
 	fs.StringVar(&lk.Evidence, "evidence", "", "db link propose: a small JSON object")
-	fs.StringVar(&lk.ID, "id", "", "db link accept, db link decline: the proposal id")
+	fs.StringVar(&lk.ID, "id", "", "db link accept, decline, split: the proposal id (split also takes it as the argument)")
+	fs.IntVar(&lk.Max, "max", 0, "db link candidates: at most this many pairs (default 5, at most 50)")
+	fs.StringVar(&lk.Out, "out", "", "db link candidates: the directory that receives one pair-NNN.json per pair")
 	fs.StringVar(&lk.By, "by", "", "db link: who proposes or decides (default dot, cli)")
 	fs.Usage = func() { usage(); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
@@ -111,6 +113,10 @@ func main() {
 		ev.LinkedIssues = nums
 		cl.Branch, cl.Actor, cl.Repo = ev.Branch, ev.Actor, ev.Repo
 		ing.Repo = ev.Repo
+		lk.Workspace = *workspace
+		if lk.ID == "" && fs.NArg() > 0 {
+			lk.ID = fs.Arg(0)
+		}
 		err = dbCommand(sub, *dir, *dbPath, *workspace, *prune, ev, cl, ing, lk)
 		var held heldError
 		if errors.As(err, &held) {
@@ -132,7 +138,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       repos db claim -actor LOGIN -machine M (-work-item ID | -ref REF) [-branch B] [-ttl 90s]")
 	fmt.Fprintln(os.Stderr, "       repos db heartbeat|release -claim ID    repos db claims -work-item ID")
 	fmt.Fprintln(os.Stderr, "       repos db worker register -name N -machine M [-capabilities JSON] [-ttl 90s]   heartbeat|expire -name N   list")
-	fmt.Fprintln(os.Stderr, "       repos db link propose -a ID -b ID -confidence 0.8 -reason T [-evidence JSON] [-by NAME] | -file F.json   list   accept|decline -id ID [-by NAME]")
+	fmt.Fprintln(os.Stderr, "       repos db link propose -a ID -b ID -confidence 0.8 -reason T [-evidence JSON] [-by NAME] | -file F.json   list   accept|decline|split ID [-by NAME]   candidates -out DIR [-max N]")
 	fmt.Fprintln(os.Stderr, "       repos db claimed -repo R -branch B      exit 0 when free, 10 when a human holds the branch")
 	fmt.Fprintln(os.Stderr, "       repos events publish TOPIC DATA | subscribe TOPIC...   (DOTS_MERCURE_URL, DOTS_MERCURE_SECRET)")
 	fmt.Fprintln(os.Stderr, "       repos generate|check -from-db   build the files from the database (ADR 0024, step 2)")
@@ -312,7 +318,7 @@ func dbCommand(sub, dir, dbPath, workspace string, prune bool, ev workitem.GitHu
 	case "worker-register", "worker-heartbeat", "worker-list", "worker-expire":
 		return workerCommand(ctx, st, os.Stdout, strings.TrimPrefix(sub, "worker-"),
 			dbWorker{Name: cl.Name, Machine: cl.Machine, Capabilities: cl.Capabilities, TTL: cl.TTL})
-	case "link-propose", "link-list", "link-accept", "link-decline":
+	case "link-propose", "link-list", "link-accept", "link-decline", "link-split", "link-candidates":
 		return linkCommand(ctx, st, os.Stdout, strings.TrimPrefix(sub, "link-"), lk)
 	case "list":
 		projects, err := st.Projects(ctx, workspace)

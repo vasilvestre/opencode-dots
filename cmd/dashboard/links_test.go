@@ -167,3 +167,72 @@ func linkGet(d *dash, _ string) int {
 	d.audited("/api/links/accept", "", d.linksAccept)(w, r)
 	return w.Code
 }
+
+func TestLinksSplitValidatesAuditsAndUndoesAnAccept(t *testing.T) {
+	state, prop, boundary := linkState(t)
+	d := &dash{state: state, allow: map[string]bool{}}
+	accept := d.audited("/api/links/accept", "", d.linksAccept)
+	split := d.audited("/api/links/split", "", d.linksSplit)
+	const host = "127.0.0.1:8099"
+	post := func(h http.HandlerFunc, host, ctype, body string) int {
+		return linkPost(h, "/api/links/split", host, ctype, body).Code
+	}
+	for name, c := range map[string]struct {
+		host, ctype, body string
+		want              int
+	}{
+		"foreign host":     {"evil.example", "application/json", `{"id":"` + prop.ID + `"}`, 403},
+		"not json":         {host, "text/plain", `{"id":"` + prop.ID + `"}`, 415},
+		"bad id":           {host, "application/json", `{"id":"../x"}`, 422},
+		"no body":          {host, "application/json", ``, 422},
+		"unknown proposal": {host, "application/json", `{"id":"lp_` + strings.Repeat("0", 32) + `"}`, 404},
+		"still open":       {host, "application/json", `{"id":"` + prop.ID + `"}`, 409},
+	} {
+		if got := post(split, c.host, c.ctype, c.body); got != c.want {
+			t.Errorf("%s: %d, want %d", name, got, c.want)
+		}
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/links/split", nil)
+	r.Host = host
+	w := httptest.NewRecorder()
+	split(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET split: %d", w.Code)
+	}
+
+	if w := linkPost(accept, "/api/links/accept", host, "application/json", `{"id":"`+prop.ID+`"}`); w.Code != 200 {
+		t.Fatalf("accept: %d %s", w.Code, w.Body)
+	}
+	if w := linkPost(split, "/api/links/split", host, "application/json", `{"id":"`+prop.ID+`"}`); w.Code != 200 || !strings.Contains(w.Body.String(), `"split"`) {
+		t.Fatalf("split: %d %s", w.Code, w.Body)
+	}
+	if got := post(split, host, "application/json", `{"id":"`+prop.ID+`"}`); got != 409 {
+		t.Errorf("split again: %d", got)
+	}
+	// A proposal that was never accepted cannot be split.
+	if got := post(split, host, "application/json", `{"id":"`+boundary.ID+`"}`); got != 409 {
+		t.Errorf("split of an open boundary proposal: %d", got)
+	}
+
+	st, _ := store.Open(filepath.Join(state, "dots.db"))
+	defer st.Close()
+	got, _ := st.LinkProposalByID(context.Background(), prop.ID)
+	if got.State != "split" || got.SplitBy != "local" || got.ItemB.State != "open" || len(got.ItemB.Refs) != 1 || len(got.ItemA.Refs) != 1 {
+		t.Errorf("after split = %+v", got)
+	}
+	var splits, ok int
+	for _, r := range auditRows(t, state) {
+		if r.Endpoint == "POST /api/links/split" {
+			splits++
+			if r.Outcome == 200 {
+				ok++
+			}
+			if r.Target != "" && r.Target != prop.ID && r.Target != boundary.ID && !strings.HasPrefix(r.Target, "lp_") {
+				t.Errorf("target = %q", r.Target)
+			}
+		}
+	}
+	if splits < 9 || ok != 1 {
+		t.Errorf("audit rows: %d split calls, %d ok", splits, ok)
+	}
+}

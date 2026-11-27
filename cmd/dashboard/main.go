@@ -165,6 +165,7 @@ func main() {
 	mux.HandleFunc("/api/links", d.links)
 	mux.HandleFunc("/api/links/accept", d.audited("/api/links/accept", "", d.linksAccept))
 	mux.HandleFunc("/api/links/decline", d.audited("/api/links/decline", "", d.linksDecline))
+	mux.HandleFunc("/api/links/split", d.audited("/api/links/split", "", d.linksSplit))
 	mux.HandleFunc("/api/workers", d.workers)
 	mux.HandleFunc("/api/autonomy", d.autonomy)
 	mux.HandleFunc("/api/autonomy/artifact", d.autonomyArtifact)

@@ -60,11 +60,13 @@ type LinkProposal struct {
 	Confidence float64
 	Reason     string // data from outside
 	Evidence   json.RawMessage
-	State      string // open, accepted or declined
+	State      string // open, accepted, declined or split
 	ProposedBy string
 	CreatedAt  time.Time
 	DecidedBy  string
 	DecidedAt  time.Time
+	SplitBy    string
+	SplitAt    time.Time
 	ItemA      LinkItem
 	ItemB      LinkItem
 }
@@ -151,18 +153,18 @@ func (s *Store) ProposeLink(ctx context.Context, in LinkInput) (LinkProposal, er
 	return s.LinkProposalByID(ctx, id)
 }
 
-const linkColumns = `id, work_item_a, work_item_b, confidence, reason, evidence, state, proposed_by, created_at, decided_by, decided_at`
+const linkColumns = `id, work_item_a, work_item_b, confidence, reason, evidence, state, proposed_by, created_at, decided_by, decided_at, split_by, split_at`
 
 func scanLink(r scanner) (LinkProposal, error) {
 	var (
-		p                          LinkProposal
-		evidence, created, decided string
+		p                                   LinkProposal
+		evidence, created, decided, splitAt string
 	)
-	if err := r.Scan(&p.ID, &p.A, &p.B, &p.Confidence, &p.Reason, &evidence, &p.State, &p.ProposedBy, &created, &p.DecidedBy, &decided); err != nil {
+	if err := r.Scan(&p.ID, &p.A, &p.B, &p.Confidence, &p.Reason, &evidence, &p.State, &p.ProposedBy, &created, &p.DecidedBy, &decided, &p.SplitBy, &splitAt); err != nil {
 		return LinkProposal{}, err
 	}
 	p.Evidence = json.RawMessage(evidence)
-	p.CreatedAt, p.DecidedAt = parseTime(created), parseTime(decided)
+	p.CreatedAt, p.DecidedAt, p.SplitAt = parseTime(created), parseTime(decided), parseTime(splitAt)
 	return p, nil
 }
 

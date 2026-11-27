@@ -176,6 +176,32 @@ var migrations = []string{
 		CHECK (work_item_a <> work_item_b)
 	);
 	CREATE UNIQUE INDEX link_proposal_open_pair ON link_proposal(min(work_item_a, work_item_b), max(work_item_a, work_item_b)) WHERE state = 'open';`,
+
+	// 7: a split link proposal. The state CHECK of migration 6 cannot take a new value, so
+	// the table is rebuilt (nothing references it): the rows are copied as they are, and
+	// split_by and split_at say who undid an accepted merge and when. The open-pair index
+	// is created again.
+	`CREATE TABLE link_proposal_new (
+		id           TEXT PRIMARY KEY,
+		work_item_a  TEXT NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
+		work_item_b  TEXT NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
+		confidence   REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+		reason       TEXT NOT NULL DEFAULT '',
+		evidence     TEXT NOT NULL DEFAULT '{}',
+		state        TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'accepted', 'declined', 'split')),
+		proposed_by  TEXT NOT NULL,
+		created_at   TEXT NOT NULL,
+		decided_by   TEXT NOT NULL DEFAULT '',
+		decided_at   TEXT NOT NULL DEFAULT '',
+		split_by     TEXT NOT NULL DEFAULT '',
+		split_at     TEXT NOT NULL DEFAULT '',
+		CHECK (work_item_a <> work_item_b)
+	);
+	INSERT INTO link_proposal_new (id, work_item_a, work_item_b, confidence, reason, evidence, state, proposed_by, created_at, decided_by, decided_at)
+		SELECT id, work_item_a, work_item_b, confidence, reason, evidence, state, proposed_by, created_at, decided_by, decided_at FROM link_proposal;
+	DROP TABLE link_proposal;
+	ALTER TABLE link_proposal_new RENAME TO link_proposal;
+	CREATE UNIQUE INDEX link_proposal_open_pair ON link_proposal(min(work_item_a, work_item_b), max(work_item_a, work_item_b)) WHERE state = 'open';`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
