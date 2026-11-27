@@ -39,16 +39,6 @@ var AdvisoryID = regexp.MustCompile(`^(GHSA(-[23456789cfghjmpqrvwx]{4}){3}|CVE-[
 // AdvisoryRef builds advisory:<id>@<owner>/<repo>.
 func AdvisoryRef(id, repo string) (Ref, error) { return NewRef(Advisory, id+"@"+repo) }
 
-// LegacyAdvisoryRef is the form `advisory:<id>` used before references were scoped to a
-// repository. It is never valid input to ParseRef; it exists so stored items can be found
-// and rewritten.
-func LegacyAdvisoryRef(id string) (string, error) {
-	if !AdvisoryID.MatchString(id) {
-		return "", fmt.Errorf("sources: %q is not an advisory id", id)
-	}
-	return "advisory:" + id, nil
-}
-
 // Ref is a parsed reference, tracker:key.
 type Ref struct {
 	Tracker Tracker

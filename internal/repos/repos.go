@@ -227,9 +227,6 @@ type Resolved struct {
 	Settings Settings
 }
 
-// Has reports whether a feature is enabled on this repository.
-func (r *Resolved) Has(key string) bool { _, ok := r.Values[key]; return ok }
-
 // Value returns the effective value of an enabled feature key, and whether the
 // feature is enabled on this repository.
 func (r *Resolved) Value(key string) (any, bool) { v, ok := r.Values[key]; return v, ok }

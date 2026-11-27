@@ -64,21 +64,3 @@ func EffectiveAutonomy(r *Resolved) string {
 	}
 	return "act"
 }
-
-// LowerAutonomy returns the lower of two levels: a per-workflow override may
-// lower the ceiling, never raise it. Not wired to a workflow block yet.
-func LowerAutonomy(ceiling, asked string) string {
-	if autonomyIndex(asked) < autonomyIndex(ceiling) {
-		return asked
-	}
-	return ceiling
-}
-
-func autonomyIndex(s string) int {
-	for i, l := range autonomyLevels {
-		if l == s {
-			return i
-		}
-	}
-	return -1
-}

@@ -135,9 +135,6 @@ func New(c Config) *Auth {
 // MinPermission is the setting as the sign-in page shows it.
 func (a *Auth) MinPermission() string { return PermissionName(a.minRank) }
 
-// ValidLogin says whether s looks like a GitHub login.
-func ValidLogin(s string) bool { return loginRE.MatchString(s) }
-
 func randomID(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

@@ -109,9 +109,3 @@ func TestAutonomyReachesTheRules(t *testing.T) {
 		t.Fatalf("rules = %+v", out.Rules)
 	}
 }
-
-func TestLowerAutonomyNeverRaises(t *testing.T) {
-	if LowerAutonomy("act", "auto") != "act" || LowerAutonomy("auto", "act") != "act" {
-		t.Fatal("override must only lower")
-	}
-}

@@ -6,29 +6,6 @@ import (
 	"testing"
 )
 
-func TestLoopbackRequest(t *testing.T) {
-	cases := []struct {
-		host, origin string
-		want         bool
-	}{
-		{"127.0.0.1:8099", "", true},
-		{"localhost:8099", "http://localhost:8099", true},
-		{"[::1]:8099", "http://[::1]:8099", true},
-		{"evil.example", "", false},
-		{"127.0.0.1:8099", "http://evil.example", false},
-	}
-	for _, c := range cases {
-		req := httptest.NewRequest(http.MethodPut, "/api/save", nil)
-		req.Host = c.host
-		if c.origin != "" {
-			req.Header.Set("Origin", c.origin)
-		}
-		if got := loopbackRequest(req); got != c.want {
-			t.Errorf("loopbackRequest(host %q, origin %q) = %v, want %v", c.host, c.origin, got, c.want)
-		}
-	}
-}
-
 func TestTrustedHost(t *testing.T) {
 	d := &dash{allow: map[string]bool{"machine.example.ts.net": true}}
 	req := func(host, origin string) *http.Request {

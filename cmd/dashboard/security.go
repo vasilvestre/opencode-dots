@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// loopbackRequest accepts a request whose Host and Origin are this machine.
+// trustedRequest accepts a request whose Host and Origin are this machine or an -allow-host name.
 // An absent Origin is fine: curl and Fetch from the page send one, but a
 // same-origin navigation may not.
 func (d *dash) trustedRequest(r *http.Request) bool {
@@ -49,19 +49,6 @@ func (d *dash) trustedHost(hostport string) bool {
 	}
 	_, ok := d.allow[hostOnly(hostport)]
 	return ok
-}
-
-func loopbackRequest(r *http.Request) bool {
-	if !isLoopbackHost(r.Host) {
-		return false
-	}
-	if origin := r.Header.Get("Origin"); origin != "" {
-		u, err := url.Parse(origin)
-		if err != nil || !isLoopbackHost(u.Host) {
-			return false
-		}
-	}
-	return true
 }
 
 func isLoopbackHost(hostport string) bool {
