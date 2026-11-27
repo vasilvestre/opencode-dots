@@ -34,7 +34,7 @@ func TestRunCost(t *testing.T) {
 	transcript := filepath.Join(transcripts, id+".jsonl")
 	write(transcript, step("0.0025")+step("0.0010"))
 
-	d := &dash{state: filepath.Join(dir, "state"), transcripts: transcripts, costs: map[string]costMemo{}}
+	d := &dash{state: filepath.Join(dir, "state"), transcripts: transcripts}
 	usd, steps := d.runCost(id)
 	if steps != 2 || usd < 0.0034 || usd > 0.0036 {
 		t.Fatalf("runCost = %v over %d steps", usd, steps)
@@ -59,7 +59,7 @@ func TestRunCost(t *testing.T) {
 
 func TestUsageGroupsByPullRequest(t *testing.T) {
 	dir := t.TempDir()
-	d := &dash{state: dir, awf: "http://127.0.0.1:1", costs: map[string]costMemo{}}
+	d := &dash{state: dir, awf: "http://127.0.0.1:1"}
 	if err := os.MkdirAll(filepath.Join(dir, "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}

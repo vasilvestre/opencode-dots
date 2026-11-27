@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"opencode-dots/internal/spend"
 )
@@ -137,11 +136,8 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// costMemo keeps the last answer for one run file, keyed by its size and
-// modification time, because the page asks again on every refresh.
-type costMemo struct {
-	size  int64
-	mod   time.Time
+// costAnswer is what a run's log is worth: its price and how many agent steps carried one.
+type costAnswer struct {
 	usd   float64
 	steps int
 }
@@ -159,19 +155,11 @@ func (d *dash) runCost(id string) (float64, int) {
 	if err != nil {
 		return 0, 0
 	}
-	d.costMu.Lock()
-	memo, ok := d.costs[id]
-	d.costMu.Unlock()
-	if ok && memo.size == st.Size() && memo.mod.Equal(st.ModTime()) {
-		return memo.usd, memo.steps
+	if memo := d.costs.get(id); memo.fresh(st) {
+		return memo.val.usd, memo.val.steps
 	}
 	usd, steps := spend.SumCost(readFile(path, 8<<20))
-	d.costMu.Lock()
-	if d.costs == nil {
-		d.costs = map[string]costMemo{}
-	}
-	d.costs[id] = costMemo{size: st.Size(), mod: st.ModTime(), usd: usd, steps: steps}
-	d.costMu.Unlock()
+	d.costs.put(id, st, costAnswer{usd, steps})
 	return usd, steps
 }
 

@@ -299,20 +299,10 @@ type replayRun struct {
 	Source   string            `json:"source"`
 }
 
-// targetMemo keeps the last answer for one run log, keyed by its size and
-// modification time, because the page asks again on every refresh.
-type targetMemo struct {
-	size int64
-	mod  time.Time
-	in   map[string]string
-}
-
 // target returns the target cached for a run. cacheTargets does the parsing,
 // so a request never reads a transcript.
 func (d *dash) target(id string) map[string]string {
-	d.targetMu.Lock()
-	defer d.targetMu.Unlock()
-	return d.targets[id].in
+	return d.targets.get(id).val
 }
 
 // completeTarget reports whether a parsed target names the repository and the
@@ -341,16 +331,10 @@ func (d *dash) cacheTargets() {
 		if err != nil {
 			continue
 		}
-		d.targetMu.Lock()
-		memo := d.targets[id]
-		d.targetMu.Unlock()
-		if completeTarget(memo.in) || (memo.size == st.Size() && memo.mod.Equal(st.ModTime())) {
+		if memo := d.targets.get(id); completeTarget(memo.val) || memo.fresh(st) {
 			continue
 		}
-		in := d.targetOf(id, readFile(path, 4<<20))
-		d.targetMu.Lock()
-		d.targets[id] = targetMemo{size: st.Size(), mod: st.ModTime(), in: in}
-		d.targetMu.Unlock()
+		d.targets.put(id, st, d.targetOf(id, readFile(path, 4<<20)))
 	}
 }
 

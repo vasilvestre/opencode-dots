@@ -88,7 +88,7 @@ func TestLogTargets(t *testing.T) {
 	log := filepath.Join(state, "logs", id+".jsonl")
 	os.WriteFile(log, []byte(`data: {"text":"review awf-project/cli#447"}`+"\n"), 0o644)
 
-	d := &dash{state: state, indexed: map[string]bool{}, targets: map[string]targetMemo{}}
+	d := &dash{state: state, indexed: map[string]bool{}}
 	d.noteIndex(id, "review-pr", "2026-11-23T10:00:00Z")
 	d.cacheTargets()
 
@@ -135,10 +135,7 @@ func TestLogTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.targetMu.Lock()
-	memo := d.targets[none]
-	d.targetMu.Unlock()
-	if memo.size != st.Size() || !memo.mod.Equal(st.ModTime()) {
+	if memo := d.targets.get(none); !memo.fresh(st) {
 		t.Fatalf("cached log version = %d %v, want %d %v", memo.size, memo.mod, st.Size(), st.ModTime())
 	}
 
@@ -146,10 +143,8 @@ func TestLogTargets(t *testing.T) {
 	os.Remove(log)
 	os.Remove(noneLog)
 	d.pruneLogs()
-	d.targetMu.Lock()
-	_, keptA := d.targets[id]
-	_, keptB := d.targets[none]
-	d.targetMu.Unlock()
+	_, keptA := d.targets.m[id]
+	_, keptB := d.targets.m[none]
 	if keptA || keptB {
 		t.Fatal("prune kept the target of a dropped log")
 	}
@@ -173,7 +168,7 @@ func TestLogRoundDiffs(t *testing.T) {
 	plainLog := filepath.Join(state, "logs", plain+".jsonl")
 	os.WriteFile(plainLog, []byte(`data: {"text":"review awf-project/cli#7"}`+"\n"), 0o644)
 
-	d := &dash{state: state, indexed: map[string]bool{}, targets: map[string]targetMemo{}}
+	d := &dash{state: state, indexed: map[string]bool{}}
 	d.noteIndex(id, "review-pr", "2026-11-25T10:00:00Z")
 	d.noteIndex(plain, "review-pr", "2026-11-25T10:05:00Z")
 	d.cacheTargets()

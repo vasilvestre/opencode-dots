@@ -93,13 +93,7 @@ func (d *dash) pruneLogs() {
 	}
 	d.mu.Unlock()
 
-	d.targetMu.Lock()
-	for id := range d.targets {
-		if !indexed[id] {
-			delete(d.targets, id)
-		}
-	}
-	d.targetMu.Unlock()
+	d.targets.prune(func(id string) bool { return indexed[id] })
 }
 
 // recordRuns records every execution awf knows and has no log for yet. A run

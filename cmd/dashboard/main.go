@@ -158,8 +158,6 @@ func main() {
 			d.allow[h] = true
 		}
 	}
-	d.targets = map[string]targetMemo{}
-	d.costs = map[string]costMemo{}
 	d.indexed = d.loadIndexed()
 	mux := routes(d, *ui, proxy)
 
@@ -214,13 +212,11 @@ type dash struct {
 
 	// The page asks for a price on every refresh; the last answer per run file
 	// is reused until the file changes.
-	costMu sync.Mutex
-	costs  map[string]costMemo
+	costs fileMemo[costAnswer]
 
 	// spend.ReplayInputs is a regexp pass over up to 4 MB of log, so the target per
 	// run is parsed off the request path and kept by log version.
-	targetMu sync.Mutex
-	targets  map[string]targetMemo
+	targets fileMemo[map[string]string]
 
 	// Snapshots of the executors' awf (remote.go).
 	remoteMu sync.Mutex
