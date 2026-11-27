@@ -120,6 +120,7 @@ cmd_publish() {
       cp "$src" "$dir/tend/$rel/worklogs/$name"
     done < <(worklogs "$rel")
   done
+  mkdir -p "$dir/tend" # a workspace with nothing learnt yet has no tend/, and `git add` of a missing path fails
   g add -A tend
   if g diff --cached --quiet; then echo "workspace: nothing new to publish"; return; fi
   g commit --quiet -m "Publish lessons $(date -u +%FT%TZ)"

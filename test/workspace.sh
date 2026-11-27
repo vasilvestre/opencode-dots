@@ -50,6 +50,13 @@ printf '# worklog pr 10\n' >"$tmp/server/state/replies/pr10/worklog.md"
 
 echo "== the writer"
 check "init creates the first commit on an empty remote" as server writer init
+# A server whose state was just cleared has nothing learnt yet: publishing must still work, not die
+# on a missing tend/ (it made the tick task workspace-sync fail every 15 minutes).
+mv "$tmp/server/state/tend" "$tmp/server/state/tend.held"
+mv "$tmp/server/state/fix" "$tmp/server/state/fix.held"; mv "$tmp/server/state/replies" "$tmp/server/state/replies.held"
+check "publish with nothing learnt yet succeeds" as server writer publish
+mv "$tmp/server/state/tend.held" "$tmp/server/state/tend"
+mv "$tmp/server/state/fix.held" "$tmp/server/state/fix"; mv "$tmp/server/state/replies.held" "$tmp/server/state/replies"
 check "publish succeeds" as server writer publish
 sw=$tmp/server/ws
 check "lessons are in the repository" test -f "$sw/tend/acme/app/lessons.md"
