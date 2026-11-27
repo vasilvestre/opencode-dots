@@ -50,12 +50,13 @@ touch "$u/dots-claim.timer"; : >"$h/sc.log"; SYSTEMCTL=$h/sc.fail DOTS_OPENCODE_
 rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
 
 # A unit the user masked stays masked: not written over, its timer not enabled, status says so.
-rm -f "$u"/*; ln -s /dev/null "$u/dots-tend.service"; echo r >"$root/tend.list.test"; rm -f "$root/tend.list.test"
-cp "$root/tend.list" "$h/tend.list.bak" 2>/dev/null; echo "x/y" >"$root/tend.list"; : >"$h/sc.log"
+export DOTS_TEND_LIST=$h/tend.list; echo "x/y" >"$DOTS_TEND_LIST"
+rm -f "$u"/*; ln -s /dev/null "$u/dots-tend.service"; : >"$h/sc.log"
 bin/dots-units install --role server >/dev/null 2>&1
 [ "$(readlink "$u/dots-tend.service")" = /dev/null ] && ! grep -q "enable --now dots-tend.timer" "$h/sc.log" && ok "a masked dots-tend is left masked and its timer is not enabled" || ko "masked unit"
-bin/dots-units status --role server 2>&1 | grep -q "masked    dots-tend" && ok "status says the unit is masked by the user" || ko "status masked"
-if [ -f "$h/tend.list.bak" ]; then cp "$h/tend.list.bak" "$root/tend.list"; else rm -f "$root/tend.list"; fi
+out=$(bin/dots-units status --role server 2>&1)
+case $out in *"masked    dots-tend.service"*) ok "status says the unit is masked by the user" ;; *) ko "status masked" ;; esac
+unset DOTS_TEND_LIST
 rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
 
 # An install by hand left links from the user dir to the files in systemd/: rendering must replace the

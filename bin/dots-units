@@ -45,7 +45,7 @@ units_for() { # role -> unit files, one per line
     worker) echo "dots-awf.service dots-worker.service dots-tick.service dots-tick.timer" ;;
     *) echo "dots-units: the role is workstation, server or worker, not '$1'" >&2; return 1 ;;
   esac | tr ' ' '\n'
-  if [ "$1" != worker ] && [ -s "$root/tend.list" ]; then printf 'dots-tend.service\ndots-tend.timer\n'; fi
+  if [ "$1" != worker ] && [ -s "${DOTS_TEND_LIST:-$root/tend.list}" ]; then printf 'dots-tend.service\ndots-tend.timer\n'; fi
 }
 
 # A unit the user masked (a link to /dev/null) is a choice: the manifest neither writes over it nor
