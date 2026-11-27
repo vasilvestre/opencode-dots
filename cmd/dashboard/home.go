@@ -77,6 +77,17 @@ func (d *dash) home(w http.ResponseWriter, r *http.Request) {
 			x.Cost7d += usd
 		}
 	}
+	for _, j := range d.queueSpend() {
+		x := row(j.Repo)
+		if x == nil {
+			continue
+		}
+		later(x, j.Created)
+		if j.Created.After(since) {
+			x.Runs7d++
+			x.Cost7d += j.Cost
+		}
+	}
 	for kind, items := range map[string][]gateItem{"held": d.gateItems("held"), "notes": d.gateItems("notes")} {
 		for _, it := range items {
 			x := row(repoOfRef(it.Ref))

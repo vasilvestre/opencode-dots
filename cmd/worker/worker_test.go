@@ -57,9 +57,12 @@ func newFakeServer(t *testing.T) *fakeServer {
 		json.NewEncoder(w).Encode(map[string]bool{"cancelled": j.State == jobs.Cancelled})
 	}))
 	mux.HandleFunc("POST /api/jobs/{id}/finish", auth(func(w http.ResponseWriter, r *http.Request) {
-		var in struct{ Status, Note string }
+		var in struct {
+			Status, Note string
+			Cost         float64 `json:"cost_usd"`
+		}
 		json.NewDecoder(r.Body).Decode(&in)
-		if _, err := f.q.Finish(r.PathValue("id"), r.Header.Get("X-Worker-Instance"), jobs.State(in.Status), in.Note); err != nil {
+		if _, err := f.q.Finish(r.PathValue("id"), r.Header.Get("X-Worker-Instance"), jobs.State(in.Status), in.Note, in.Cost); err != nil {
 			w.WriteHeader(409)
 			return
 		}
@@ -239,4 +242,31 @@ func TestHubMessageWakesTheWorkerBeforeItsPoll(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("the hub message did not wake the worker")
+}
+
+func TestWorkerReportsWhatTheRunCost(t *testing.T) {
+	srv, awf := newFakeServer(t), newFakeAWF(t, "completed")
+	dash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/cost" || r.URL.Query().Get("id") != "x1" {
+			w.WriteHeader(404)
+			return
+		}
+		w.Write([]byte(`{"available":true,"cost":0.31,"steps":2}`))
+	}))
+	defer dash.Close()
+	j, _ := srv.q.Enqueue("local", "review-pr", map[string]any{"repo": "org/app", "pr": "7"})
+	w := fast(newWorker(srv.URL, tok, awf.URL))
+	w.dashboard = dash.URL
+	w.drain(context.Background())
+	if got := find(t, srv.q, j.ID); got.Cost != 0.31 {
+		t.Fatalf("cost = %v, want 0.31 reported by the worker", got.Cost)
+	}
+	// A dashboard that does not answer reports no price, and the job still ends.
+	k, _ := srv.q.Enqueue("local", "review-pr", map[string]any{"repo": "org/app"})
+	w2 := fast(newWorker(srv.URL, tok, awf.URL))
+	w2.dashboard = "http://127.0.0.1:1"
+	w2.drain(context.Background())
+	if got := find(t, srv.q, k.ID); got.State != jobs.Done || got.Cost != 0 {
+		t.Fatalf("job = %+v", got)
+	}
 }

@@ -41,6 +41,7 @@ type worker struct {
 	base      string // the server's worker entry, such as https://hub.example/worker
 	token     string
 	awf       string // the local awf serve
+	dashboard string // the local dashboard, asked what a run cost; empty skips the price
 	client    *http.Client
 	poll      time.Duration
 	heartbeat time.Duration
@@ -55,6 +56,7 @@ func main() {
 	base := flag.String("url", os.Getenv("DOTS_WORKER_URL"), "the server's worker entry, such as https://hub.example/worker")
 	tokenFile := flag.String("token-file", envOr("DOTS_WORKER_TOKEN_FILE", filepath.Join(home, ".config", "dots", "worker-token")), "file holding the worker token (dwt_...)")
 	awf := flag.String("awf", envOr("DOTS_AWF_URL", "http://127.0.0.1:2511"), "the local awf serve")
+	dash := flag.String("dashboard", envOr("DOTS_LOCAL_DASHBOARD", "http://127.0.0.1:8099"), "the local dashboard, asked what each run cost (empty: report no price)")
 	poll := flag.Duration("poll", time.Minute, "how often the queue is read when the hub says nothing")
 	once := flag.Bool("once", false, "claim and run what is pending, then stop")
 	flag.Parse()
@@ -71,6 +73,7 @@ func main() {
 	}
 	w := newWorker(*base, token, *awf)
 	w.poll = *poll
+	w.dashboard = strings.TrimRight(*dash, "/")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *once {
@@ -176,12 +179,13 @@ func (w *worker) drain(ctx context.Context) {
 // execute hands a claimed job to the local awf, keeps the claim alive, and reports the end.
 func (w *worker) execute(ctx context.Context, j job) {
 	w.log.Printf("took %s: %s/%s for %s", j.ID, j.Scope, j.Workflow, j.Repo)
-	status, note := "failed", ""
+	status, note, execID := "failed", "", ""
 	defer func() {
 		// Report even when the worker is stopping: the server must hear that it is not coming back.
 		fin, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
-		if _, err := w.call(fin, http.MethodPost, "/api/jobs/"+url.PathEscape(j.ID)+"/finish", map[string]string{"status": status, "note": note}, nil); err != nil {
+		body := map[string]any{"status": status, "note": note, "cost_usd": w.runPrice(fin, execID)}
+		if _, err := w.call(fin, http.MethodPost, "/api/jobs/"+url.PathEscape(j.ID)+"/finish", body, nil); err != nil {
 			w.log.Printf("could not report %s: %v", j.ID, err)
 		}
 		w.log.Printf("%s ended %s %s", j.ID, status, note)
@@ -191,6 +195,7 @@ func (w *worker) execute(ctx context.Context, j job) {
 		note = err.Error()
 		return
 	}
+	execID = id
 	hb := time.NewTicker(w.heartbeat)
 	defer hb.Stop()
 	poll := time.NewTicker(w.awfPoll)
@@ -267,6 +272,27 @@ func (w *worker) runStatus(ctx context.Context, id string) (string, error) {
 		return "", errors.New("awf lost the execution")
 	}
 	return out.Body.Status, nil
+}
+
+// runPrice is what the run spent, read from the local dashboard, which prices the run's own log.
+// A missing dashboard or run gives 0: the server then shows the run as unpriced, never as free.
+func (w *worker) runPrice(ctx context.Context, execID string) float64 {
+	if w.dashboard == "" || execID == "" {
+		return 0
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, w.dashboard+"/api/cost?id="+url.QueryEscape(execID), nil)
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Cost float64 `json:"cost"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil {
+		return 0
+	}
+	return out.Cost
 }
 
 func (w *worker) cancelRun(ctx context.Context, id string) {

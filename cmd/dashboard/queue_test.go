@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -177,5 +178,75 @@ func TestQueueShowsRunsLikeAnAwfExecutor(t *testing.T) {
 	}
 	if got := ask(r.h, "GET", "/queue/api/history", "visitor", "", "").Code; got != 401 && got != 403 {
 		t.Fatalf("a visitor reading the history = %d", got)
+	}
+}
+
+// Cost vanished from the Cost tab and the Home page twice: runs that a worker did on another
+// machine have no log on the server, so only the price the worker reports can show them. These
+// tests keep that path, for the owner and for a visitor, from breaking again.
+func TestWorkerRunsCountInUsageAndHomeAndStayScoped(t *testing.T) {
+	r := workerRig(t)
+	type usage struct {
+		Total    float64
+		Runs     int
+		Unpriced int
+		Groups   []usageOne
+	}
+	read := func(who string) usage {
+		var u usage
+		rec := r.owner("/api/usage")
+		if who == "visitor" {
+			rec = r.visitor("/api/usage")
+		}
+		json.Unmarshal(rec.Body.Bytes(), &u)
+		return u
+	}
+	group := func(u usage, key string) *usageOne {
+		for i := range u.Groups {
+			if u.Groups[i].Key == key {
+				return &u.Groups[i]
+			}
+		}
+		return nil
+	}
+	r.signIn()
+	baseOwner, baseVisitor := read("owner"), read("visitor")
+
+	ada, _ := issueToken(t, r, `{"label":"ada"}`)
+	for repo, cost := range map[string]float64{openRepo: 0.5, hiddenRepo: 9} {
+		id := enqueueRun(t, r, repo)
+		workerDo(r, "POST", "/api/jobs/"+id+"/claim", ada, "")
+		workerDo(r, "POST", "/api/jobs/"+id+"/finish", ada, fmt.Sprintf(`{"status":"done","cost_usd":%v}`, cost))
+	}
+	owner := read("owner")
+	if owner.Total-baseOwner.Total != 9.5 || owner.Runs-baseOwner.Runs != 2 {
+		t.Fatalf("owner usage went from %+v to %+v, want +9.5 over 2 runs", baseOwner.Total, owner.Total)
+	}
+	open, hidden := group(owner, openRepo+"#7"), group(owner, hiddenRepo+"#7")
+	if open == nil || hidden == nil || open.Cost != 0.5 || hidden.Cost != 9 || open.Unpriced != 0 || open.Workflows[0].Workflow != "review-pr" {
+		t.Fatalf("groups = %+v / %+v", open, hidden)
+	}
+	visitor := read("visitor")
+	if visitor.Total-baseVisitor.Total != 0.5 || group(visitor, hiddenRepo+"#7") != nil || group(visitor, openRepo+"#7") == nil {
+		t.Fatalf("visitor usage = %+v, want the visible repository only", visitor)
+	}
+	var home []struct {
+		Repo   string
+		Cost7d float64
+	}
+	json.Unmarshal(r.owner("/api/home").Body.Bytes(), &home)
+	seen := map[string]float64{}
+	for _, h := range home {
+		seen[h.Repo] = h.Cost7d
+	}
+	if seen[openRepo] < 0.5 || seen[hiddenRepo] < 9 {
+		t.Fatalf("home cost7d = %v, the workers' runs are missing", seen)
+	}
+	// An unreported price is counted as unpriced, never as free.
+	id := enqueueRun(t, r, openRepo)
+	workerDo(r, "POST", "/api/jobs/"+id+"/claim", ada, "")
+	workerDo(r, "POST", "/api/jobs/"+id+"/finish", ada, `{"status":"done"}`)
+	if got := read("owner").Unpriced - owner.Unpriced; got != 1 {
+		t.Fatalf("unpriced grew by %d, want 1", got)
 	}
 }

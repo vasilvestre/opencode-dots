@@ -148,14 +148,15 @@ func (d *dash) jobFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Status string `json:"status"`
-		Note   string `json:"note"`
+		Status string  `json:"status"`
+		Note   string  `json:"note"`
+		Cost   float64 `json:"cost_usd"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&in) != nil {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
-	j, err := d.queue.Finish(r.PathValue("id"), workerName(t, r), jobs.State(in.Status), in.Note)
+	j, err := d.queue.Finish(r.PathValue("id"), workerName(t, r), jobs.State(in.Status), in.Note, in.Cost)
 	if err != nil {
 		jobError(w, err)
 		return
@@ -223,7 +224,7 @@ func (d *dash) queueHistory(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		e := map[string]any{"id": j.ID, "execution_id": j.ID, "workflow_name": j.Workflow, "status": awfStatus(j.State),
-			"started_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By, "note": j.Note}
+			"started_at": j.Created.Format(time.RFC3339Nano), "target": jobTarget(j), "worker": j.By, "note": j.Note, "cost": j.Cost}
 		if !j.Finished.IsZero() {
 			e["completed_at"] = j.Finished.Format(time.RFC3339Nano)
 			e["duration_ms"] = j.Finished.Sub(j.Created).Milliseconds()
@@ -234,4 +235,19 @@ func (d *dash) queueHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, map[string]any{"body": map[string]any{"entries": list}})
+}
+
+// queueSpend is the finished jobs, which carry the price their worker reported. A server that
+// queues nothing has none.
+func (d *dash) queueSpend() []jobs.Job {
+	if d.queue == nil {
+		return nil
+	}
+	var out []jobs.Job
+	for _, j := range d.queue.All() {
+		if j.State == jobs.Done || j.State == jobs.Failed {
+			out = append(out, j)
+		}
+	}
+	return out
 }

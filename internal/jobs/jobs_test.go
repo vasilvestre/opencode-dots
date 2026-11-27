@@ -88,14 +88,14 @@ func TestFinishAndExpiry(t *testing.T) {
 	q.Now = func() time.Time { return now }
 	j, _ := q.Enqueue("local", "review-pr", run("org/app"))
 	q.Claim(j.ID, "ada", mine)
-	if _, err := q.Finish(j.ID, "bob", Done, ""); !errors.Is(err, ErrNotYours) {
+	if _, err := q.Finish(j.ID, "bob", Done, "", 0); !errors.Is(err, ErrNotYours) {
 		t.Fatalf("finish by another = %v", err)
 	}
-	if _, err := q.Finish(j.ID, "ada", "weird", ""); err == nil {
+	if _, err := q.Finish(j.ID, "ada", "weird", "", 0); err == nil {
 		t.Fatal("a bad status must be refused")
 	}
-	if _, err := q.Finish(j.ID, "ada", Done, "ok"); err != nil {
-		t.Fatal(err)
+	if done, err := q.Finish(j.ID, "ada", Done, "ok", 0.42); err != nil || done.Cost != 0.42 {
+		t.Fatalf("finish = %+v, %v: the cost must be kept", done, err)
 	}
 	stale, _ := q.Enqueue("local", "review-pr", run("org/app"))
 	now = now.Add(q.PendingTTL + time.Hour)

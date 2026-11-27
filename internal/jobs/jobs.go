@@ -48,6 +48,7 @@ type Job struct {
 	Lease    time.Time      `json:"lease,omitzero"` // a taken job whose lease has passed is claimable again
 	Finished time.Time      `json:"finished,omitzero"`
 	Note     string         `json:"note,omitempty"`
+	Cost     float64        `json:"cost_usd,omitempty"` // what the run spent, reported by the worker
 }
 
 // Queue holds the jobs, in memory and in a private file.
@@ -212,7 +213,7 @@ func (q *Queue) Claim(id, by string, repos map[string]bool) (Job, error) {
 }
 
 // Finish records the end of a claimed job: status is done or failed.
-func (q *Queue) Finish(id, by string, status State, note string) (Job, error) {
+func (q *Queue) Finish(id, by string, status State, note string, cost float64) (Job, error) {
 	if status != Done && status != Failed {
 		return Job{}, errors.New("jobs: a job finishes as done or failed")
 	}
@@ -226,6 +227,9 @@ func (q *Queue) Finish(id, by string, status State, note string) (Job, error) {
 		j.State = status
 	}
 	j.Finished, j.Note = q.Now(), note
+	if cost > 0 {
+		j.Cost = cost
+	}
 	q.save()
 	return *j, nil
 }

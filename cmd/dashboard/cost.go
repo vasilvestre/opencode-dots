@@ -63,15 +63,7 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 	var total float64
 	var runs, unpriced int
 
-	seen := map[string]bool{}
-	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
-		var e logIndex
-		if json.Unmarshal([]byte(line), &e) != nil || e.ID == "" || seen[e.ID] {
-			continue
-		}
-		seen[e.ID] = true
-		in := d.targetOf(e.ID, d.runText(e.ID))
-		repo, pr, issue := in["repo"], in["pr"], in["issue"]
+	add := func(repo, pr, issue, workflow string, usd float64) {
 		if pr == "" && issue != "" {
 			pr = "issue " + issue
 		}
@@ -87,7 +79,6 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 			g = &group{one: usageOne{Key: key, Repo: repo, PR: pr, Issue: issue}, flow: map[string]*usageFlow{}}
 			groups[key] = g
 		}
-		usd, _ := d.runCost(e.ID)
 		g.one.Runs++
 		runs++
 		g.one.Cost += usd
@@ -96,13 +87,32 @@ func (d *dash) usage(w http.ResponseWriter, r *http.Request) {
 			g.one.Unpriced++
 			unpriced++
 		}
-		f, ok := g.flow[e.WorkflowName]
+		f, ok := g.flow[workflow]
 		if !ok {
-			f = &usageFlow{Workflow: e.WorkflowName}
-			g.flow[e.WorkflowName] = f
+			f = &usageFlow{Workflow: workflow}
+			g.flow[workflow] = f
 		}
 		f.Runs++
 		f.Cost += usd
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(readFile(d.indexFile(), 8<<20), "\n") {
+		var e logIndex
+		if json.Unmarshal([]byte(line), &e) != nil || e.ID == "" || seen[e.ID] {
+			continue
+		}
+		seen[e.ID] = true
+		in := d.targetOf(e.ID, d.runText(e.ID))
+		usd, _ := d.runCost(e.ID)
+		add(in["repo"], in["pr"], in["issue"], e.WorkflowName, usd)
+	}
+	// Runs a worker did on another machine have no log here: the worker reported their price.
+	for _, j := range d.queueSpend() {
+		in := map[string]string{}
+		for _, k := range []string{"pr", "issue"} {
+			in[k], _ = j.Inputs[k].(string)
+		}
+		add(j.Repo, in["pr"], in["issue"], j.Workflow, j.Cost)
 	}
 
 	out := []usageOne{}
