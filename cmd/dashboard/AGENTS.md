@@ -194,34 +194,8 @@ request there is a visitor whatever its address, `Host` or headers. Never infer 
   (1 MiB), path allowlist, YAML parse. A YAML file that does not parse is
   refused and left untouched, because a broken watcher config stops the next
   polling pass.
-- `GET /api/models` uses the trusted `Host` and `Origin` check.
-  `PUT /api/models` checks `PUT`, those trusted headers, JSON content type and a
-  size cap before it writes. Parse the preset file as version 1 YAML. Refuse
-  unknown versions, unknown keys and invalid YAML.
-- Match exact workflow and input names in `variables`, `presets` and
-  `overrides`. Refuse unknown keys and duplicate input names.
-- Preset IDs and overrides must be non-empty and match `provider/model`, with an
-  optional `#variant`. Reuse the model-ID validator and length limit. Validation
-  checks identifier syntax, not provider availability. An unavailable model
-  fails the next agent step. Reject equal effective `review-pr/review_model` and
-  `address_model` values.
-- Refuse a structural conflict instead of overwriting it: the named model input
-  must exist once, be an optional string, have a non-empty scalar default and
-  carry the shared validation pattern. Each agent step must reference the
-  expected model input. The generic YAML editor can break this convention, so
-  the form reports the conflict.
-- Report drift when a workflow default differs from its resolved preset or
-  override. Block the next preset save until the operator reconciles it.
-- Edit only the matched workflow `default` scalar. Preserve every other line and
-  byte; never marshal the whole YAML document.
-- Prepare workflow scalar replacements and serialized preset content as one
-  save plan. Serialize `/api/models` updates with `/api/save` under the same
-  write lock. Write workflow files before `model-presets.yaml`. Keep a stamped
-  `.bak` for each existing changed file and use `atomicWrite`. First-time preset
-  creation and unchanged saves create no backups. If a later write fails, roll
-  back written workflows and remove a newly created preset file. A multi-file
-  save is not one filesystem transaction, so a run that starts during the save
-  can use mixed defaults.
+- `/api/models` (see MODEL PRESETS) writes `model-presets.yaml` under `editMu`, the same lock as
+  `/api/save`, with a stamped `.bak` and `atomicWrite`.
 - The Config view also edits the private `notifications.json` at the repository
   root through `GET` and `PUT /api/notifications`. Its only shape is
   `{"discord":{"enabled":boolean,"webhook":string}}`. GET returns the saved
@@ -315,13 +289,9 @@ sign-in off), `-github-url` and `-github-api` (defaults `DOTS_GITHUB_URL`, `DOTS
   directory falls back to the working directory.
 - Tests cover the index, `resolveEditable`, the save handler (backup, YAML
   refusal, origin and path rejection), and the loopback and trusted-host checks.
-  Model API tests cover validation, bad requests, exact-key changes, structural
-  conflicts, quote, comment and line-ending preservation, backups, idempotence,
-  multi-file preflight and rollback. Preset tests cover migration, resolution,
-  drift, equal-role rejection, override clearing, creation, workflow-first
-  ordering and API propagation. `TestWorkflowModelInputs` checks all six
-  workflows for optional model inputs with non-empty defaults, the shared
-  validation pattern and the correct agent references. Notification tests cover defaults, validation, origin and
+  Model API tests cover the listing, the write with its backup, the refusals (invalid model,
+  unknown preset or role, equal reviewers, bad body) and the untrusted requests; `internal/models`
+  tests cover resolution, validation and the match between its role table and the workflows. Notification tests cover defaults, validation, origin and
   size rejection, backups, one notice per execution, and the Discord payload
   through an injected post function.
 - `state/logs/` only holds runs that happened while the page was up.

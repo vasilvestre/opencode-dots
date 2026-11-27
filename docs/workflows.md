@@ -119,8 +119,8 @@ available. An automatic run has no browser record, so replay may use the current
 saved default instead of the historical model.
 
 The form validates identifier syntax, not provider availability. An unavailable
-model fails the next agent step. It refuses structural conflicts and drift,
-where a workflow default differs from the resolved configuration.
+model fails the next agent step. It refuses an update whose effective review and
+address models are equal for a provider.
 
 A `tend-repo` override changes only its own role. Its nested `review-pr` run uses
 `review-pr`'s own resolved `review_model` and `address_model`.
