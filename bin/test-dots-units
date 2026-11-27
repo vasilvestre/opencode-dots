@@ -49,6 +49,24 @@ touch "$u/dots-claim.timer"; : >"$h/sc.log"; SYSTEMCTL=$h/sc.fail DOTS_OPENCODE_
 [ $rc = 1 ] && [ ! -e "$u/dots-claim.timer" ] && grep -q "enable --now dots-tick.timer" "$h/sc.log" && ok "a unit that cannot start does not stop the rest, and the exit code says so" || ko "failure handling (rc=$rc)"
 rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
 
+# A unit the user masked stays masked: not written over, its timer not enabled, status says so.
+rm -f "$u"/*; ln -s /dev/null "$u/dots-tend.service"; echo r >"$root/tend.list.test"; rm -f "$root/tend.list.test"
+cp "$root/tend.list" "$h/tend.list.bak" 2>/dev/null; echo "x/y" >"$root/tend.list"; : >"$h/sc.log"
+bin/dots-units install --role server >/dev/null 2>&1
+[ "$(readlink "$u/dots-tend.service")" = /dev/null ] && ! grep -q "enable --now dots-tend.timer" "$h/sc.log" && ok "a masked dots-tend is left masked and its timer is not enabled" || ko "masked unit"
+bin/dots-units status --role server 2>&1 | grep -q "masked    dots-tend" && ok "status says the unit is masked by the user" || ko "status masked"
+if [ -f "$h/tend.list.bak" ]; then cp "$h/tend.list.bak" "$root/tend.list"; else rm -f "$root/tend.list"; fi
+rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
+
+# An install by hand left links from the user dir to the files in systemd/: rendering must replace the
+# link by a real file and never empty the source (it did, once: systemd saw an empty unit as masked).
+rm -f "$u"/*; cp "$root/systemd/dots-tick.service" "$h/tick.src"; ln -s "$root/systemd/dots-tick.service" "$u/dots-tick.service"
+before=$(wc -c <"$root/systemd/dots-tick.service")
+bin/dots-units install --role server >/dev/null 2>&1
+[ "$(wc -c <"$root/systemd/dots-tick.service")" = "$before" ] && [ ! -L "$u/dots-tick.service" ] && [ -s "$u/dots-tick.service" ] \
+  && ok "an install over a link keeps the source intact and writes a real file" || ko "write through a link emptied the source"
+rm -f "$u"/*; bin/dots-units install --role server >/dev/null 2>&1
+
 # status
 bin/dots-units status --role server >"$h/st" 2>&1; [ $? = 0 ] && ok "status of a clean machine passes" || { ko "status clean"; cat "$h/st"; }
 rm "$u/dots-awf.service"; bin/dots-units status --role server >"$h/st" 2>&1; rc=$?

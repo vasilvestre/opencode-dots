@@ -48,11 +48,16 @@ units_for() { # role -> unit files, one per line
   if [ "$1" != worker ] && [ -s "$root/tend.list" ]; then printf 'dots-tend.service\ndots-tend.timer\n'; fi
 }
 
+# A unit the user masked (a link to /dev/null) is a choice: the manifest neither writes over it nor
+# enables its timer. A workstation that masks dots-tend leaves the daily pass to the server.
+masked() { [ -L "$dst/$1" ] && [ "$(readlink "$dst/$1")" = /dev/null ]; }
+
 # A machine installed before the manifest may run opencode under its own name: a second unit would
 # fight it for the port, so the manifest takes the existing one for dots-opencode.
 role_units() {
   local u
   for u in $(units_for "$1"); do
+    masked "${u%.timer}.service" && continue
     if [ "$u" = dots-opencode.service ] && [ -e "$dst/opencode.service" ] && [ ! -e "$dst/dots-opencode.service" ]; then continue; fi
     # An opencode already serves the port (started by hand or by another unit): a second one would
     # exit at once and fail the install, so the manifest leaves opencode to whoever runs it.
@@ -85,12 +90,18 @@ home_rel() { case $root in "$HOME"/*) echo "%h/${root#"$HOME"/}" ;; *) echo "$ro
 
 write_unit() { # unit
   local u=$1 f=$src/$1 at
+  masked "$u" && return 0 # a mask is the user's choice
   [ -f "$f" ] || { echo "dots-units: $f is missing" >&2; return 1; }
   at=$(home_rel)
   local awfsed=cat
   if [ ! -x /usr/local/bin/awf ] && [ -x "$HOME/.local/bin/awf" ]; then awfsed="sed s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |"; fi
   if [ "$dry" = 1 ]; then echo "  would write $dst/$u"; return; fi
-  sed -e "s|%h/projects/perso/opencode-dots|$at|g" "$f" | $awfsed >"$dst/$u"
+  # The target may be a link to the very file in systemd/ (an install by hand): writing through it
+  # would empty the source. Render to a temporary file, then replace the target by a real file.
+  local tmp; tmp=$(mktemp "$dst/.$u.XXXXXX")
+  sed -e "s|%h/projects/perso/opencode-dots|$at|g" "$f" | $awfsed >"$tmp"
+  [ -s "$tmp" ] || { rm -f "$tmp"; echo "dots-units: rendering $u gave nothing, left as it was" >&2; return 1; }
+  chmod 644 "$tmp"; mv -f "$tmp" "$dst/$u"
 }
 
 cmd_install() {
@@ -101,6 +112,7 @@ cmd_install() {
   if [ "$dry" = 1 ]; then echo "  would write $HOME/.config/dots/role ($role)"; else echo "$role" >"$HOME/.config/dots/role"; fi
   local u
   for u in $list; do write_unit "$u"; done
+  for u in $(units_for "$role"); do masked "${u%.timer}.service" && echo "  $u is masked by you: left alone"; done
   run "$sc" --user daemon-reload
   local failed=""
   for u in $(enabled_for "$role"); do run "$sc" --user enable --now "$u" || failed="$failed $u"; done
@@ -144,6 +156,7 @@ cmd_status() {
   echo "role $role"
   want_enabled=$(enabled_for "$role")
   want_all=$(role_units "$role")
+  for u in $(units_for "$role"); do masked "${u%.timer}.service" && printf '  masked    %s (by you, left alone)\n' "$u"; done
   for u in $want_all; do
     if [ ! -e "$dst/$u" ]; then printf '  MISSING   %s\n' "$u"; bad=1; continue; fi
     if has "$want_enabled" "$u"; then
