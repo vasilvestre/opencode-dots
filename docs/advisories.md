@@ -19,7 +19,7 @@ bin/advisories             per repository with a local checkout and a composer.l
    |  3. bin/repos db ingest -source advisory -repo OWNER/REPO -lock composer.lock -json
    |  4. for each NEW or CHANGED advisory: a note and a class file under $STATE_DIR/notes/
    v
-dots.db                    one work item per advisory, reference advisory:<id>
+dots.db                    one work item per advisory, reference advisory:<id>@<owner>/<repo>
 ```
 
 Turn it on per repository, and only `true` is accepted:
@@ -40,7 +40,10 @@ A repository with no clone or no `composer.lock` is skipped with a line, not an 
 `bin/repos db ingest -source advisory -repo OWNER/REPO [-lock composer.lock] [-json]` reads
 `composer audit --format=json` on stdin and, for each envelope of `internal/sources/advisory`:
 
-- creates the work item for the reference `advisory:<id>`, attached to the project, or finds it;
+- creates the work item for the reference `advisory:<id>@<owner>/<repo>`, attached to the project, or
+  finds it. An item still stored as `advisory:<id>` for the same repository is the same item: its
+  reference is rewritten, an `advisory.ref_migrated` event records it, and the line says `seen`
+  (or `changed`) as usual, with no new note;
 - a repeat with the same payload adds nothing (`seen`);
 - a changed payload (a new severity, a different fixed version) replaces the stored one and
   appends an event holding the previous and the new payload (`changed`);
@@ -49,12 +52,13 @@ A repository with no clone or no `composer.lock` is skipped with a line, not an 
 
 The repository must be a project of the database: run `bin/repos db import` once
 (`bin/advisories` does it itself when `repos.yaml` is present and the project is unknown).
-A reference belongs to one work item (ADR 0023), so it also belongs to one project: when
-the same advisory id shows up in a second repository, the reference is already held by the first
-one's work item and is refused, never moved or shared. The line says `refused`, the other advisories
-of the report are still recorded, and `bin/advisories` writes no note for it and does not fail. Whether
-a repository-scoped reference (`advisory:<id>` per repository) should replace this is an open decision
-for the owner and would change ADR 0039's reference grammar. References come from the structured GHSA or CVE
+A reference belongs to one work item (ADR 0023), and an advisory work item is per repository: the
+same advisory in two repositories is two references, two work items and two notes, and a repeat
+in one repository is the same item. A `refused` line is now only possible when two projects share
+one repository name; the other advisories of the report are still recorded and `bin/advisories`
+writes no note for it and does not fail. The old global form `advisory:<id>` stayed with the first
+repository that reported it; on the next ingest of that repository it is rewritten (see above), and
+every other repository gets its own item. References come from the structured GHSA or CVE
 field of the report, never from a title or any other text.
 
 Tables: migration 5 adds `work_item.payload` (the latest payload) and `work_item_event`
@@ -81,7 +85,7 @@ raises. Without the floor file nothing is classified, as in `_classify-item`. Th
 For every new or changed advisory `bin/advisories` writes a short Markdown summary (package, installed
 version, affected range, fixed versions, severity, link, work item) and passes it to
 `bin/publish-gate comment` with `AUTONOMY=observe`, `ITEM_CLASS` set to the level and
-`GATE_REF=advisory:<id>`. The ceiling is fixed to `observe` on purpose: this flow only ever leaves a
+`GATE_REF=advisory:<id>@<owner>/<repo>`. The ceiling is fixed to `observe` on purpose: this flow only ever leaves a
 note under `$STATE_DIR/notes/` (the gate copies the artifact next to it), whatever the repository's
 own autonomy. Nothing is published.
 

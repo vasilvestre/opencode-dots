@@ -1,7 +1,8 @@
 // Package advisory is the adapter for `composer audit --format=json` (ADR 0039).
 //
-// One envelope per advisory id, whichever packages it hits, so a reference maps to one
-// work item. The id comes from the structured sources or cve fields, never from titles.
+// One envelope per advisory id, whichever packages it hits, in the repository being audited:
+// the reference is advisory:<id>@<owner>/<repo>, so the same advisory in two repositories is
+// two work items and a repeat in one repository is the same work item. The id comes from the structured sources or cve fields, never from titles.
 package advisory
 
 import (
@@ -24,6 +25,9 @@ const Actor = "composer-audit"
 
 // Adapter parses composer audit output. The zero value is ready to use.
 type Adapter struct {
+	// Repo is the OWNER/REPO the report was produced for. It is required: it scopes every
+	// reference.
+	Repo string
 	// Now stands in for the report date when an advisory carries none.
 	Now func() time.Time
 }
@@ -72,6 +76,9 @@ func (Adapter) Tracker() sources.Tracker { return sources.Advisory }
 // Parse implements sources.Adapter. An advisory with neither a GHSA nor a CVE id is left
 // out and reported in the error, the others are still returned.
 func (a Adapter) Parse(raw []byte) ([]sources.Envelope, error) {
+	if _, err := sources.AdvisoryRef("CVE-2000-0000", a.Repo); err != nil {
+		return nil, fmt.Errorf("advisory: Repo %q is not OWNER/REPO", a.Repo)
+	}
 	var rep report
 	if err := json.Unmarshal(raw, &rep); err != nil {
 		return nil, fmt.Errorf("advisory: not composer audit json: %w", err)
@@ -136,7 +143,11 @@ func (a Adapter) Parse(raw []byte) ([]sources.Envelope, error) {
 		if t.IsZero() {
 			t = a.now()
 		}
-		ref := "advisory:" + id
+		rr, err := sources.AdvisoryRef(id, a.Repo)
+		if err != nil {
+			return out, err
+		}
+		ref := rr.String()
 		out = append(out, sources.Envelope{
 			Ref: ref, Kind: Kind, Actor: Actor, Time: t, Payload: body,
 			Key: sources.IdempotencyKey(ref, Kind),
@@ -155,12 +166,12 @@ func (a Adapter) now() time.Time {
 // advisoryID takes the id from structured fields only: a GitHub source first, then the CVE.
 func advisoryID(e entry) string {
 	for _, s := range e.Sources {
-		if _, err := sources.NewRef(sources.Advisory, s.RemoteID); err == nil && strings.HasPrefix(s.RemoteID, "GHSA-") {
+		if sources.AdvisoryID.MatchString(s.RemoteID) && strings.HasPrefix(s.RemoteID, "GHSA-") {
 			return s.RemoteID
 		}
 	}
 	if e.CVE != nil {
-		if _, err := sources.NewRef(sources.Advisory, *e.CVE); err == nil {
+		if sources.AdvisoryID.MatchString(*e.CVE) {
 			return *e.CVE
 		}
 	}

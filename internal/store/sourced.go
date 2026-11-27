@@ -32,7 +32,11 @@ var ErrWrongProject = errors.New("store: reference belongs to a work item of ano
 // Sourced is one thing a source reports: a reference, a title and a payload.
 type Sourced struct {
 	ProjectID string
-	Ref       string          // tracker:key, from a structured field of the source
+	Ref       string // tracker:key, from a structured field of the source
+	// LegacyRef is an earlier form of Ref. When no item holds Ref but an item of the same
+	// project holds LegacyRef, that item is the one: its reference is rewritten to Ref and an
+	// "<kind>.ref_migrated" event is recorded. An item of another project is not touched.
+	LegacyRef string
 	Title     string          // data from outside
 	Payload   json.RawMessage // data from outside; must be valid JSON
 	// SourceEvent is the source's idempotency key, kept on the reference of a new item.
@@ -70,6 +74,30 @@ func (s *Store) RecordSourced(ctx context.Context, in Sourced) (WorkItem, Outcom
 		JOIN work_item_ref r ON r.work_item_id = w.id WHERE r.ref = ?`, in.Ref).Scan(&id, &project, &stored)
 	stamp := now()
 	outcome := OutcomeSeen
+	if errors.Is(err, sql.ErrNoRows) && in.LegacyRef != "" {
+		var oldID, oldProject, oldPayload string
+		lerr := tx.QueryRowContext(ctx, `
+			SELECT w.id, w.project_id, w.payload FROM work_item w
+			JOIN work_item_ref r ON r.work_item_id = w.id WHERE r.ref = ?`, in.LegacyRef).Scan(&oldID, &oldProject, &oldPayload)
+		switch {
+		case errors.Is(lerr, sql.ErrNoRows) || (lerr == nil && oldProject != in.ProjectID):
+			// Nothing to migrate: create the item below.
+		case lerr != nil:
+			return WorkItem{}, "", lerr
+		default:
+			if _, err := tx.ExecContext(ctx, `UPDATE work_item_ref SET ref = ?, source_event = ? WHERE ref = ?`, in.Ref, in.SourceEvent, in.LegacyRef); err != nil {
+				return WorkItem{}, "", err
+			}
+			move, merr := json.Marshal(map[string]string{"from": in.LegacyRef, "to": in.Ref})
+			if merr != nil {
+				return WorkItem{}, "", merr
+			}
+			if err := addEvent(ctx, tx, oldID, in.Kind+".ref_migrated", in.ActorID, stamp, move); err != nil {
+				return WorkItem{}, "", err
+			}
+			id, project, stored, err = oldID, oldProject, oldPayload, nil
+		}
+	}
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		id = newID("wi")

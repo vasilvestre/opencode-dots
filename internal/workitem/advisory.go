@@ -54,8 +54,10 @@ type AdvisoryResult struct {
 
 // IngestAdvisories records every advisory of one `composer audit --format=json` report as
 // a work item of the repository, through the advisory adapter. The reference is
-// `advisory:<id>` with the id taken from the structured GHSA or CVE field, never from text.
-// A repeat adds nothing; a changed payload replaces the stored one and records an event.
+// `advisory:<id>@<owner>/<repo>` with the id taken from the structured GHSA or CVE field,
+// never from text, so the same advisory in two repositories is two work items. An item
+// still stored under the old `advisory:<id>` form for this repository is the same item: its
+// reference is rewritten and an event recorded. A repeat adds nothing; a changed payload replaces the stored one and records an event.
 //
 // lock is the repository's composer.lock (may be nil): it gives the installed versions the
 // classification needs. floor is the sensitive vocabulary of workflows/data/classify-floor.txt.
@@ -73,7 +75,7 @@ func IngestAdvisories(ctx context.Context, st *store.Store, workspace, repo stri
 	if err != nil {
 		return nil, nil, err
 	}
-	envs, leftOut := advisory.Adapter{}.Parse(raw)
+	envs, leftOut := advisory.Adapter{Repo: repo}.Parse(raw)
 	if envs == nil {
 		// The adapter returns a non-nil slice whenever the report itself was readable.
 		return nil, nil, leftOut
@@ -93,6 +95,7 @@ func IngestAdvisories(ctx context.Context, st *store.Store, workspace, repo stri
 		w, outcome, err := st.RecordSourced(ctx, store.Sourced{
 			ProjectID:   projects[0].ID,
 			Ref:         env.Ref,
+			LegacyRef:   "advisory:" + p.ID,
 			Title:       cleanText("Advisory "+p.ID+": "+p.Title, maxTitle),
 			Payload:     env.Payload,
 			SourceEvent: env.Key,
@@ -104,8 +107,9 @@ func IngestAdvisories(ctx context.Context, st *store.Store, workspace, repo stri
 			return results, leftOut, fmt.Errorf("%s: %w", env.Ref, err)
 		}
 		if refused {
-			// The reference belongs to a work item of another repository (ADR 0023): it is
-			// not moved, and the other advisories of the report are still recorded.
+			// The reference is held by a work item of another project (ADR 0023): it is not
+			// moved, and the other advisories of the report are still recorded. With scoped
+			// references this only happens when two projects share one repository name.
 			outcome = store.OutcomeRefused
 		}
 		level, reason, hits := ClassifyAdvisory(p, installed, floor)

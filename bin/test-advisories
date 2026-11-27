@@ -52,15 +52,20 @@ repos:
     checkout: $work/clones/nolock
   acme/noclone:
     advisories: true
+  acme/twin:
+    advisories: true
+    checkout: $work/clones/app
   acme/plain:
     review: true
 EOF
 "$work/repos" generate -dir "$proj" > "$work/generate.out" 2>&1 || { cat "$work/generate.out"; echo "FAIL generate"; exit 1; }
-check "advisory.list holds the three opted-in repositories and not the others" \
-  test "$(grep -vc '^#' "$proj/advisory.list")" = 3
+check "advisory.list holds the four opted-in repositories and not the others" \
+  test "$(grep -vc '^#' "$proj/advisory.list")" = 4
 ! grep -q 'acme/plain' "$proj/advisory.list" || { echo "FAIL plain repository listed"; fail=1; }
 
-export STATE_DIR=$work/state ADVISORY_LIST=$proj/advisory.list REPOS_MAP=$proj/repos.map \
+# Sections 1 to 7 run without the twin; section 8 adds it.
+grep -v 'acme/twin' "$proj/advisory.list" > "$work/main.list"
+export STATE_DIR=$work/state ADVISORY_LIST=$work/main.list REPOS_MAP=$proj/repos.map \
   WORK_ROOT=$work/none REPOS_BIN=$work/repos ADVISORY_NOTE_PAUSE=0 GH_TOKEN=ghp_notforprinting
 "$work/repos" db import -dir "$proj" > /dev/null || { echo "FAIL db import"; exit 1; }
 
@@ -141,6 +146,21 @@ check "hostile: a javascript: link is withheld, the title only sits in a code sp
 check "hostile: the title is capped" test "$(grep -rh 'Title as reported' "$STATE_DIR/notes/artifacts" | awk '{ if (length($0) > m) m = length($0) } END { print m }')" -lt 400
 check "hostile: no agent, merge or ignore came out of the text: levels unchanged" test "$(level_of GHSA-mmpp-2222-ccgg)" = 2
 check "hostile: still four work items" test "$("$work/repos" db work-items -repo acme/app | grep -c 'advisory:')" = 4
+
+# 8. the same advisories in two repositories (reference scoping, ADR 0039) -------------------
+export STATE_DIR=$work/state3 ADVISORY_LIST=$proj/advisory.list
+"$work/repos" db import -dir "$proj" > /dev/null
+cp "$fx/audit.json" "$FAKE/audit.json"
+run
+check "twin: both repositories record four new advisories" bash -c 'test "$(grep -c "4 new, 0 changed, 0 seen" <<<"$1")" = 2' _ "$out"
+check "twin: nothing is refused" bash -c '! grep -q refused <<<"$1"' _ "$out"
+check "twin: eight notes, one per advisory and repository" test "$(notes)" = 8
+check "twin: eight class files" test "$(find "$STATE_DIR/notes" -name '*.class.json' | wc -l)" = 8
+check "twin: the second repository has its own work items" test "$("$work/repos" db work-items -repo acme/twin | grep -c 'advisory:.*@acme/twin')" = 4
+check "twin: the first keeps its own" test "$("$work/repos" db work-items -repo acme/app | grep -c 'advisory:.*@acme/app')" = 4
+run
+check "twin: a repeat adds nothing in either" bash -c 'test "$(grep -c "0 new, 0 changed, 4 seen" <<<"$1")" = 2' _ "$out"
+check "twin: a repeat adds no note" test "$(notes)" = 8
 
 [ "$fail" = 0 ] && echo "bin/test-advisories: all passed" || echo "bin/test-advisories: FAILED"
 exit "$fail"

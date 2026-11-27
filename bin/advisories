@@ -20,8 +20,8 @@
 #   REPOS_BIN        the repos binary (default bin/repos, built by `make repos`).
 #   COMPOSER         the composer command (default composer). Not on PATH: exit 0 with a line.
 #   ADVISORY_NOTE_PAUSE  seconds to wait after a note (default 1): publish-gate names a
-#                    record by the second and the reference, so two notes for one advisory
-#                    in two repositories must not share a second.
+#                    record by the second and the reference, so notes are
+#                    named by the second and the reference (advisory:<id>@<owner>/<repo>).
 #
 # Exit codes: 0 when nothing is wrong or there is nothing to do, 1 when a repository could
 # not be audited or recorded (the other repositories are still done).
@@ -97,13 +97,13 @@ note() {
      justification: .reason, severity, floor, status: $status}' <<<"$json" > "$class_file"
 
   # This flow never publishes: the ceiling is observe, so the gate always leaves a note.
-  AUTONOMY=observe ITEM_CLASS=$level GATE_REF="advisory:$id" GATE_REPO=$repo GATE_ARTIFACT=$art \
+  AUTONOMY=observe ITEM_CLASS=$level GATE_REF=$(jq -r .ref <<<"$json") GATE_REPO=$repo GATE_ARTIFACT=$art \
     "$root/bin/publish-gate" comment 2> "$tmp/gate.err" || rc=$?
   if [ "$rc" = 4 ]; then
-    echo "advisories: $repo $status advisory:$id level $level, note written"
+    echo "advisories: $repo $status $(jq -r .ref <<<"$json") level $level, note written"
     [ "$pause" = 0 ] || sleep "$pause"
   else
-    echo "advisories: $repo advisory:$id: publish-gate answered $rc, no note: $(mask < "$tmp/gate.err")" >&2
+    echo "advisories: $repo $(jq -r .ref <<<"$json"): publish-gate answered $rc, no note: $(mask < "$tmp/gate.err")" >&2
     return 1
   fi
 }
@@ -167,7 +167,7 @@ while IFS= read -r repo || [ -n "$repo" ]; do
       new) new=$((new + 1)) ;;
       changed) changed=$((changed + 1)) ;;
       refused) refused=$((refused + 1))
-        echo "advisories: $repo advisory:$(jq -r .id <<<"$line"): the reference belongs to another repository's work item, left as it is" >&2
+        echo "advisories: $repo $(jq -r .ref <<<"$line"): the reference is held by a work item of another project, left as it is" >&2
         continue ;;
       *) seen=$((seen + 1)); continue ;;
     esac

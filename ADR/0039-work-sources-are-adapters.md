@@ -84,6 +84,13 @@ the source event). Do not add polling for Sentry or Jira yet.
 - **An unmapped Sentry project is diagnosis-only**, as an unmapped tracker project already is: the
   adapter never invents a repository. The Jira mapping shape becomes the contract for every source.
 
+**Reference scoping.** An advisory work item is per repository: the reference is
+`advisory:<id>@<owner>/<repo>`, so one advisory in several repositories gives one work item and one
+note each, ADR 0023's rule (one reference, one work item) holds, and a repeat in the same repository
+stays idempotent. Items stored under the earlier `advisory:<id>` form are migrated without a schema
+change: on ingest, an item of the same project holding the old reference is the same item, its
+reference is rewritten and an event recorded.
+
 ## Consequences
 
 Easier: a CVE or a Sentry issue goes through the same workflows as an issue, and the dashboard shows

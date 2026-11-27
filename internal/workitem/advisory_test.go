@@ -77,7 +77,7 @@ func TestIngestAdvisoriesCreatesClassifiesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("%d work items after a repeat, want 4", len(items))
 	}
 	for _, w := range items {
-		if len(w.Refs) != 1 || !strings.HasPrefix(w.Refs[0].Ref, "advisory:") || w.Refs[0].SourceEvent == "" {
+		if len(w.Refs) != 1 || !strings.HasPrefix(w.Refs[0].Ref, "advisory:") || !strings.HasSuffix(w.Refs[0].Ref, "@acme/app") || w.Refs[0].SourceEvent == "" {
 			t.Errorf("refs of %s = %+v", w.ID, w.Refs)
 		}
 	}
@@ -202,28 +202,80 @@ func payloadOf(t *testing.T, severity, packages string) advisory.Payload {
 	return p
 }
 
-func TestIngestAdvisoriesRefusesAReferenceHeldByAnotherProject(t *testing.T) {
+// One advisory in two repositories is two work items, two notes' worth of "new" results,
+// and a repeat in either is idempotent.
+func TestIngestAdvisoriesSameAdvisoryInTwoRepositories(t *testing.T) {
 	st, ctx := setup(t)
 	if _, _, err := st.UpsertProject(ctx, "default", "acme/lib", 1, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := IngestAdvisories(ctx, st, "default", "acme/app", fixture(t, "audit.json"), nil, testFloor); err != nil {
+	for _, repo := range []string{"acme/app", "acme/lib"} {
+		rs, _, err := IngestAdvisories(ctx, st, "default", repo, fixture(t, "audit.json"), nil, testFloor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rs {
+			if r.Outcome != store.OutcomeNew || !strings.HasSuffix(r.Ref, "@"+repo) {
+				t.Errorf("%s: %+v", repo, r)
+			}
+		}
+	}
+	a, _ := st.WorkItemByRef(ctx, "advisory:GHSA-cfgh-2345-wxvr@acme/app")
+	b, _ := st.WorkItemByRef(ctx, "advisory:GHSA-cfgh-2345-wxvr@acme/lib")
+	if a.ID == "" || b.ID == "" || a.ID == b.ID || a.ProjectID == b.ProjectID {
+		t.Fatalf("items %q and %q", a.ID, b.ID)
+	}
+	rs, _, _ := IngestAdvisories(ctx, st, "default", "acme/lib", fixture(t, "audit.json"), nil, testFloor)
+	for _, r := range rs {
+		if r.Outcome != store.OutcomeSeen {
+			t.Errorf("%s: %s on a repeat", r.ID, r.Outcome)
+		}
+	}
+}
+
+// An item stored under the old advisory:<id> form is the same item for its own repository:
+// its reference is rewritten, an event says so, and a second repository gets its own item.
+func TestIngestAdvisoriesMigratesTheLegacyReference(t *testing.T) {
+	st, ctx := setup(t)
+	if _, _, err := st.UpsertProject(ctx, "default", "acme/lib", 1, nil); err != nil {
 		t.Fatal(err)
 	}
-	rs, _, err := IngestAdvisories(ctx, st, "default", "acme/lib", fixture(t, "audit.json"), nil, testFloor)
+	// Stored by an earlier version: the old reference, the same payload.
+	who, err := st.EnsureActor(ctx, store.Actor{Kind: "bot", DisplayName: "old", Identities: map[string]string{"advisory": "old"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rs) != 4 {
-		t.Fatalf("%d results, want 4", len(rs))
+	p, _ := st.Projects(ctx, "default", "acme/app")
+	envs, _ := advisory.Adapter{Repo: "acme/app"}.Parse(fixture(t, "audit.json"))
+	ids := map[string]string{}
+	for _, e := range envs {
+		old := strings.TrimSuffix(e.Ref, "@acme/app")
+		w, _, err := st.RecordSourced(ctx, store.Sourced{ProjectID: p[0].ID, Ref: old, Title: "t", Payload: e.Payload, Kind: "advisory", ActorID: who.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[e.Ref] = w.ID
+	}
+	rs, _, err := IngestAdvisories(ctx, st, "default", "acme/app", fixture(t, "audit.json"), nil, testFloor)
+	if err != nil {
+		t.Fatal(err)
 	}
 	for _, r := range rs {
-		if r.Outcome != store.OutcomeRefused || r.WorkItem != "" {
-			t.Errorf("%s: %+v", r.ID, r)
+		if r.Outcome != store.OutcomeSeen || r.WorkItem != ids[r.Ref] {
+			t.Errorf("%s: %s item %s, want seen item %s", r.ID, r.Outcome, r.WorkItem, ids[r.Ref])
+		}
+		ev, _ := st.WorkItemEvents(ctx, r.WorkItem)
+		if len(ev) != 2 || ev[1].Kind != "advisory.ref_migrated" {
+			t.Errorf("%s events = %+v", r.ID, ev)
 		}
 	}
-	p, _ := st.Projects(ctx, "default", "acme/lib")
-	if items, _ := st.WorkItemsByProject(ctx, p[0].ID); len(items) != 0 {
-		t.Fatalf("%d work items for the second repository, want 0", len(items))
+	if _, err := st.WorkItemByRef(ctx, "advisory:GHSA-cfgh-2345-wxvr"); err == nil {
+		t.Error("the old reference is still stored")
+	}
+	rs, _, _ = IngestAdvisories(ctx, st, "default", "acme/lib", fixture(t, "audit.json"), nil, testFloor)
+	for _, r := range rs {
+		if r.Outcome != store.OutcomeNew {
+			t.Errorf("lib %s: %s, want new", r.ID, r.Outcome)
+		}
 	}
 }

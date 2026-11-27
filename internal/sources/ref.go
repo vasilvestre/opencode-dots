@@ -28,8 +28,25 @@ var grammar = map[Tracker]*regexp.Regexp{
 	Jira: regexp.MustCompile(`^[A-Z][A-Z0-9]+-[1-9][0-9]*$`),
 	// org/project#id: the id is Sentry's numeric issue id or its short id.
 	Sentry: regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*/[a-z0-9][a-z0-9_-]*#[A-Za-z0-9-]+$`),
-	// GHSA-xxxx-xxxx-xxxx or CVE-YYYY-NNNN.
-	Advisory: regexp.MustCompile(`^(GHSA(-[23456789cfghjmpqrvwx]{4}){3}|CVE-[0-9]{4}-[0-9]{4,})$`),
+	// GHSA-xxxx-xxxx-xxxx or CVE-YYYY-NNNN, then @owner/repo: one advisory is one work item
+	// per repository, so the repository is part of the key (ADR 0039, reference scoping).
+	Advisory: regexp.MustCompile(`^(GHSA(-[23456789cfghjmpqrvwx]{4}){3}|CVE-[0-9]{4}-[0-9]{4,})@[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`),
+}
+
+// AdvisoryID is the advisory part of an advisory key, without the repository.
+var AdvisoryID = regexp.MustCompile(`^(GHSA(-[23456789cfghjmpqrvwx]{4}){3}|CVE-[0-9]{4}-[0-9]{4,})$`)
+
+// AdvisoryRef builds advisory:<id>@<owner>/<repo>.
+func AdvisoryRef(id, repo string) (Ref, error) { return NewRef(Advisory, id+"@"+repo) }
+
+// LegacyAdvisoryRef is the form `advisory:<id>` used before references were scoped to a
+// repository. It is never valid input to ParseRef; it exists so stored items can be found
+// and rewritten.
+func LegacyAdvisoryRef(id string) (string, error) {
+	if !AdvisoryID.MatchString(id) {
+		return "", fmt.Errorf("sources: %q is not an advisory id", id)
+	}
+	return "advisory:" + id, nil
 }
 
 // Ref is a parsed reference, tracker:key.
