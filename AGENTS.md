@@ -140,7 +140,6 @@ make ci          # every CI step locally: vet, tests, shell suites, deslop-pleas
 make script-tests # the offline shell suites: publish-gate, classify, sandbox, pause, tick, dots-units, where, ...
 make validate    # parse every workflow
 bin/test-e2e     # the workflows end to end, offline (needs awf and jq)
-make health      # build bin/health and run it
 make dashboard   # go build ./cmd/dashboard, then serve on 127.0.0.1:8099
 make go-build    # build the dashboard, repos, health and dots commands into bin/
 make hooks       # refuse a commit that adds a binary (once per clone)
