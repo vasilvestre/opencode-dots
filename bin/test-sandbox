@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for bin/patch-guard (no docker needed) and bin/sandbox-run (flags always;
-# a real container only when docker and a small local image are present).
+# a real container only when the engine (DOTS_SANDBOX_ENGINE, docker by default) and a small local image are present).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -53,11 +53,12 @@ for flag in "--network none" "--read-only" "--cap-drop ALL" "no-new-privileges" 
   case "$cmd" in *"$flag"*) ok "flag $flag present" ;; *) bad "flag $flag missing" ;; esac
 done
 
-# real container, when possible
-if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+# real container, when possible, with the engine bin/sandbox-run itself will use
+eng=${DOTS_SANDBOX_ENGINE:-docker}
+if command -v "$eng" >/dev/null && "$eng" info >/dev/null 2>&1; then
   img=${DOTS_TEST_IMAGE:-}
   if [ -z "$img" ]; then
-    img=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^dots-' | head -1 || true)
+    img=$("$eng" images --format '{{.Repository}}:{{.Tag}}' | grep '^dots-' | head -1 || true)
   fi
   if [ -z "$img" ]; then
     echo "skip real-container tests: no local image starting with dots- (set DOTS_TEST_IMAGE)"
@@ -112,7 +113,7 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
     got=0; DOTS_SANDBOX_TIMEOUT=2 run sleep 30 >/dev/null 2>&1 || got=$?
     [ "$got" = 124 ] && ok "timeout kills the run (124)" || bad "timeout kills the run ($got)"
     sleep 1
-    left=$(docker ps -aq --filter name=dots-sandbox- | wc -l)
+    left=$("$eng" ps -aq --filter name=dots-sandbox- | wc -l)
     [ "$left" = 0 ] && ok "timeout leaves no container behind" || bad "$left container(s) left after timeout"
     # the command's own exit status passes through
     got=0; run sh -c 'exit 7' >/dev/null 2>&1 || got=$?
@@ -122,7 +123,7 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
     [ "$got" = 2 ] && ok "existing image outside the prefix refused" || bad "image outside prefix ($got)"
   fi
 else
-  echo "skip real-container tests: docker not available"
+  echo "skip real-container tests: $eng not available"
 fi
 
 [ "$fails" = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
