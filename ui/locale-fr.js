@@ -417,6 +417,7 @@ export default {
   "repos.hide_the_rules_and_details": "Masquer les règles et détails",
   "repos.it_has_its_own_rules": "Il a ses propres règles : {0}. Elles sont retirées de repos.yaml ; le fichier précédent est conservé en sauvegarde.",
   "repos.keep_the_local_checkout_fast": "garder le checkout local à jour en fast-forward",
+  "repos.sync_needs_a_clone": "pas de clone de ce dépôt sur cette machine : clonez-le depuis la carte Projets de l'accueil",
   "repos.last_seen": " · vu pour la dernière fois ",
   "repos.machines_registered_with_this_instance": "Machines enregistrées auprès de cette instance. Aucune tâche ne leur est encore envoyée.",
   "repos.merge_when_review_pr_says": "Fusionner quand review-pr dit de fusionner",

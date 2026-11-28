@@ -24,7 +24,7 @@ const ghPath = (name) => name.split("/").map(encodeURIComponent).join("/");
 // generated files follow. The rules, the pull requests already seen and the
 // Tower warning stay in the row's details.
 export function mountRepos(el) {
-  const state = { cfg: null, rules: new Map(), filter: "", open: new Set(), error: "" };
+  const state = { cfg: null, clones: null, rules: new Map(), filter: "", open: new Set(), error: "" };
   let chain = Promise.resolve(); // one write at a time, in click order
 
   const search = h("input", {
@@ -291,6 +291,10 @@ export function mountRepos(el) {
   function featureCell(row, key) {
     if (key === "auto_merge") return autoMergeCell(row);
     const f = row.features[key];
+    // sync needs a clone on this machine; a server has none. Clone from the Projects card on Home.
+    if (key === "sync" && !f.on && !state.clones?.has(row.name)) {
+      return h("td", { class: "cell-check muted", title: t("repos.sync_needs_a_clone") }, "–");
+    }
     const box = h("input", {
       type: "checkbox",
       checked: f.on,
@@ -397,6 +401,10 @@ export function mountRepos(el) {
   async function reload() {
     try {
       state.cfg = await getJSON("/api/repos/config");
+      // Which repositories have a clone here: sync fast-forwards one, so it is offered only for those.
+      // A visitor cannot read the list and sees no sync box either (it is an owner setting).
+      state.clones = new Set((await getJSON("/api/checkouts").catch(() => ({ projects: [] }))).projects
+        .filter((p) => p.state === "found").map((p) => p.repo));
       state.error = "";
     } catch (err) {
       state.cfg = null;

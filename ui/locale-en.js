@@ -417,6 +417,7 @@ export default {
   "repos.hide_the_rules_and_details": "Hide the rules and details",
   "repos.it_has_its_own_rules": "It has its own rules: {0}. They are dropped from repos.yaml; the previous file is kept as a backup.",
   "repos.keep_the_local_checkout_fast": "keep the local checkout fast-forwarded",
+  "repos.sync_needs_a_clone": "no clone of this repository on this machine: clone it from the Projects card on Home",
   "repos.last_seen": " · last seen ",
   "repos.machines_registered_with_this_instance": "Machines registered with this instance. No task is sent to them yet.",
   "repos.merge_when_review_pr_says": "Merge when review-pr says merge",
