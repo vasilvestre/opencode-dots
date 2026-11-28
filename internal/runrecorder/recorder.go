@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"opencode-dots/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,7 +245,7 @@ func (r *Recorder) prune() {
 		keep.WriteString(line + "\n")
 		indexed[e.ID] = true
 	}
-	_ = os.WriteFile(filepath.Join(r.dir(), indexFile), []byte(keep.String()), 0o644)
+	_ = atomicfile.Write(filepath.Join(r.dir(), indexFile), []byte(keep.String()), 0o644)
 	r.mu.Lock()
 	r.indexed = indexed
 	for id := range r.notified {

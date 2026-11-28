@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"opencode-dots/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,5 +102,5 @@ func writePause(dir, path, reason string) error {
 		return nil // already stopped: keep the first record
 	}
 	raw, _ := json.Marshal(pauseRecord{Who: "dashboard", Reason: strings.TrimSpace(reason), At: time.Now().UTC().Format(time.RFC3339)})
-	return os.WriteFile(path, raw, 0o644)
+	return atomicfile.Write(path, raw, 0o644)
 }

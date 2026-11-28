@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"opencode-dots/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,7 +192,7 @@ func linkCandidates(ctx context.Context, st *store.Store, out io.Writer, l dbLin
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(l.Out, name+".json"), data, 0o600); err != nil {
+		if err := atomicfile.Write(filepath.Join(l.Out, name+".json"), data, 0o600); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "%s %s %s %s\n", name, c.A.ID, c.B.ID, strings.Join(c.Shared, ","))

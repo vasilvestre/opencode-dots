@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"opencode-dots/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"slices"
@@ -71,7 +72,7 @@ func (d *dash) pollExecutors() {
 			priceRemote(&snap, d.execDash[name])
 			if os.MkdirAll(filepath.Dir(d.snapshotFile(name)), 0o755) == nil {
 				if b, err := json.Marshal(snap); err == nil {
-					_ = os.WriteFile(d.snapshotFile(name), b, 0o644)
+					_ = atomicfile.Write(d.snapshotFile(name), b, 0o644)
 				}
 			}
 		}
