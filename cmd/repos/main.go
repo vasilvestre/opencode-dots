@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"maps"
+	"opencode-dots/internal/statedir"
 	"os"
 	"path/filepath"
 	"slices"
@@ -321,11 +322,7 @@ func resolveDB(dir, dbPath string) string {
 	if dbPath != "" {
 		return dbPath
 	}
-	state := os.Getenv("STATE_DIR")
-	if state == "" {
-		state = filepath.Join(dir, "state")
-	}
-	return filepath.Join(state, "dots.db")
+	return filepath.Join(statedir.Default(dir), "dots.db")
 }
 
 func parseNumbers(list string) ([]int, error) {

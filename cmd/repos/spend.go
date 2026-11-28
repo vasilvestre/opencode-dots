@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"opencode-dots/internal/statedir"
 	"os"
-	"path/filepath"
 	"sort"
 	"time"
 
@@ -18,10 +18,7 @@ import (
 // dashboard reads and nothing else; it never prints a prompt or a token.
 func spendCommand(out io.Writer, dir, state, day, repo string) error {
 	if state == "" {
-		state = os.Getenv("STATE_DIR")
-	}
-	if state == "" {
-		state = filepath.Join(dir, "state")
+		state = statedir.Default(dir)
 	}
 	when := time.Now().UTC()
 	if day != "" {

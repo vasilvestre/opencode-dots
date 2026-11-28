@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"opencode-dots/internal/statedir"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,7 +99,7 @@ var artifactExt = map[string]string{
 func main() {
 	root := projectRoot()
 	addr := flag.String("addr", "127.0.0.1:8099", "listen address")
-	state := flag.String("state", envOr("STATE_DIR", filepath.Join(root, "state")), "state directory")
+	state := flag.String("state", statedir.Default(root), "state directory")
 	repoRoot := flag.String("root", root, "repository root holding workflows/ and the local config files")
 	awfgh := flag.String("awfgh", filepath.Join(root, "awf-gh.yaml"), "watcher config")
 	awf := flag.String("awf", envOr("AWF_URL", "http://127.0.0.1:2511"), "awf API base URL")

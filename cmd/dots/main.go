@@ -9,13 +9,12 @@
 package main
 
 import (
-	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"opencode-dots/internal/statedir"
 	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -34,7 +33,7 @@ func run(args []string, out, errw io.Writer) int {
 	root, _ := os.Getwd()
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(errw)
-	state := fs.String("state", cmp.Or(os.Getenv("STATE_DIR"), filepath.Join(root, "state")), "state directory")
+	state := fs.String("state", statedir.Default(root), "state directory")
 	asJSON := fs.Bool("json", false, "print JSON")
 	workflow := fs.String("workflow", "", "runs: only this workflow")
 	failed := fs.Bool("failed", false, "runs: only failed runs")

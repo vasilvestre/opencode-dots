@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"opencode-dots/internal/statedir"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +26,7 @@ import (
 func main() {
 	root, _ := os.Getwd()
 	dir := flag.String("dir", root, "repository root: holds repos.yaml and .env")
-	state := flag.String("state", cmp.Or(os.Getenv("STATE_DIR"), filepath.Join(root, "state")), "state directory")
+	state := flag.String("state", statedir.Default(root), "state directory")
 	awf := flag.String("awf", cmp.Or(os.Getenv("AWF_URL"), "http://127.0.0.1:2511"), "awf API base URL")
 	asJSON := flag.Bool("json", false, "print a JSON report")
 	minFree := flag.Uint64("min-free-mb", 1024, "disk free threshold, in MiB")
