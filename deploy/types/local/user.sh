@@ -74,6 +74,21 @@ clone_repo() {
   ln -sfn "$DOTS_HOME/workflows" "$HOME/.config/awf/workflows"
 }
 
+# The dashboard writes (notifications, models, files, repository settings) only for a loopback
+# Host or one named in DOTS_ALLOW_HOST. Behind `tailscale serve` the Host is the machine's tailnet
+# name, so without it every write answers "refused origin". Write it once, never over a value
+# someone set. The file is ignored by git and holds only this machine's name.
+allow_dashboard_host() {
+  local f="$DOTS_HOME/systemd/dots-dashboard.env" name
+  grep -qs '^DOTS_ALLOW_HOST=.' "$f" && return 0
+  command -v tailscale >/dev/null 2>&1 || return 0
+  name=$(tailscale status --json 2>/dev/null | sed -n 's/.*"DNSName": *"\([^"]*\)".*/\1/p' | head -1)
+  name=${name%.}
+  [ -n "$name" ] || { warn "tailscale has no name for this machine yet: set DOTS_ALLOW_HOST in $f once it joins"; return 0; }
+  printf 'DOTS_ALLOW_HOST=%s\n' "$name" >"$f"
+  log "dashboard: writes allowed for the tailnet name"
+}
+
 # The units in systemd/ name the workstation's path and /usr/local/bin/awf. Write copies
 # that name this machine's, and leave the originals alone.
 render_units() {
@@ -195,6 +210,7 @@ install_awf
 install_opencode
 clone_repo
 render_units
+allow_dashboard_host
 opencode_config
 if [ "${DOTS_HUB:-0}" = 1 ]; then DOTS_HOME=$DOTS_HOME "$here/hub.sh"; fi
 memory_limits

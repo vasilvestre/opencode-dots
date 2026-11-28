@@ -25,7 +25,7 @@ written to a tracked file: tokens come from the environment or are typed on the 
 
    Add `TS_AUTHKEY=... TS_HOSTNAME=... TS_TAGS=tag:dots` to join the tailnet, and
    `DOTS_HARDEN_SSH=1` once you can log in as the user (test a second session first).
-3. As the user: `deploy/types/local/user.sh`. It stops before `bin/configure` if the
+3. As the user: `deploy/types/local/user.sh`. On a machine that is on the tailnet it also writes `DOTS_ALLOW_HOST` (the tailnet name) for the dashboard, or every write from the page answers "refused origin". It stops before `bin/configure` if the
    user is not logged in to GitHub; run `gh auth login --with-token` with a token limited to
    the repositories the machine may touch, then run it again.
 4. From your workstation: `deploy/types/local/push.sh dots@server --tower --repos-yaml repos.yaml`.
