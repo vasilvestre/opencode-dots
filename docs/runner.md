@@ -104,6 +104,42 @@ repos:
 Tests: `bin/test-gate-sandbox` (the gate, with a fake test runner), the e2e cases of `review-pr` and `fix-issue`
 (`bin/test-e2e`), and `internal/repos` for the key.
 
+## Which engine on a server
+
+On a server, use **rootless podman**: `DOTS_SANDBOX_ENGINE=podman`.
+
+The reasoning, for the machine this was decided on (a KVM virtual machine of a hosting provider, 4 vCPU,
+6 GB, 100 GB):
+
+- **A microVM needs `/dev/kvm`, and a virtual machine usually has none.** The provider does not expose
+  nested virtualization (no `/dev/kvm`, no `vmx` or `svm` flag), so Firecracker-style isolation cannot
+  run on the machine itself. A microVM then means another machine, which costs money and a trust
+  boundary to manage. Check with `ls /dev/kvm` before you plan around one.
+- **The machine has room for containers.** CPU, memory and disk are plentiful for a handful of
+  short, capped runs, so the weakness of a container is the kernel it shares, not its cost.
+- **Rootless over Docker.** A user in the `docker` group is root on the machine, which defeats the point
+  of isolating code you do not trust. Rootless podman runs the container as the unprivileged `dots` user,
+  with no daemon, so a container escape lands as that user and not as root.
+- **It adds one package line**, no service: `apt install podman uidmap crun`. The user needs a range in
+  `/etc/subuid` and `/etc/subgid`, which Debian creates with the account.
+
+What this does not give: a kernel escape defeats a container, rootless or not. For the steps that read
+text written by strangers and hold a shell (an agent on an issue of a public repository), a container
+beside the host is not enough on its own; a microVM on another machine is the stronger choice, see
+`ADR/0032-trust-levels-per-repository.md`.
+
+Set it up on the server:
+
+```bash
+sudo apt-get install -y podman uidmap crun
+podman build -t dots-sandbox-test deploy/sandbox
+DOTS_SANDBOX_ENGINE=podman DOTS_TEST_IMAGE=dots-sandbox-test bin/test-sandbox
+```
+
+`bin/test-sandbox` runs the real-container checks with the engine named by `DOTS_SANDBOX_ENGINE`, so the
+last line proves the isolation on podman: no network, read-only root, no capabilities, memory, process and
+time limits, and nothing written to the host.
+
 ## How a workflow step calls it by hand
 
 The agent writes a diff to a file; shell steps check, test, then apply. The agent
@@ -155,9 +191,9 @@ Each line is a check in `bin/test-sandbox` that passes:
 
 ### Not verified
 
-- Rootless docker and podman: the machine used was rootful. `DOTS_SANDBOX_ENGINE=podman`
-  is untested. Under rootless, `--user` with the caller's uid and bind-mount
-  ownership may behave differently.
+- Rootless podman passes `bin/test-sandbox` on Debian 13 with podman 5.4 (crun, overlay). Rootless
+  docker is untried. Under rootless, `--user` with the caller's uid and bind-mount ownership may
+  behave differently on other versions.
 - `gVisor` or any other runtime: not installed, not tried.
 - `--cpus` is set but no test measures CPU throttling.
 - A kernel or runtime escape: out of scope for a container.
