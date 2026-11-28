@@ -36,6 +36,11 @@ timeout_s=${DOTS_SANDBOX_TIMEOUT:-600}
 mount_mode=ro
 [ "${DOTS_SANDBOX_WRITABLE:-0}" = 1 ] && mount_mode=rw
 
+# Rootless podman remaps the user inside the container to a sub-uid that cannot read the files of the
+# caller, so a bind mount fails with "Permission denied". keep-id maps the caller to itself instead.
+userns=()
+case "$(basename "$engine")" in podman) [ "$(id -u)" != 0 ] && userns=(--userns=keep-id) ;; esac
+
 name="dots-sandbox-$$-$RANDOM"
 args=(
   run --rm --name "$name"
@@ -50,6 +55,7 @@ args=(
   --mount "type=bind,source=$workdir,target=/work,$( [ "$mount_mode" = ro ] && echo readonly || echo bind-propagation=rprivate )"
   --workdir /work
   --env HOME=/tmp
+  ${userns[@]+"${userns[@]}"}
   --user "$(id -u):$(id -g)"
   "$image"
   "$@"

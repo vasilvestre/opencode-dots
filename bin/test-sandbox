@@ -52,6 +52,11 @@ cmd=$(bin/sandbox-run --print dots-a /tmp -- echo hi)
 for flag in "--network none" "--read-only" "--cap-drop ALL" "no-new-privileges" "--pids-limit" "--memory" "--tmpfs" "--rm"; do
   case "$cmd" in *"$flag"*) ok "flag $flag present" ;; *) bad "flag $flag missing" ;; esac
 done
+pcmd=$(DOTS_SANDBOX_ENGINE=podman bin/sandbox-run --print dots-a /tmp -- echo hi)
+if [ "$(id -u)" != 0 ]; then
+  case "$pcmd" in *"--userns=keep-id"*) ok "rootless podman keeps the caller's uid (bind mounts stay readable)" ;; *) bad "podman without keep-id" ;; esac
+fi
+case "$cmd" in *"--userns"*) bad "keep-id must not reach docker" ;; *) ok "keep-id is for podman only" ;; esac
 
 # real container, when possible, with the engine bin/sandbox-run itself will use
 eng=${DOTS_SANDBOX_ENGINE:-docker}
