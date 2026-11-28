@@ -3,6 +3,7 @@
 // sections a visitor is offered.
 import { h, mount } from "./dom.js";
 import { getJSON, postJSON } from "./api.js";
+import { t } from "./i18n.js";
 
 // Sections that read or change what only the host's own user may touch.
 export const OWNER_ONLY = new Set(["activity", "workflows", "config", "repos", "health"]);
@@ -27,13 +28,14 @@ export function shapeNav() {
   document.querySelectorAll("#tabs a").forEach((a) => {
     if (OWNER_ONLY.has(a.dataset.view)) a.hidden = true;
   });
+  document.querySelectorAll("#tabs .sep").forEach((e) => e.setAttribute("hidden", ""));
   document.querySelector("#awf-status")?.setAttribute("hidden", "");
   const who = document.querySelector("#whoami");
   if (!who) return;
   who.hidden = false;
   who.replaceChildren(
-    h("span", { class: "muted", title: "Signed in with GitHub" }, h("span", { class: "who-prefix" }, "signed in as "), session.login),
-    h("button", { class: "btn ghost sm", type: "button", onclick: signOut }, "Sign out"),
+    h("span", { class: "muted", title: t("session.signed_in_with_github") }, h("span", { class: "who-prefix" }, t("session.signed_in_as")), session.login),
+    h("button", { class: "btn ghost sm", type: "button", onclick: signOut }, t("session.sign_out")),
   );
 }
 
@@ -53,8 +55,8 @@ const safeLink = (u) => {
 export function showSignIn(el) {
   const body = h("div", {});
   mount(el, h("div", { class: "signin" },
-    h("h1", {}, "Sign in"),
-    h("p", { class: "muted" }, `You see the repositories where you can ${session.minPermission === "pull" ? "read" : "push"}. Signing in asks GitHub for the repo scope, the one the gh tool asks for. The dashboard uses your token once, to read who you are and your rights on the repositories it works on, then forgets it. Your session lasts one hour.`),
+    h("h1", {}, t("session.sign_in")),
+    h("p", { class: "muted" }, t("session.you_see_the_repositories_where", [session.minPermission === "pull" ? t("session.read") : t("session.push")])),
     body,
   ));
   let timer = null;
@@ -62,41 +64,41 @@ export function showSignIn(el) {
     clearTimeout(timer);
     mount(body,
       message ? h("p", { class: "signin-note" }, message) : null,
-      h("button", { class: "btn primary", type: "button", onclick: start }, "Sign in with GitHub"),
+      h("button", { class: "btn primary", type: "button", onclick: start }, t("session.sign_in_with_github")),
     );
   };
 
   async function start() {
-    mount(body, h("p", { class: "muted" }, "Asking GitHub for a code..."));
+    mount(body, h("p", { class: "muted" }, t("session.asking_github_for_a_code")));
     let flow;
     try {
       flow = await postJSON("/auth/device/start", {});
     } catch (err) {
-      idle(err.status === 429 ? "Too many attempts. Wait a minute and try again." : `Could not start the sign-in: ${err.message}`);
+      idle(err.status === 429 ? t("session.too_many_attempts_wait_a") : t("session.could_not_start_the_sign", [err.message]));
       return;
     }
     const link = safeLink(flow.verification_uri);
     mount(body,
-      h("p", {}, "Open GitHub and enter this code:"),
-      h("p", { class: "signin-code", "aria-label": "Your code" }, flow.user_code),
-      link ? h("p", {}, h("a", { class: "btn", href: link, target: "_blank", rel: "noopener noreferrer" }, "Open GitHub")) : null,
-      h("p", { class: "muted", role: "status" }, "Waiting for you to approve..."),
+      h("p", {}, t("session.open_github_and_enter_this")),
+      h("p", { class: "signin-code", "aria-label": t("session.your_code") }, flow.user_code),
+      link ? h("p", {}, h("a", { class: "btn", href: link, target: "_blank", rel: "noopener noreferrer" }, t("session.open_github"))) : null,
+      h("p", { class: "muted", role: "status" }, t("session.waiting_for_you_to_approve")),
     );
     poll(flow.id, flow.interval || 5, Date.now() + (flow.expires_in || 900) * 1000);
   }
 
   function poll(id, seconds, until) {
     timer = setTimeout(async () => {
-      if (Date.now() > until) return idle("The code expired. Start again.");
+      if (Date.now() > until) return idle(t("session.the_code_expired_start_again"));
       try {
         const res = await postJSON("/auth/device/poll", { id });
         if (res.status === "ok") return location.reload();
-        if (res.status === "expired") return idle("The code expired. Start again.");
-        if (res.status === "denied") return idle("GitHub reported that the request was declined.");
+        if (res.status === "expired") return idle(t("session.the_code_expired_start_again"));
+        if (res.status === "denied") return idle(t("session.github_reported_that_the_request"));
         poll(id, res.interval || seconds, until);
       } catch (err) {
         if (err.status === 429) return poll(id, seconds + 5, until);
-        idle(`The sign-in failed: ${err.message}`);
+        idle(t("session.the_sign_in_failed", [err.message]));
       }
     }, seconds * 1000);
   }

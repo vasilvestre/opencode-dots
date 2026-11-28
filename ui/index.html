@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<a class="skip" href="#main">Skip to content</a>
+<a class="skip" href="#main" data-i18n="index.skip">Skip to content</a>
 
 <header class="top">
   <a class="brand" href="#activity" aria-label="dots, activity">
@@ -27,27 +27,29 @@
     <span>dots</span>
   </a>
 
-  <nav class="tabs" id="tabs" aria-label="Sections">
-    <a href="#home" data-view="home">Home</a>
-    <a href="#activity" data-view="activity">Activity</a>
-    <a href="#workflows" data-view="workflows">Workflows</a>
-    <a href="#config" data-view="config">Settings</a>
-    <a href="#repos" data-view="repos">Repos</a>
-    <a href="#costs" data-view="costs">Cost</a>
-    <a href="#memory" data-view="memory">Memory</a>
-    <a href="#autonomy" data-view="autonomy">Autonomy</a>
-    <a href="#health" data-view="health">Health</a>
-    <a href="#audit" data-view="audit">Audit</a>
-    <a href="#links" data-view="links">Links</a>
+  <nav class="tabs" id="tabs" aria-label="Sections" data-i18n-attr="aria-label:index.sections">
+    <a href="#home" data-view="home" data-i18n="nav.home">Home</a>
+    <a href="#activity" data-view="activity" data-i18n="nav.activity">Activity</a>
+    <a href="#autonomy" data-view="autonomy" data-i18n="nav.autonomy">Autonomy</a>
+    <a href="#links" data-view="links" data-i18n="nav.links">Links</a>
+    <span class="sep" aria-hidden="true"></span>
+    <a href="#workflows" data-view="workflows" data-i18n="nav.workflows">Workflows</a>
+    <a href="#repos" data-view="repos" data-i18n="nav.repos">Repos</a>
+    <a href="#config" data-view="config" data-i18n="nav.config">Settings</a>
+    <span class="sep" aria-hidden="true"></span>
+    <a href="#costs" data-view="costs" data-i18n="nav.costs">Cost</a>
+    <a href="#health" data-view="health" data-i18n="nav.health">Health</a>
+    <a href="#memory" data-view="memory" data-i18n="nav.memory">Memory</a>
+    <a href="#audit" data-view="audit" data-i18n="nav.audit">Audit</a>
   </nav>
 
   <div class="tools">
     <span id="whoami" class="whoami" hidden></span>
     <span id="awf-status" class="pill" role="status" aria-live="polite">
-      <i class="dot" aria-hidden="true"></i><span>checking</span>
+      <i class="dot" aria-hidden="true"></i><span data-i18n="index.checking">checking</span>
     </span>
-    <button class="btn ghost sm" id="palette-btn" type="button" title="Go to… (Ctrl+K)">
-      Search <kbd>Ctrl K</kbd>
+    <button class="btn ghost sm" id="palette-btn" type="button" title="Go to… (Ctrl+K)" data-i18n-attr="title:index.go_to">
+      <span data-i18n="index.search">Search</span> <kbd>Ctrl K</kbd>
     </button>
   </div>
 </header>

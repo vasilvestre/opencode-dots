@@ -4,15 +4,16 @@ import { confirmDialog } from "../modal.js";
 import { toast } from "../toast.js";
 import { openRulesDialog, ruleSummary } from "../rules-dialog.js";
 import { ago, when } from "../format.js";
+import { t } from "../i18n.js";
 
 const FEATURES = [
-  ["review", "Review", "review-pr on pull requests"],
-  ["reply", "Reply", "reply-pr on review comments of my own pull requests"],
-  ["fix_issue", "Fix issue", "fix-issue on new issues, or on one label"],
-  ["fix_ci", "Fix CI", "fix-ci on failed checks of my own pull requests"],
-  ["tend", "Tend", "the daily tend pass"],
-  ["auto_merge", "Auto-merge", "tend merges a pull request when review-pr says merge (needs Tend)"],
-  ["sync", "Sync", "keep the local checkout fast-forwarded"],
+  ["review", t("common.review"), t("repos.review_pr_on_pull_requests")],
+  ["reply", t("repos.reply"), t("repos.reply_pr_on_review_comments")],
+  ["fix_issue", t("repos.fix_issue"), t("repos.fix_issue_on_new_issues")],
+  ["fix_ci", t("repos.fix_ci"), t("repos.fix_ci_on_failed_checks")],
+  ["tend", t("repos.tend"), t("repos.the_daily_tend_pass")],
+  ["auto_merge", t("common.auto_merge"), t("repos.tend_merges_a_pull_request")],
+  ["sync", t("repos.sync"), t("repos.keep_the_local_checkout_fast")],
 ];
 
 // ghPath encodes each segment of owner/name before it goes into a URL.
@@ -28,10 +29,13 @@ export function mountRepos(el) {
 
   const search = h("input", {
     type: "search",
-    placeholder: "Filter repositories",
-    "aria-label": "Filter repositories",
+    placeholder: t("common.filter_repositories"),
+    "aria-label": t("common.filter_repositories"),
     oninput: () => { state.filter = search.value.trim().toLowerCase(); render(); },
   });
+  // "with X" / "without X": which repositories have a feature on or off.
+  const by = h("select", { "aria-label": t("repos.filter_by_feature"), onchange: () => { state.by = by.value; render(); } },
+    h("option", { value: "" }, t("repos.any_feature")));
   const count = h("span", { class: "muted" });
   const body = h("div", {});
   const claims = h("div", {});
@@ -39,7 +43,7 @@ export function mountRepos(el) {
   const addInput = h("input", {
     type: "text",
     placeholder: "owner/name",
-    "aria-label": "Repository to add",
+    "aria-label": t("repos.repository_to_add"),
     class: "mono",
     onkeydown: (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addRepo(); } },
   });
@@ -47,16 +51,16 @@ export function mountRepos(el) {
   mount(el, h("div", { class: "stack" },
     h("div", { class: "row between" },
       h("div", {},
-        h("h1", {}, "Repositories"),
+        h("h1", {}, t("repos.repositories")),
         h("p", { class: "muted" },
-          "What the dot does on each repository. A change is saved to ",
+          t("repos.what_the_dot_does_on"),
           h("a", { href: "#config/repos.yaml" }, "repos.yaml"),
-          " as you click, and the watcher files are regenerated."),
+          t("repos.as_you_click_and_the")),
       ),
-      h("div", { class: "row" }, search),
+      h("div", { class: "row" }, by, search),
     ),
     h("div", { class: "section-head" }, count, h("span", { class: "spacer" }),
-      addInput, h("button", { class: "btn sm", onclick: addRepo }, "Add repository")),
+      addInput, h("button", { class: "btn sm", onclick: addRepo }, t("repos.add_repository"))),
     claims,
     workers,
     body,
@@ -72,10 +76,10 @@ export function mountRepos(el) {
     if (!list.length) return;
     mount(claims, h("div", { class: "card" },
       h("div", { class: "card-head" },
-        h("h3", {}, "Claims"),
+        h("h3", {}, t("repos.claims")),
         h("span", { class: "badge warn" }, `${list.length}`),
       ),
-      h("p", { class: "muted" }, "The dot does not push to these branches while the claim lives."),
+      h("p", { class: "muted" }, t("repos.the_dot_does_not_push")),
       h("div", { class: "list" }, list.map((c) =>
         h("div", { class: "item row between" },
           h("div", {},
@@ -85,8 +89,8 @@ export function mountRepos(el) {
             c.title ? h("span", { class: "muted" }, ` — ${c.title}`) : null,
           ),
           h("div", { class: "muted" },
-            c.machine, " · held ", ago(c.held_since),
-            c.expires_at ? ` · expires ${when(c.expires_at)}` : ""),
+            c.machine, t("repos.held"), ago(c.held_since),
+            c.expires_at ? t("repos.expires", [when(c.expires_at)]) : ""),
         ))),
     ));
   }
@@ -100,11 +104,11 @@ export function mountRepos(el) {
     const live = list.filter((w) => w.live).length;
     mount(workers, h("div", { class: "card" },
       h("div", { class: "card-head" },
-        h("h3", {}, "Workers"),
+        h("h3", {}, t("repos.workers")),
         h("span", { class: `badge ${live ? "ok" : "warn"}` }, `${live} live`),
-        list.length > live ? h("span", { class: "badge" }, `${list.length - live} expired`) : null,
+        list.length > live ? h("span", { class: "badge" }, t("repos.expired", [list.length - live])) : null,
       ),
-      h("p", { class: "muted" }, "Machines registered with this instance. No task is sent to them yet."),
+      h("p", { class: "muted" }, t("repos.machines_registered_with_this_instance")),
       h("div", { class: "list" }, list.map((w) =>
         h("div", { class: "item row between" },
           h("div", {},
@@ -114,8 +118,8 @@ export function mountRepos(el) {
             capSummary(w.capabilities) ? h("span", { class: "muted" }, ` — ${capSummary(w.capabilities)}`) : null,
           ),
           h("div", { class: "muted" },
-            w.machine, " · registered ", ago(w.registered_at), " · last seen ", ago(w.renewed_at),
-            w.live ? ` · expires ${when(w.expires_at)}` : ""),
+            w.machine, t("repos.registered"), ago(w.registered_at), t("repos.last_seen"), ago(w.renewed_at),
+            w.live ? t("repos.expires", [when(w.expires_at)]) : ""),
         ))),
     ));
   }
@@ -174,9 +178,9 @@ export function mountRepos(el) {
     const f = row.features[key];
     if (!on && f.custom) {
       const ok = await confirmDialog({
-        title: `Switch off ${labelOf(key)} on ${row.name}?`,
-        message: `It has its own rules: ${summaries(row, key).join(" / ")}. They are dropped from repos.yaml; the previous file is kept as a backup.`,
-        confirm: "Switch off",
+        title: t("repos.switch_off_on", [labelOf(key), row.name]),
+        message: t("repos.it_has_its_own_rules", [summaries(row, key).join(" / ")]),
+        confirm: t("repos.switch_off"),
         danger: true,
       });
       if (!ok) { render(); return; }
@@ -188,7 +192,7 @@ export function mountRepos(el) {
     const name = addInput.value.trim();
     if (!name) return;
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name)) {
-      toast("Use the owner/name form, for example acme/widgets.", { tone: "err" });
+      toast(t("repos.use_the_owner_name_form"), { tone: "err" });
       return;
     }
     await save({ op: "add", repo: name }, {
@@ -197,19 +201,19 @@ export function mountRepos(el) {
         state.open.add(name);
         state.filter = "";
         search.value = "";
-        toast(`${name} added with everything off. Tick what the dot should do.`, { tone: "ok" });
+        toast(t("repos.added_with_everything_off_tick", [name]), { tone: "ok" });
       },
     });
   }
 
   async function removeRepo(row) {
     const ok = await confirmDialog({
-      title: `Remove ${row.name}?`,
-      message: "The repository leaves repos.yaml and the watcher stops looking at it. The previous file is kept as a backup.",
-      confirm: "Remove",
+      title: t("repos.remove", [row.name]),
+      message: t("repos.the_repository_leaves_repos_yaml"),
+      confirm: t("repos.remove_2"),
       danger: true,
     });
-    if (ok) save({ op: "remove", repo: row.name }, { done: () => { state.open.delete(row.name); toast(`${row.name} removed.`, { tone: "ok" }); } });
+    if (ok) save({ op: "remove", repo: row.name }, { done: () => { state.open.delete(row.name); toast(t("repos.removed", [row.name]), { tone: "ok" }); } });
   }
 
   // --- rendering --------------------------------------------------------------
@@ -228,25 +232,31 @@ export function mountRepos(el) {
   function render() {
     if (state.error) {
       mount(body, h("div", { class: "issues bad" },
-        h("div", { class: "head" }, "repos.yaml cannot be read"),
+        h("div", { class: "head" }, t("repos.repos_yaml_cannot_be_read")),
         h("ul", {}, state.error.split("\n").map((l) => h("li", {}, l))),
         h("p", { style: { padding: "0 12px 10px" } },
-          h("a", { href: "#config/repos.yaml" }, "Open repos.yaml"), " to fix it.")));
+          h("a", { href: "#config/repos.yaml" }, t("repos.open_repos_yaml")), t("repos.to_fix_it"))));
       count.textContent = "";
       return;
     }
     if (!state.cfg) return;
-    const rows = state.cfg.repos.filter((r) => !state.filter || r.name.toLowerCase().includes(state.filter));
-    count.textContent = `${rows.length} of ${state.cfg.repos.length} repositories`;
+    if (by.options.length === 1 && state.cfg.repos[0]) {
+      for (const key of Object.keys(state.cfg.repos[0].features)) {
+        by.append(h("option", { value: `+${key}` }, t("repos.with", [labelOf(key)])), h("option", { value: `-${key}` }, t("repos.without", [labelOf(key)])));
+      }
+    }
+    const rows = state.cfg.repos.filter((r) => (!state.filter || r.name.toLowerCase().includes(state.filter))
+      && (!state.by || !!r.features[state.by.slice(1)]?.on === (state.by[0] === "+")));
+    count.textContent = t("repos.of_repositories", [rows.length, state.cfg.repos.length]);
     if (!rows.length) {
-      mount(body, h("div", { class: "empty" }, state.cfg.repos.length ? "Nothing matches." : "No repository yet. Add one above."));
+      mount(body, h("div", { class: "empty" }, state.cfg.repos.length ? t("common.nothing_matches") : t("repos.no_repository_yet_add_one")));
       return;
     }
     const head = h("tr", {},
-      h("th", {}, "Repository"),
+      h("th", {}, t("common.repository")),
       FEATURES.map(([, label, title]) => h("th", { class: "cell-check", title }, label)),
-      h("th", {}, "Agent"),
-      h("th", { class: "cell-check", title: "pull requests the watcher already saw" }, "Seen"),
+      h("th", {}, t("repos.agent")),
+      h("th", { class: "cell-check", title: t("repos.pull_requests_the_watcher_already") }, t("repos.seen")),
       h("th", {}, ""),
     );
     mount(body, h("div", { class: "table-wrap" },
@@ -260,10 +270,10 @@ export function mountRepos(el) {
       h("td", {},
         h("b", {}, row.name),
         row.trust && row.trust !== "open"
-          ? h("span", { class: "badge warn", title: "ADR 0032: what this repository may reach", style: { marginLeft: "6px" } }, row.trust)
+          ? h("span", { class: "badge warn", title: t("repos.adr_what_this_repository_may"), style: { marginLeft: "6px" } }, row.trust)
           : null,
         row.use?.length ? h("span", { class: "chips", style: { display: "inline-flex", marginLeft: "6px" } },
-          row.use.map((u) => h("span", { class: "chip", title: "profile in repos.yaml" }, u))) : null),
+          row.use.map((u) => h("span", { class: "chip", title: t("repos.profile_in_repos_yaml") }, u))) : null),
       FEATURES.map(([key]) => featureCell(row, key)),
       h("td", { "data-cell": `${row.name}|provider` }, providerSelect(row)),
       h("td", { class: "cell-check num muted" }, rule?.seen.length ? String(rule.seen.length) : "—"),
@@ -271,9 +281,9 @@ export function mountRepos(el) {
         h("button", {
           class: "btn ghost sm",
           "aria-expanded": String(open),
-          title: open ? "Hide the rules and details" : "Show the rules and details",
+          title: open ? t("repos.hide_the_rules_and_details") : t("repos.show_the_rules_and_details"),
           onclick: () => { open ? state.open.delete(row.name) : state.open.add(row.name); render(); },
-        }, open ? "Hide" : "Details")),
+        }, open ? t("repos.hide") : t("common.details"))),
     );
     return open ? [tr, detailRow(row, rule)] : [tr];
   }
@@ -285,15 +295,15 @@ export function mountRepos(el) {
       type: "checkbox",
       checked: f.on,
       "aria-label": `${labelOf(key)} on ${row.name}`,
-      title: f.source === "profile" ? `On through the profile ${row.use?.join(", ")}` : "",
+      title: f.source === "profile" ? t("repos.on_through_the_profile", [row.use?.join(", ")]) : "",
     });
     // The rules button sits outside the flow, so a custom cell stays aligned
     // with the others.
     const rulesBtn = f.on && state.cfg.forms[key]
       ? h("button", {
         class: `rules-btn${f.custom ? " custom" : ""}`,
-        title: f.custom ? `Runs on: ${summaries(row, key).join(" / ")}. Click to edit.` : "Choose when it runs",
-        "aria-label": `Edit when ${labelOf(key)} runs on ${row.name}`,
+        title: f.custom ? t("repos.runs_on_click_to_edit", [summaries(row, key).join(" / ")]) : t("repos.choose_when_it_runs"),
+        "aria-label": t("repos.edit_when_runs_on", [labelOf(key), row.name]),
         onclick: () => editRules(row, key),
       }, "⚙")
       : null;
@@ -308,8 +318,8 @@ export function mountRepos(el) {
       type: "checkbox",
       checked: Boolean(tend.auto_merge),
       disabled: !tend.on,
-      "aria-label": `Auto-merge on ${row.name}`,
-      title: tend.on ? "Merge when review-pr says merge" : "Tick Tend first",
+      "aria-label": t("repos.auto_merge_on", [row.name]),
+      title: tend.on ? t("repos.merge_when_review_pr_says") : t("repos.tick_tend_first"),
     });
     const td = h("td", { class: "cell-check", "data-cell": `${row.name}|auto_merge` }, h("span", { class: "cb" }, box));
     box.addEventListener("change", () => save({ repo: row.name, key: "auto_merge", value: box.checked }, { cell: td }));
@@ -331,7 +341,7 @@ export function mountRepos(el) {
           state.cfg = res.config;
           render();
           flash({ repo: row.name, key });
-          toast(`Saved the rules of ${labelOf(key)} on ${row.name}.`, { tone: "ok" });
+          toast(t("repos.saved_the_rules_of_on", [labelOf(key), row.name]), { tone: "ok" });
         });
         chain = write.catch(() => {});
         await write;
@@ -340,8 +350,8 @@ export function mountRepos(el) {
   }
 
   function providerSelect(row) {
-    const sel = h("select", { "aria-label": `Agent CLI for ${row.name}`, class: "provider" },
-      h("option", { value: "" }, row.provider_source === "default" ? `default (${row.provider})` : "default (opencode)"),
+    const sel = h("select", { "aria-label": t("repos.agent_cli_for", [row.name]), class: "provider" },
+      h("option", { value: "" }, row.provider_source === "default" ? t("common.default", [row.provider]) : t("repos.default_opencode")),
       state.cfg.providers.map((p) => h("option", { value: p }, p)));
     sel.value = row.provider_source === "repo" ? row.provider : "";
     sel.addEventListener("change", () => save({ repo: row.name, key: "provider", value: sel.value || null }, { cell: sel.closest("td") }));
@@ -356,22 +366,22 @@ export function mountRepos(el) {
       h("td", { colspan: String(FEATURES.length + 4) },
         h("div", { class: "stack", style: { gap: "10px" } },
           h("div", { class: "row" },
-            h("a", { href: `https://github.com/${ghPath(row.name)}`, target: "_blank", rel: "noreferrer" }, "Open on GitHub"),
-            row.checkout ? h("span", { class: "muted mono" }, `checkout ${row.checkout}`) : h("span", { class: "muted" }, "no local checkout"),
+            h("a", { href: `https://github.com/${ghPath(row.name)}`, target: "_blank", rel: "noreferrer" }, t("common.open_on_github")),
+            row.checkout ? h("span", { class: "muted mono" }, t("repos.checkout", [row.checkout])) : h("span", { class: "muted" }, t("repos.no_local_checkout")),
             h("span", { class: "spacer" }),
-            h("button", { class: "btn danger sm", onclick: () => removeRepo(row) }, "Remove repository"),
+            h("button", { class: "btn danger sm", onclick: () => removeRepo(row) }, t("repos.remove_repository")),
           ),
           rule?.tower_ignore ? h("div", { class: "warning" },
             rule.tower_ignore === "missing"
-              ? "Tower indexes this repository and .towerignore is missing. Run tower init, then list what it must skip."
-              : "Tower indexes this repository and .towerignore holds no pattern. Add the paths and files Tower must skip.") : null,
+              ? t("repos.tower_indexes_this_repository_and")
+              : t("repos.tower_indexes_this_repository_and_2")) : null,
           watched.length ? h("div", { class: "stack", style: { gap: "6px" } },
-            h("h3", { class: "muted" }, "When the watcher acts"),
+            h("h3", { class: "muted" }, t("repos.when_the_watcher_acts")),
             watched.map(([key, lines]) => h("div", { class: "row", style: { fontSize: "12.5px", alignItems: "baseline" } },
               h("b", { style: { minWidth: "70px" } }, labelOf(key)),
               h("span", { class: "muted" }, lines.join("  +  ")),
-              h("button", { class: "btn ghost sm", onclick: () => editRules(row, key) }, "Edit")),
-            )) : h("div", { class: "muted" }, "No watcher rule: this repository only takes part in tend or sync."),
+              h("button", { class: "btn ghost sm", onclick: () => editRules(row, key) }, t("repos.edit"))),
+            )) : h("div", { class: "muted" }, t("repos.no_watcher_rule_this_repository")),
           rule?.seen.length ? h("div", { class: "chips" },
             rule.seen.slice().reverse().map((pr) => h("a", {
               class: "chip",

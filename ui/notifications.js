@@ -3,6 +3,7 @@
 // choice and the run ids it has already announced.
 
 import { awf } from "./api.js";
+import { t, locale } from "./i18n.js";
 
 const DESKTOP_KEY = "dots-desktop-notifications";
 const SEEN_KEY = "dots-notified-runs";
@@ -98,7 +99,7 @@ function notificationTitle(e) {
 function notificationBody(e) {
   const at = e.completed_at || e.started_at;
   const time = at && !Number.isNaN(Date.parse(at))
-    ? new Date(at).toLocaleTimeString()
-    : "just now";
-  return `Run ${String(e.id).slice(0, 8)} finished at ${time}`;
+    ? new Date(at).toLocaleTimeString(locale())
+    : t("notifications.just_now");
+  return t("notifications.run_finished_at", [String(e.id).slice(0, 8), time]);
 }

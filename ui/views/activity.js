@@ -6,6 +6,7 @@ import { confirmDialog, openModal } from "../modal.js";
 import { openRunModal, recalledRun } from "../run.js";
 import { openAskModal } from "../ask.js";
 import { stepLabel, trailText } from "../steps.js";
+import { t, ts } from "../i18n.js";
 
 const REFRESH_MS = 5000;
 const ARTIFACTS_MS = 15000;
@@ -35,7 +36,7 @@ export function mountActivity(el) {
   const logText = new Map();
 
   // --- skeleton -----------------------------------------------------------
-  const kpis = h("div", { class: "statusbar", "aria-label": "Summary" });
+  const kpis = h("div", { class: "statusbar", "aria-label": t("activity.summary") });
   const runs = h("div", {});
   const remoteBox = h("div", { class: "stack" });
   const runsCount = h("span", { class: "muted" }, "");
@@ -48,15 +49,15 @@ export function mountActivity(el) {
 
   const search = h("input", {
     type: "search",
-    placeholder: "Filter by workflow",
-    "aria-label": "Filter history by workflow",
+    placeholder: t("activity.filter_by_workflow"),
+    "aria-label": t("activity.filter_history_by_workflow"),
     oninput: () => { state.filter = search.value.trim().toLowerCase(); state.page = 0; renderHistory(); },
   });
   const status = h("select", {
-    "aria-label": "Filter history by status",
+    "aria-label": t("activity.filter_history_by_status"),
     onchange: () => { state.status = status.value; state.page = 0; renderHistory(); },
   },
-  ["all", "succeeded", "failed", "running"].map((s) => h("option", { value: s }, s === "all" ? "All statuses" : s)),
+  ["all", "succeeded", "failed", "running"].map((s) => h("option", { value: s }, s === "all" ? t("activity.all_statuses") : ts(s))),
   );
 
   const prPanels = {
@@ -64,10 +65,10 @@ export function mountActivity(el) {
     answered: replies,
     seen: h("div", { class: "card" }, seen),
   };
-  const prTabs = h("div", { class: "seg", role: "tablist", "aria-label": "Pull request lists" });
+  const prTabs = h("div", { class: "seg", role: "tablist", "aria-label": t("activity.pull_request_lists") });
   const prCount = { reviewed: 0, answered: 0, seen: 0 };
   function renderPrTabs() {
-    mount(prTabs, [["reviewed", "Reviewed"], ["answered", "Answered"], ["seen", "Seen by the watcher"]].map(([key, label]) =>
+    mount(prTabs, [["reviewed", t("activity.reviewed")], ["answered", t("activity.answered")], ["seen", t("activity.seen_by_the_watcher")]].map(([key, label]) =>
       h("button", {
         role: "tab",
         "aria-selected": String(state.prTab === key),
@@ -78,18 +79,18 @@ export function mountActivity(el) {
 
   const historySection = h("section", { id: "history" },
     h("div", { class: "section-head" },
-      h("h2", {}, "History"),
+      h("h2", {}, t("activity.history")),
       historyCount,
       h("span", { class: "spacer" }),
       search,
       status,
-      h("button", { class: "btn sm", onclick: () => refresh() }, "Refresh"),
+      h("button", { class: "btn sm", onclick: () => refresh() }, t("activity.refresh")),
     ),
     h("div", { class: "table-wrap" },
       h("table", {},
         h("thead", {}, h("tr", {},
-          h("th", {}, "Workflow"), h("th", {}, "Status"), h("th", {}, "Started"),
-          h("th", {}, "Duration"), h("th", {}, "Cost"),
+          h("th", {}, t("activity.workflow")), h("th", {}, t("common.status")), h("th", {}, t("activity.started")),
+          h("th", {}, t("activity.duration")), h("th", {}, t("common.cost")),
           h("th", { class: "actions" }, ""),
         )),
         historyBody,
@@ -102,15 +103,15 @@ export function mountActivity(el) {
     h("div", { class: "stack" },
       kpis,
       h("section", {},
-        h("div", { class: "section-head" }, h("h2", {}, "Running now"), runsCount),
+        h("div", { class: "section-head" }, h("h2", {}, t("activity.running_now")), runsCount),
         runs,
         remoteBox,
       ),
       historySection,
       h("section", {},
         h("div", { class: "section-head" },
-          h("h2", {}, "Pull requests"),
-          h("span", { class: "muted" }, "reviews and drafted replies"),
+          h("h2", {}, t("activity.pull_requests")),
+          h("span", { class: "muted" }, t("activity.reviews_and_drafted_replies")),
           h("span", { class: "spacer" }),
           prTabs,
         ),
@@ -149,7 +150,7 @@ export function mountActivity(el) {
       renderHistory();
     } catch {
       // app.js shows the awf banner; keep the last good data on screen.
-      runsCount.textContent = "awf unreachable";
+      runsCount.textContent = t("activity.awf_unreachable");
     }
   }
 
@@ -227,10 +228,10 @@ export function mountActivity(el) {
       h(onclick ? "button" : "div", { class: `stat ${tone}`, onclick, title },
         h("b", {}, String(value)), h("span", {}, label));
     mount(kpis,
-      stat("running", state.runs.length, { tone: state.runs.length ? "live" : "" }),
-      stat("failed", failed, {
+      stat(ts("running"), state.runs.length, { tone: state.runs.length ? "live" : "" }),
+      stat(ts("failed"), failed, {
         tone: failed ? "bad" : "",
-        title: failed ? "Show the failed runs in History" : "",
+        title: failed ? t("activity.show_the_failed_runs_in") : "",
         onclick: failed ? () => {
           state.status = "failed";
           status.value = "failed";
@@ -239,8 +240,8 @@ export function mountActivity(el) {
           historySection.scrollIntoView({ behavior: "smooth", block: "start" });
         } : null,
       }),
-      stat("recorded", state.stats.total),
-      stat("avg duration", dur(state.stats.avg)),
+      stat(ts("recorded"), state.stats.total),
+      stat(t("activity.avg_duration"), dur(state.stats.avg)),
     );
     prCount.reviewed = state.artifacts.reviews.length;
     prCount.answered = state.artifacts.replies.length;
@@ -250,7 +251,7 @@ export function mountActivity(el) {
 
   // --- running runs -------------------------------------------------------
   function renderRuns() {
-    runsCount.textContent = state.runs.length ? `${state.runs.length} running` : "nothing running";
+    runsCount.textContent = state.runs.length ? `${state.runs.length} running` : t("activity.nothing_running");
     const alive = new Set(state.runs.map((e) => e.execution_id));
     for (const [id, entry] of runCards) {
       if (!alive.has(id)) {
@@ -260,7 +261,7 @@ export function mountActivity(el) {
       }
     }
     if (!state.runs.length) {
-      mount(runs, h("div", { class: "empty" }, "No workflow running. The watcher polls every two minutes; the daily pass runs on its timer."));
+      mount(runs, h("div", { class: "empty" }, t("activity.no_workflow_running_the_watcher")));
       return;
     }
     if (runs.querySelector(".empty")) runs.replaceChildren();
@@ -273,7 +274,7 @@ export function mountActivity(el) {
       }
       const trail = trailText(run.workflow_name, entry.steps);
       entry.step.textContent = trail || (run.current_step ? stepLabel(run.workflow_name, run.current_step) : "starting");
-      entry.step.title = run.current_step ? `current step: ${run.current_step}` : "";
+      entry.step.title = run.current_step ? t("activity.current_step", [run.current_step]) : "";
       entry.target.textContent = state.targets.get(run.execution_id) || "";
       mount(entry.routing, routingChips(state.routing.get(run.execution_id)));
       entry.updateCost();
@@ -293,27 +294,27 @@ export function mountActivity(el) {
     mount(remoteBox, [
       ...live.map((e) => h("div", { class: "row" },
         h("b", {}, e.workflow_name),
-        h("span", { class: "badge running" }, `on ${e.executor}`),
+        h("span", { class: "badge running" }, t("activity.on_executor", [e.executor])),
         h("span", { class: "muted" }, e.current_step ? stepLabel(e.workflow_name, e.current_step) : "starting"),
         h("span", { class: "muted num" }, elapsed(e.started_at)))),
       ...down.map((x) => h("div", { class: "muted" },
-        `Executor ${x.name} is unreachable: its runs below are the last ones seen${x.checked ? ` (${ago(x.checked)})` : ""}.`)),
+        t("activity.executor_is_unreachable_its_runs", [x.name, x.checked ? ` (${ago(x.checked)})` : ""]))),
     ]);
   }
 
   function createRunCard(run) {
     const step = h("span", { class: "step muted" }, "starting");
-    const target = h("span", { class: "muted", title: "target guessed from the run log" }, state.targets.get(run.execution_id) || "");
+    const target = h("span", { class: "muted", title: t("activity.target_guessed_from_the_run") }, state.targets.get(run.execution_id) || "");
     const routing = h("span", { class: "chips" }, routingChips(state.routing.get(run.execution_id)));
     const costEl = h("span", { class: "cost muted num" });
     const time = h("span", { class: "time muted num" });
-    const pre = h("pre", { class: "log" }, logText.get(run.execution_id) || "connecting to the stream…");
+    const pre = h("pre", { class: "log" }, logText.get(run.execution_id) || t("activity.connecting_to_the_stream"));
     const card = h("div", { class: "run" },
       h("div", { class: "row" },
         h("b", {}, run.workflow_name),
         target,
         routing,
-        h("span", { class: "badge running" }, "running"),
+        h("span", { class: "badge running" }, ts("running")),
         step,
         costEl,
         h("span", { class: "spacer" }),
@@ -321,10 +322,10 @@ export function mountActivity(el) {
         h("button", {
           class: "btn danger sm",
           onclick: () => cancelRun(run),
-        }, "Cancel"),
+        }, t("common.cancel")),
       ),
-      h("div", { class: "bar", role: "progressbar", "aria-label": "Run in progress" }, h("i")),
-      h("details", {}, h("summary", {}, "Live log"), pre),
+      h("div", { class: "bar", role: "progressbar", "aria-label": t("activity.run_in_progress") }, h("i")),
+      h("details", {}, h("summary", {}, t("activity.live_log")), pre),
     );
     const steps = [];
     const stream = follow(run.execution_id, (text) => {
@@ -342,7 +343,7 @@ export function mountActivity(el) {
       const c = await runCost(run.execution_id);
       if (!c?.cost) return;
       costEl.textContent = money(c);
-      costEl.title = `${c.steps} agent step${c.steps === 1 ? "" : "s"} so far`;
+      costEl.title = t("activity.agent_step_so_far", [c.steps, c.steps === 1 ? "" : "s"]);
     };
     updateCost();
     return { card, step, steps, target, routing, costEl, time, pre, stream, updateCost };
@@ -388,18 +389,18 @@ export function mountActivity(el) {
 
   async function cancelRun(run) {
     const ok = await confirmDialog({
-      title: `Cancel ${run.workflow_name}?`,
-      message: "awf stops the run at the next step boundary. Finished steps stay on disk.",
-      confirm: "Cancel the run",
+      title: t("activity.cancel", [run.workflow_name]),
+      message: t("activity.awf_stops_the_run_at"),
+      confirm: t("activity.cancel_the_run"),
       danger: true,
     });
     if (!ok) return;
     try {
       await awf(`/api/executions/${encodeURIComponent(run.execution_id)}`, { method: "DELETE" });
-      toast(`Cancelled ${run.workflow_name}`, { tone: "ok" });
+      toast(t("activity.cancelled", [run.workflow_name]), { tone: "ok" });
       refresh();
     } catch (err) {
-      toast(`awf refused the cancel: ${err.message}`, { tone: "err" });
+      toast(t("activity.awf_refused_the_cancel", [err.message]), { tone: "err" });
     }
   }
 
@@ -417,11 +418,11 @@ export function mountActivity(el) {
   // fork ("external"). A run with no recorded state shows nothing.
   function routingChips(routing) {
     if (!routing?.provider) return [];
-    const chips = [h("span", { class: `chip provider-${routing.provider}`, title: "agent CLI the steps ran on" }, routing.provider)];
+    const chips = [h("span", { class: `chip provider-${routing.provider}`, title: t("activity.agent_cli_the_steps_ran") }, routing.provider)];
     if (routing.route) {
       chips.push(h("span", {
         class: "chip",
-        title: routing.route === "external" ? "the token cannot push here: worked through a fork" : "the token can push here",
+        title: routing.route === "external" ? t("activity.the_token_cannot_push_here") : t("activity.the_token_can_push_here"),
       }, routing.route));
     }
     return chips;
@@ -452,13 +453,13 @@ export function mountActivity(el) {
         class: "btn ghost sm",
         disabled: state.page === 0,
         onclick: () => { state.page = Math.max(0, state.page - 1); renderHistory(); },
-      }, "Newer"),
+      }, t("activity.newer")),
       h("span", { class: "muted num" }, `${state.page + 1} / ${pages}`),
       h("button", {
         class: "btn ghost sm",
         disabled: state.page >= pages - 1,
         onclick: () => { state.page = Math.min(pages - 1, state.page + 1); renderHistory(); },
-      }, "Older"),
+      }, t("activity.older")),
     );
   }
 
@@ -466,23 +467,23 @@ export function mountActivity(el) {
     const rows = state.history.filter((e) =>
       (!state.filter || (e.workflow_name || "").toLowerCase().includes(state.filter)) &&
       (state.status === "all" || e.status === state.status));
-    historyCount.textContent = `${rows.length} of ${state.history.length}`;
+    historyCount.textContent = t("activity.of_total", [rows.length, state.history.length]);
     const pages = Math.max(1, Math.ceil(rows.length / PAGE));
     state.page = Math.min(state.page, pages - 1);
     const shown = rows.slice(state.page * PAGE, state.page * PAGE + PAGE);
     renderPager(rows.length, pages);
     if (!shown.length) {
       mount(historyBody, h("tr", {}, h("td", { colspan: "6" }, h("div", { class: "empty" },
-        state.history.length ? "No run matches the filter." : "No finished run recorded yet."))));
+        state.history.length ? t("activity.no_run_matches_the_filter") : t("activity.no_finished_run_recorded_yet")))));
       return;
     }
     mount(historyBody, shown.map((e) => h("tr", {},
       h("td", {},
         h("b", {}, e.workflow_name),
-        e.executor ? h("span", { class: "badge", title: "ran on another machine's awf; its log stays there" }, ` ${e.executor}`) : null,
-        e.target ? h("span", { class: "muted", title: "target guessed from the run log" }, ` ${e.target}`) : null,
+        e.executor ? h("span", { class: "badge", title: t("activity.ran_on_another_machine_s") }, ` ${e.executor}`) : null,
+        e.target ? h("span", { class: "muted", title: t("activity.target_guessed_from_the_run") }, ` ${e.target}`) : null,
         e.routing?.provider ? h("span", { class: "chips", style: { display: "inline-flex", marginLeft: "6px" } }, routingChips(e.routing)) : null),
-      h("td", {}, h("span", { class: `badge ${e.status}` }, e.status)),
+      h("td", {}, h("span", { class: `badge ${e.status}` }, ts(e.status))),
       h("td", { class: "num muted", title: when(e.started_at) }, ago(e.started_at)),
       h("td", { class: "num" }, dur(e.duration_ms)),
       h("td", { class: "num" }, costCell(e)),
@@ -490,10 +491,10 @@ export function mountActivity(el) {
         h("button", {
           class: "btn sm",
           disabled: !e.logId,
-          title: e.logId ? "Steps, timing and log of this run" : e.executor ? `The log of this run is on ${e.executor}` : "No log recorded for this run",
+          title: e.logId ? t("activity.steps_timing_and_log_of") : e.executor ? t("activity.the_log_of_this_run", [e.executor]) : t("activity.no_log_recorded_for_this"),
           onclick: () => showLog(e),
-        }, "Details"),
-        h("button", { class: "btn ghost sm", disabled: !!e.executor && !e.replayable, title: e.executor && !e.replayable ? `Replay from ${e.executor}` : `Run ${e.workflow_name} again`, onclick: () => replay(e) }, "Replay"),
+        }, t("common.details")),
+        h("button", { class: "btn ghost sm", disabled: !!e.executor && !e.replayable, title: e.executor && !e.replayable ? t("activity.replay_from", [e.executor]) : t("activity.run_again", [e.workflow_name]), onclick: () => replay(e) }, t("activity.replay")),
       ),
     )));
   }
@@ -501,9 +502,9 @@ export function mountActivity(el) {
   async function copyId(id) {
     try {
       await navigator.clipboard.writeText(id);
-      toast(`Run id copied: ${id}`, { tone: "info" });
+      toast(t("activity.run_id_copied", [id]), { tone: "info" });
     } catch {
-      toast(`Run id: ${id}`, { tone: "info", timeout: 15000 });
+      toast(t("activity.run_id", [id]), { tone: "info", timeout: 15000 });
     }
   }
 
@@ -516,7 +517,7 @@ export function mountActivity(el) {
       if (entry.logId) q.set("id", entry.logId);
       info = await getJSON(`/api/replay?${q}`);
     } catch (err) {
-      toast(`Cannot read what this run was given: ${err.message}`, { tone: "err" });
+      toast(t("activity.cannot_read_what_this_run", [err.message]), { tone: "err" });
     }
     const recalled = recalledRun(entry.logId);
     const prefill = recalled?.inputs || info.inputs || {};
@@ -524,14 +525,14 @@ export function mountActivity(el) {
     try {
       detail = (await awf(`/api/workflows/${encodeURIComponent(info.scope)}/${encodeURIComponent(info.workflow)}`)).body;
     } catch (err) {
-      toast(`Cannot load ${info.workflow}: ${err.message}`, { tone: "err" });
+      toast(t("activity.cannot_load", [info.workflow, err.message]), { tone: "err" });
       return;
     }
     const note = recalled
-      ? "Same inputs as the run you started from this browser. Check them before running."
+      ? t("activity.same_inputs_as_the_run")
       : info.source === "log"
-        ? "These inputs are read back from the run log, not stored by awf. Check them before running."
-        : "No record of what this run was given. Fill the inputs in.";
+        ? t("activity.these_inputs_are_read_back")
+        : t("activity.no_record_of_what_this");
     openRunModal({
       scope: info.scope,
       name: info.workflow,
@@ -540,7 +541,7 @@ export function mountActivity(el) {
       prefill,
       note,
       onStarted: (id) => {
-        toast(`Run started: ${String(id).slice(0, 8)}`, { tone: "ok" });
+        toast(t("common.run_started", [String(id).slice(0, 8)]), { tone: "ok" });
         refresh();
       },
     });
@@ -563,13 +564,13 @@ export function mountActivity(el) {
     } catch { /* the sessions column is optional */ }
     const sessionCell = (name) => h("td", { class: "muted" }, sess.filter((x) => x.step === name).map((x) =>
       h("div", { title: x.id },
-        `${x.id.slice(-8)} ${x.model || ""} · ${x.tool_calls} tools · ${x.output_tokens} out `,
-        x.loop ? h("span", { class: "badge failed" }, "loop") : null,
-        x.orphan ? h("span", { class: "badge failed" }, "orphan") : null)));
+        t("activity.tools_out", [x.id.slice(-8), x.model || "", x.tool_calls, x.output_tokens]),
+        x.loop ? h("span", { class: "badge failed" }, ts("loop")) : null,
+        x.orphan ? h("span", { class: "badge failed" }, ts("orphan")) : null)));
     const rows = t.steps.map((s) => h("tr", {},
       h("td", {}, s.name),
       h("td", { class: "muted" }, s.kind),
-      h("td", { class: "muted" }, s.error ? h("span", { class: "badge failed" }, "error") : s.status),
+      h("td", { class: "muted" }, s.error ? h("span", { class: "badge failed" }, ts("error")) : s.status),
       h("td", { class: "num" }, dur(s.ms)),
       h("td", { class: "num" }, s.cost ? money(s) : "—"),
       h("td", { class: "num muted" }, s.prompt ? `${s.prompt} → ${s.answer}` : ""),
@@ -578,10 +579,10 @@ export function mountActivity(el) {
     return h("div", { class: "table-wrap", style: { marginBottom: "12px" } },
       h("table", {},
         h("thead", {}, h("tr", {},
-          h("th", {}, "Step"), h("th", {}, "Kind"), h("th", {}, "Status"),
-          h("th", { class: "num" }, "Time"), h("th", { class: "num" }, "Cost"),
-          h("th", { class: "num", title: "prompt bytes → answer bytes" }, "Prompt"),
-          h("th", { title: "opencode session behind the step" }, "Session"),
+          h("th", {}, t("activity.step")), h("th", {}, t("activity.kind")), h("th", {}, t("common.status")),
+          h("th", { class: "num" }, t("activity.time")), h("th", { class: "num" }, t("common.cost")),
+          h("th", { class: "num", title: t("activity.prompt_bytes_answer_bytes") }, t("common.prompt")),
+          h("th", { title: t("activity.opencode_session_behind_the_step") }, t("activity.session")),
         )),
         h("tbody", {}, rows),
       ),
@@ -596,12 +597,12 @@ export function mountActivity(el) {
       title: `${entry.workflow_name} · ${when(entry.started_at)} · ${entry.logId ? entry.logId.slice(0, 8) : "no id"}`,
       body: h("div", {},
         h("div", { class: "row", style: { marginBottom: "12px" } },
-          h("span", { class: `badge ${entry.status}` }, entry.status),
+          h("span", { class: `badge ${entry.status}` }, ts(entry.status)),
           entry.target ? h("span", { class: "muted" }, entry.target) : null,
           modelChips(entry.models, entry.routing),
           h("span", { class: "spacer" }),
           entry.logId
-            ? h("button", { class: "btn ghost sm mono", title: "Copy the run id", onclick: () => copyId(entry.logId) }, entry.logId.slice(0, 8))
+            ? h("button", { class: "btn ghost sm mono", title: t("activity.copy_the_run_id"), onclick: () => copyId(entry.logId) }, entry.logId.slice(0, 8))
             : null,
         ),
         slot, rounds, pre),
@@ -609,7 +610,7 @@ export function mountActivity(el) {
     if (entry.rounds?.length) {
       mount(rounds, entry.rounds.flatMap((p) => {
         const n = /diff\.round(\d+)\.patch$/.exec(p)?.[1];
-        return n ? [artifactDetails(p, `diff round ${n}`)] : [];
+        return n ? [artifactDetails(p, t("activity.diff_round", [n]))] : [];
       }));
     }
     if (entry.logId) {
@@ -618,11 +619,11 @@ export function mountActivity(el) {
     }
     try {
       const raw = await getText(`/api/stream?id=${encodeURIComponent(entry.logId)}`);
-      pre.textContent = formatLog(raw) || "The log is empty.";
+      pre.textContent = formatLog(raw) || t("activity.the_log_is_empty");
       const c = await runCost(entry.logId);
       if (c?.cost) modal.querySelector("h2").textContent += ` · ${money(c)}`;
     } catch (err) {
-      pre.textContent = `No log on disk for this run (${err.message}). The recorder only keeps runs seen while the dashboard runs.`;
+      pre.textContent = t("activity.no_log_on_disk_for", [err.message]);
     }
     return modal;
   }
@@ -637,15 +638,15 @@ export function mountActivity(el) {
 
   function stateBadge(state) {
     if (!isDone(state)) return null;
-    return h("span", { class: `badge ${state === "MERGED" ? "completed" : "cancelled"}`, style: { marginLeft: "8px" } }, state.toLowerCase());
+    return h("span", { class: `badge ${state === "MERGED" ? "completed" : "cancelled"}`, style: { marginLeft: "8px" } }, ts(state.toLowerCase()));
   }
 
   function reviewCard(r) {
     return h("div", { class: "item" },
-      h("div", {}, h("b", {}, r.title || "untitled pull request"), stateBadge(r.state)),
+      h("div", {}, h("b", {}, r.title || t("activity.untitled_pull_request")), stateBadge(r.state)),
       h("div", { class: "meta" },
-        `${r.author || "unknown author"}${r.base ? ` → ${r.base}` : ""} · ${r.diff_lines} diff lines · ${r.has_review ? "review written" : "no review yet"}`),
-      r.url ? h("div", { class: "meta" }, h("a", { href: r.url, target: "_blank", rel: "noreferrer" }, "Open on GitHub")) : null,
+        t("activity.diff_lines", [r.author || t("activity.unknown_author"), r.base ? ` → ${r.base}` : "", r.diff_lines, r.has_review ? t("activity.review_written") : t("activity.no_review_yet")])),
+      r.url ? h("div", { class: "meta" }, h("a", { href: r.url, target: "_blank", rel: "noreferrer" }, t("common.open_on_github"))) : null,
       r.has_review ? artifactDetails(`reviews/${r.id}/review.md`, "review") : null,
       artifactDetails(`reviews/${r.id}/diff.patch`, "diff"),
       askButton(r),
@@ -660,12 +661,12 @@ export function mountActivity(el) {
     return [
       active.length
         ? cardList(active, state[keys.open], () => { state[keys.open] = !state[keys.open]; renderArtifacts(); }, card)
-        : h("div", { class: "empty" }, items.length ? "Every pull request here is merged or closed." : emptyText),
+        : h("div", { class: "empty" }, items.length ? t("activity.every_pull_request_here_is") : emptyText),
       done.length
         ? h("button", {
           class: "btn ghost sm",
           onclick: () => { state[keys.done] = !state[keys.done]; renderArtifacts(); },
-        }, state[keys.done] ? "Hide merged and closed" : `Show ${done.length} merged or closed`)
+        }, state[keys.done] ? t("activity.hide_merged_and_closed") : t("activity.show_merged_or_closed", [done.length]))
         : null,
       state[keys.done] ? done.map(card) : null,
     ];
@@ -673,12 +674,12 @@ export function mountActivity(el) {
 
   function replyCard(r) {
     return h("div", { class: "item" },
-      h("div", {}, h("b", {}, r.title || "untitled pull request"), stateBadge(r.state)),
+      h("div", {}, h("b", {}, r.title || t("activity.untitled_pull_request")), stateBadge(r.state)),
       h("div", { class: "meta" },
-        `${r.author || "unknown author"}${r.branch ? ` on ${r.branch}` : ""} · ${r.comments} comment${r.comments === 1 ? "" : "s"}`,
-        r.pushed ? ` · pushed ${r.pushed.slice(0, 8)}` : "",
+        t("activity.comment", [r.author || t("activity.unknown_author"), r.branch ? t("activity.on_branch", [r.branch]) : "", r.comments, r.comments === 1 ? "" : "s"]),
+        r.pushed ? t("activity.pushed", [r.pushed.slice(0, 8)]) : "",
       ),
-      r.url ? h("div", { class: "meta" }, h("a", { href: r.url, target: "_blank", rel: "noreferrer" }, "Open on GitHub")) : null,
+      r.url ? h("div", { class: "meta" }, h("a", { href: r.url, target: "_blank", rel: "noreferrer" }, t("common.open_on_github"))) : null,
       r.has_reply ? artifactDetails(`replies/${r.id}/reply.md`, "reply") : null,
       artifactDetails(`replies/${r.id}/diff.patch`, "diff"),
       askButton(r),
@@ -694,20 +695,20 @@ export function mountActivity(el) {
       ...shown.map(render),
       items.length > PR_LIMIT
         ? h("button", { class: "btn ghost sm", onclick: toggle },
-          rest > 0 ? `Show ${rest} more` : "Show fewer")
+          rest > 0 ? t("activity.show_more", [rest]) : t("activity.show_fewer"))
         : null,
     ];
   }
 
   function renderArtifacts() {
     const a = state.artifacts;
-    mount(reviews, foldedList(a.reviews, reviewCard, "No pull request reviewed yet.", { open: "reviewsOpen", done: "reviewsDone" }));
-    mount(replies, foldedList(a.replies, replyCard, "No reply drafted yet.", { open: "repliesOpen", done: "repliesDone" }));
+    mount(reviews, foldedList(a.reviews, reviewCard, t("activity.no_pull_request_reviewed_yet"), { open: "reviewsOpen", done: "reviewsDone" }));
+    mount(replies, foldedList(a.replies, replyCard, t("activity.no_reply_drafted_yet"), { open: "repliesOpen", done: "repliesDone" }));
 
     mount(seen, a.seen.length
       ? h("div", { class: "chips" }, a.seen.slice().reverse().slice(0, 200).map((s) =>
         h("span", { class: "chip" }, `${s.repo} `, h("b", {}, `#${s.pr}`))))
-      : h("div", { class: "empty" }, "The watcher has not marked anything as seen."));
+      : h("div", { class: "empty" }, t("activity.the_watcher_has_not_marked")));
   }
 
   // askButton opens the conversation for this pull request. The repository is
@@ -718,9 +719,9 @@ export function mountActivity(el) {
     return h("div", { class: "meta" },
       h("button", {
         class: "btn sm",
-        title: `Ask the agent about ${item.repo}#${item.pr}`,
+        title: t("activity.ask_the_agent_about", [item.repo, item.pr]),
         onclick: () => openAskModal({ repo: item.repo, pr: item.pr, title: item.title }),
-      }, "Ask"));
+      }, t("activity.ask")));
   }
 
   function artifactDetails(path, label) {
@@ -732,7 +733,7 @@ export function mountActivity(el) {
     details.addEventListener("toggle", async () => {
       if (!details.open || fileCache.has(path)) return;
       try { fileCache.set(path, await getText(`/api/file?path=${encodeURIComponent(path)}`)); }
-      catch (err) { fileCache.set(path, `Cannot read ${path}: ${err.message}`); }
+      catch (err) { fileCache.set(path, t("activity.cannot_read", [path, err.message])); }
       pre.textContent = fileCache.get(path);
     });
     return details;

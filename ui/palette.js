@@ -1,19 +1,20 @@
 import { h, mount } from "./dom.js";
 import { awf, getJSON } from "./api.js";
 import { openModal } from "./modal.js";
+import { t } from "./i18n.js";
 
 const SECTIONS = [
-  ["Home", "home"],
-  ["Activity", "activity"],
-  ["Workflows", "workflows"],
-  ["Settings", "config"],
-  ["Repos", "repos"],
-  ["Cost", "costs"],
-  ["Memory", "memory"],
-  ["Autonomy", "autonomy"],
-  ["Health", "health"],
-  ["Audit", "audit"],
-  ["Links", "links"],
+  [t("common.home"), "home"],
+  [t("common.activity"), "activity"],
+  [t("common.autonomy"), "autonomy"],
+  [t("common.links"), "links"],
+  [t("common.workflows"), "workflows"],
+  [t("common.repos"), "repos"],
+  [t("common.settings"), "config"],
+  [t("common.cost"), "costs"],
+  [t("common.health"), "health"],
+  [t("common.memory"), "memory"],
+  [t("common.audit"), "audit"],
 ];
 
 // Ctrl+K: jump to a section, a workflow or a config file by typing a few
@@ -21,9 +22,9 @@ const SECTIONS = [
 export function openPalette() {
   let items = [
     ...SECTIONS.map(([label, view]) => ({ label, hint: "section", href: `#${view}` })),
-    { label: "Model defaults", hint: "settings", href: "#config/models" },
-    { label: "Notifications", hint: "settings", href: "#config/notifications" },
-    { label: "Appearance", hint: "settings", href: "#config/appearance" },
+    { label: t("common.model_defaults"), hint: "settings", href: "#config/models" },
+    { label: t("common.notifications"), hint: "settings", href: "#config/notifications" },
+    { label: t("common.appearance"), hint: "settings", href: "#config/appearance" },
   ];
   let active = 0;
   let shown = [];
@@ -31,7 +32,7 @@ export function openPalette() {
   const input = h("input", {
     type: "text",
     class: "palette-input",
-    placeholder: "Go to a section, workflow or config file",
+    placeholder: t("palette.go_to_a_section_workflow"),
     "aria-label": "Go to",
     autocomplete: "off",
     oninput: () => { active = 0; paint(); },
@@ -56,7 +57,7 @@ export function openPalette() {
         onclick: () => go(item),
         onmousemove: () => { if (active !== i) { active = i; paint(); } },
       }, h("span", {}, item.label), h("span", { class: "muted" }, item.hint)))
-      : h("div", { class: "empty" }, "Nothing matches."));
+      : h("div", { class: "empty" }, t("common.nothing_matches")));
     list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
 
@@ -78,7 +79,7 @@ export function openPalette() {
   }).catch(() => {});
   getJSON("/api/files").then((files) => {
     const cfg = files.filter((f) => f.kind !== "workflow").map((f) => ({
-      label: f.path, hint: "settings file", href: `#config/${f.path}`,
+      label: f.path, hint: t("palette.settings_file"), href: `#config/${f.path}`,
     }));
     items = [...items, ...cfg];
     paint();

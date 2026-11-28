@@ -7,12 +7,13 @@ import { confirmDialog } from "../modal.js";
 import { setLeaveGuard } from "../router.js";
 import { setThemeMode, themeMode } from "../theme.js";
 import { desktopState, isDesktopEnabled, requestDesktopPermission, setDesktopEnabled } from "../notifications.js";
+import { t, LANGS, langMode, setLang } from "../i18n.js";
 
 const KIND_LABEL = {
-  watcher: "watcher rules: which repository, which workflow, which events",
-  list: "repositories visited by the daily pass, one per line",
-  map: "host paths for the workflow shell steps",
-  repos: "every repository and what the dot does on it",
+  watcher: t("config.watcher_rules_which_repository_which"),
+  list: t("config.repositories_visited_by_the_daily"),
+  map: t("config.host_paths_for_the_workflow"),
+  repos: t("config.every_repository_and_what_the"),
 };
 
 // Local configs are the files the agent stack reads from the repository root.
@@ -29,12 +30,12 @@ export function mountConfig(el, arg) {
   let presetInputs = {};
   const listEl = h("div", {});
   const modelsEl = h("div", { class: "list", style: { marginTop: "14px" } },
-    h("div", { class: "empty" }, "Loading model defaults…"));
+    h("div", { class: "empty" }, t("config.loading_model_defaults")));
   const saveModelsBtn = h("button", {
     class: "btn primary",
     disabled: true,
     onclick: saveModels,
-  }, "Save");
+  }, t("common.save"));
   const webhookInput = h("input", {
     id: "notif-webhook",
     class: "mono",
@@ -49,7 +50,7 @@ export function mountConfig(el, arg) {
     class: "btn primary",
     disabled: true,
     onclick: saveNotifications,
-  }, "Save");
+  }, t("common.save"));
   const desktopStateEl = h("span", { class: "muted" }, desktopState());
   const desktopBtn = h("button", {
     class: "btn",
@@ -64,54 +65,61 @@ export function mountConfig(el, arg) {
 
   const modelsPanel = h("div", { class: "card" },
     h("div", { class: "row between" },
-      h("h2", {}, "Model defaults"),
+      h("h2", {}, t("common.model_defaults")),
       saveModelsBtn,
     ),
     h("p", { class: "muted", style: { marginTop: "6px" } },
-      "Set the global model presets, then override individual roles only when needed. opencode takes ",
-        h("code", {}, "provider/model#variant"), ", for example ", h("code", {}, "local/helper#fast"),
-        ". The claude CLI takes its own names, for example ", h("code", {}, "sonnet"), " or ", h("code", {}, "claude-haiku-4-5"),
-        "; a repository routed to ", h("code", {}, "provider: claude"), " uses the claude presets. Changes apply to the next workflow run. Runs already in progress keep their current model."),
+      t("config.models_hint_1"),
+        h("code", {}, "provider/model#variant"), t("config.models_hint_2"), h("code", {}, "local/helper#fast"),
+        t("config.models_hint_3"), h("code", {}, "sonnet"), t("config.models_hint_4"), h("code", {}, "claude-haiku-4-5"),
+        t("config.models_hint_5"), h("code", {}, "provider: claude"), t("config.models_hint_6")),
       modelsEl,
   );
   const notifPanel = h("div", { class: "card" },
     h("div", { class: "row between" },
-      h("h2", {}, "Notifications"),
+      h("h2", {}, t("common.notifications")),
       saveNotifBtn,
     ),
     h("p", { class: "muted", style: { marginTop: "6px" } },
-      "The dashboard sends a Discord message when a run finishes. The browser only saves the URL here."),
+      t("config.the_dashboard_sends_a_discord")),
     h("div", { class: "field", style: { marginTop: "12px" } },
-      h("label", { for: "notif-webhook" }, "Discord webhook URL"),
+      h("label", { for: "notif-webhook" }, t("config.discord_webhook_url")),
       webhookInput,
     ),
-    h("label", { class: "check", for: "notif-enabled" }, enabledInput, "Send a message when a run finishes"),
+    h("label", { class: "check", for: "notif-enabled" }, enabledInput, t("config.send_a_message_when_a")),
     h("div", { class: "field" },
-      h("span", { class: "label" }, "Desktop notifications"),
+      h("span", { class: "label" }, t("config.desktop_notifications")),
       h("div", { class: "row" }, desktopStateEl, desktopBtn),
     ),
   );
   const themeSelect = h("select", {
     id: "theme-mode",
-    onchange: () => { setThemeMode(themeSelect.value); toast("Theme saved in this browser.", { tone: "ok" }); },
-  }, [["auto", "Auto (follow the system)"], ["dark", "Dark"], ["light", "Light"]].map(([v, l]) =>
+    onchange: () => { setThemeMode(themeSelect.value); toast(t("config.theme_saved_in_this_browser"), { tone: "ok" }); },
+  }, [["auto", t("config.auto_follow_the_system")], ["dark", t("config.dark")], ["light", t("config.light")]].map(([v, l]) =>
     h("option", { value: v, selected: v === themeMode() }, l)));
+  const langSelect = h("select", {
+    id: "lang-mode",
+    onchange: () => setLang(langSelect.value),
+  }, LANGS.map(([v, l]) => h("option", { value: v, selected: v === langMode() }, v === "auto" ? t("config.language_auto") : l)));
   const appearancePanel = h("div", { class: "card" },
-    h("h2", {}, "Appearance"),
-    h("p", { class: "muted", style: { marginTop: "6px" } }, "Applies at once and is kept in this browser only."),
+    h("h2", {}, t("common.appearance")),
+    h("p", { class: "muted", style: { marginTop: "6px" } }, t("config.applies_at_once_and_is")),
     h("div", { class: "field", style: { marginTop: "12px" } },
-      h("label", { for: "theme-mode" }, "Theme"), themeSelect),
+      h("label", { for: "theme-mode" }, t("config.theme")), themeSelect),
+    h("div", { class: "field", style: { marginTop: "12px" } },
+      h("label", { for: "lang-mode" }, t("config.language")), langSelect,
+      h("p", { class: "muted", style: { marginTop: "6px" } }, t("config.language_hint"))),
   );
   const editorPanel = h("div", { id: "config-editor" },
-    h("div", { class: "empty" }, "loading file…"));
+    h("div", { class: "empty" }, t("common.loading_file")));
 
-  const navEl = h("nav", { class: "side-list", "aria-label": "Settings sections" });
+  const navEl = h("nav", { class: "side-list", "aria-label": t("config.settings_sections") });
   const filesNav = h("div", { class: "side-list" });
   const generatedNav = h("div", {});
   const side = h("aside", { class: "side" },
-    h("h2", {}, "Settings"),
+    h("h2", {}, t("common.settings")),
     navEl,
-    h("h3", { class: "muted", style: { marginTop: "6px" } }, "Local files"),
+    h("h3", { class: "muted", style: { marginTop: "6px" } }, t("config.local_files")),
     filesNav,
     generatedNav,
   );
@@ -121,7 +129,7 @@ export function mountConfig(el, arg) {
   editorPanel.hidden = section !== "file";
   mount(el, h("div", { class: "split" }, side,
     h("div", { class: "stack" },
-      h("p", { class: "muted" }, "Dashboard preferences and the local files the stack reads at run time. Saves keep a stamped backup beside the file."),
+      h("p", { class: "muted" }, t("config.dashboard_preferences_and_the_local")),
       modelsPanel, notifPanel, appearancePanel, editorPanel)));
 
   const modelsDirty = () => modelInputs.some((i) => i.value !== i.dataset.initial)
@@ -131,9 +139,9 @@ export function mountConfig(el, arg) {
   async function leaveOk() {
     if (!anyDirty()) return true;
     return confirmDialog({
-      title: "Discard unsaved changes?",
-      message: "This section has edits that are not saved. Leaving drops them.",
-      confirm: "Discard",
+      title: t("common.discard_unsaved_changes"),
+      message: t("config.this_section_has_edits_that"),
+      confirm: t("common.discard"),
       danger: true,
     });
   }
@@ -148,25 +156,25 @@ export function mountConfig(el, arg) {
       "aria-current": current ? "true" : null,
     },
     h("b", {}, title,
-      dirty ? h("span", { class: "dirty-dot", style: { marginLeft: "6px" }, title: "Unsaved changes" }) : null,
-      warn ? h("span", { class: "warn-dot", title: "Missing on disk" }, " ●") : null),
+      dirty ? h("span", { class: "dirty-dot", style: { marginLeft: "6px" }, title: t("common.unsaved_changes") }) : null,
+      warn ? h("span", { class: "warn-dot", title: t("config.missing_on_disk") }, " ●") : null),
     sub ? h("span", {}, sub) : null);
   }
   function paintNav() {
     mount(navEl,
-      navItem("#config/models", section === "models", "Model defaults", "which model each role uses", modelsDirty()),
-      navItem("#config/notifications", section === "notifications", "Notifications", "Discord and desktop", notifDirty()),
-      navItem("#config/appearance", section === "appearance", "Appearance", "light or dark theme", false));
+      navItem("#config/models", section === "models", t("common.model_defaults"), t("config.which_model_each_role_uses"), modelsDirty()),
+      navItem("#config/notifications", section === "notifications", t("common.notifications"), t("config.discord_and_desktop"), notifDirty()),
+      navItem("#config/appearance", section === "appearance", t("common.appearance"), t("config.light_or_dark_theme"), false));
     const item = (f) => navItem(`#config/${f.path}`, section === "file" && arg === f.path, f.path,
-      f.generated ? (f.optional && !f.exists ? "not generated: no rule needs it" : "generated, read only") : KIND_LABEL[f.kind] || f.kind,
+      f.generated ? (f.optional && !f.exists ? t("config.not_generated_no_rule_needs") : t("config.generated_read_only")) : KIND_LABEL[f.kind] || f.kind,
       section === "file" && arg === f.path && editor?.isDirty(), !f.exists && !f.optional);
     // repos.yaml is the file to edit; the files it generates stay readable.
     const own = files.filter((f) => !f.generated);
     const generated = files.filter((f) => f.generated);
     mount(filesNav,
-      own.length ? own.map(item) : h("div", { class: "empty" }, filesLoaded ? "No local file." : "Loading…"));
+      own.length ? own.map(item) : h("div", { class: "empty" }, filesLoaded ? t("config.no_local_file") : t("common.loading")));
     mount(generatedNav,
-      generated.length ? h("h3", { class: "muted", style: { margin: "6px 0 4px" } }, "Generated from repos.yaml") : null,
+      generated.length ? h("h3", { class: "muted", style: { margin: "6px 0 4px" } }, t("config.generated_from_repos_yaml")) : null,
       generated.length ? h("div", { class: "side-list" }, generated.map(item)) : null);
   }
   modelsEl.addEventListener("input", () => { updateModelsSave(); paintNav(); });
@@ -176,7 +184,7 @@ export function mountConfig(el, arg) {
 
   function updateModelsSave() {
     saveModelsBtn.disabled = modelLoading || modelSaving || modelRoles.length === 0 || !modelsDirty();
-    saveModelsBtn.title = saveModelsBtn.disabled && !modelLoading ? "No changes to save" : "";
+    saveModelsBtn.title = saveModelsBtn.disabled && !modelLoading ? t("config.no_changes_to_save") : "";
   }
 
   function modelField(id, value, dataset, list = null) {
@@ -200,7 +208,7 @@ export function mountConfig(el, arg) {
     modelRoles = [];
     presetInputs = {};
     updateModelsSave();
-    mount(modelsEl, h("div", { class: "empty" }, "Loading model defaults…"));
+    mount(modelsEl, h("div", { class: "empty" }, t("config.loading_model_defaults")));
     try {
       const res = await getJSON("/api/models");
       if (destroyed) return;
@@ -250,8 +258,8 @@ export function mountConfig(el, arg) {
           h("label", { for: role.checkbox.id }, role.checkbox, " Use a custom override"),
           role.input,
           h("div", { class: "hint", id: details },
-            `${v.workflow} · ${v.input} · preset: `, h("code", {}, v.preset || "unassigned"),
-            " · resolved: ", h("code", {}, v.value || "")),
+            t("config.preset", [v.workflow, v.input]), h("code", {}, v.preset || "unassigned"),
+            t("config.resolved"), h("code", {}, v.value || "")),
         );
       };
       const rolesOf = (provider) => variables
@@ -261,29 +269,29 @@ export function mountConfig(el, arg) {
         catalog,
         hasClaude ? claudeCatalog : null,
         h("div", { class: "field" },
-          h("label", { for: "model-preset-light" }, "Light preset"),
+          h("label", { for: "model-preset-light" }, t("config.light_preset")),
           presetInputs.light,
-          h("div", { class: "hint" }, "Ask, CI fixes, replies, and review addressing."),
+          h("div", { class: "hint" }, t("config.ask_ci_fixes_replies_and")),
         ),
         h("div", { class: "field" },
-          h("label", { for: "model-preset-default" }, "Default preset"),
+          h("label", { for: "model-preset-default" }, t("config.default_preset")),
           presetInputs.default,
-          h("div", { class: "hint" }, "Issue fixes, daily tending, and reviews."),
+          h("div", { class: "hint" }, t("config.issue_fixes_daily_tending_and")),
         ),
         hasClaude ? h("h3", { style: { marginTop: "14px" } }, "claude presets") : null,
         hasClaude ? h("div", { class: "field" },
-          h("label", { for: "model-preset-claude-default" }, "Claude default preset"),
+          h("label", { for: "model-preset-claude-default" }, t("config.claude_default_preset")),
           presetInputs.claude_default,
-          h("div", { class: "hint" }, "Reviews when a repository is routed to provider claude."),
+          h("div", { class: "hint" }, t("config.reviews_when_a_repository_is")),
         ) : null,
         hasClaude ? h("div", { class: "field" },
-          h("label", { for: "model-preset-claude-light" }, "Claude light preset"),
+          h("label", { for: "model-preset-claude-light" }, t("config.claude_light_preset")),
           presetInputs.claude_light,
-          h("div", { class: "hint" }, "Review addressing when a repository is routed to provider claude. Keep it different from the default one."),
+          h("div", { class: "hint" }, t("config.review_addressing_when_a_repository")),
         ) : null,
-        h("h3", { style: { marginTop: "14px" } }, "Role overrides (opencode)"),
-        variables.length ? rolesOf("opencode") : h("div", { class: "empty" }, "No model roles found."),
-        hasClaude ? h("h3", { style: { marginTop: "14px" } }, "Role overrides (claude)") : null,
+        h("h3", { style: { marginTop: "14px" } }, t("config.role_overrides_opencode")),
+        variables.length ? rolesOf("opencode") : h("div", { class: "empty" }, t("config.no_model_roles_found")),
+        hasClaude ? h("h3", { style: { marginTop: "14px" } }, t("config.role_overrides_claude")) : null,
         hasClaude ? rolesOf("claude") : null,
       );
     } catch (err) {
@@ -291,8 +299,8 @@ export function mountConfig(el, arg) {
       modelInputs = [];
       modelRoles = [];
       mount(modelsEl, h("div", { class: "empty" },
-        `Cannot load model defaults (${err.body?.error || err.message}). `,
-        h("button", { class: "btn sm", onclick: () => loadModels() }, "Retry")));
+        t("config.cannot_load_model_defaults", [err.body?.error || err.message]),
+        h("button", { class: "btn sm", onclick: () => loadModels() }, t("common.retry"))));
       toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
     } finally {
       modelLoading = false;
@@ -314,7 +322,7 @@ export function mountConfig(el, arg) {
       if (destroyed) return;
       const changed = res?.changed || [];
       const paths = changed.map((item) => typeof item === "string" ? item : item?.path).filter(Boolean).join(", ");
-      toast(`Saved model defaults: ${changed.length} file${changed.length === 1 ? "" : "s"} changed${paths ? ` (${paths})` : ""}.`, { tone: "ok" });
+      toast(t("config.saved_model_defaults_file_changed", [changed.length, changed.length === 1 ? "" : "s", paths ? ` (${paths})` : ""]), { tone: "ok" });
       await loadModels();
     } catch (err) {
       if (!destroyed) toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
@@ -333,7 +341,7 @@ export function mountConfig(el, arg) {
 
   function updateNotifSave() {
     saveNotifBtn.disabled = notifLoading || notifSaving || !notifDirty();
-    saveNotifBtn.title = saveNotifBtn.disabled && !notifLoading ? "No changes to save" : "";
+    saveNotifBtn.title = saveNotifBtn.disabled && !notifLoading ? t("config.no_changes_to_save") : "";
   }
 
   async function loadNotifications() {
@@ -348,7 +356,7 @@ export function mountConfig(el, arg) {
       notifBase = { webhook: webhookInput.value, enabled: enabledInput.checked };
     } catch (err) {
       if (destroyed) return;
-      toast(`Cannot load notification settings (${err.body?.error || err.message}). The form below shows empty values, not your saved ones.`, { tone: "err", timeout: 8000 });
+      toast(t("config.cannot_load_notification_settings_the", [err.body?.error || err.message]), { tone: "err", timeout: 8000 });
       saveNotifBtn.disabled = true;
     } finally {
       notifLoading = false;
@@ -369,7 +377,7 @@ export function mountConfig(el, arg) {
       if (!destroyed) {
         notifBase = { webhook: webhookInput.value, enabled: enabledInput.checked };
         paintNav();
-        toast("Saved notification settings.", { tone: "ok" });
+        toast(t("config.saved_notification_settings"), { tone: "ok" });
       }
     } catch (err) {
       if (!destroyed) toast(err.body?.error || err.message, { tone: "err", timeout: 8000 });
@@ -384,7 +392,7 @@ export function mountConfig(el, arg) {
   }
 
   function desktopLabel() {
-    return isDesktopEnabled() ? "Disable desktop notifications" : "Enable desktop notifications";
+    return isDesktopEnabled() ? t("config.disable_desktop_notifications") : t("config.enable_desktop_notifications");
   }
 
   function updateDesktop() {
@@ -396,29 +404,29 @@ export function mountConfig(el, arg) {
     if (isDesktopEnabled()) {
       setDesktopEnabled(false);
       updateDesktop();
-      toast("Desktop notifications disabled.", { tone: "ok" });
+      toast(t("config.desktop_notifications_disabled"), { tone: "ok" });
       return;
     }
     if (desktopState() === "unsupported") {
-      toast("This browser does not support desktop notifications.", { tone: "err" });
+      toast(t("config.this_browser_does_not_support"), { tone: "err" });
       return;
     }
     let permission;
     try {
       permission = await requestDesktopPermission();
     } catch (err) {
-      toast(`Cannot request notification permission: ${err.message}`, { tone: "err" });
+      toast(t("config.cannot_request_notification_permission", [err.message]), { tone: "err" });
       return;
     }
     if (destroyed) return;
     setDesktopEnabled(permission === "granted");
     updateDesktop();
     if (permission === "granted") {
-      toast("Desktop notifications enabled.", { tone: "ok" });
+      toast(t("config.desktop_notifications_enabled"), { tone: "ok" });
     } else if (permission === "denied") {
-      toast("Notification permission denied. Allow it in your browser settings.", { tone: "err" });
+      toast(t("config.notification_permission_denied_allow_it"), { tone: "err" });
     } else {
-      toast("Notification permission was not granted.", { tone: "info" });
+      toast(t("config.notification_permission_was_not_granted"), { tone: "info" });
     }
   }
 
@@ -426,8 +434,8 @@ export function mountConfig(el, arg) {
     try {
       files = (await getJSON("/api/files")).filter((f) => f.kind !== "workflow");
     } catch (err) {
-      mount(filesNav, h("div", { class: "empty" }, `Cannot list files (${err.message}).`));
-      if (section === "file") mount(editorPanel, h("div", { class: "empty" }, "Cannot list the local files."));
+      mount(filesNav, h("div", { class: "empty" }, t("config.cannot_list_files", [err.message])));
+      if (section === "file") mount(editorPanel, h("div", { class: "empty" }, t("config.cannot_list_the_local_files")));
       return;
     }
     if (destroyed) return;
@@ -436,7 +444,7 @@ export function mountConfig(el, arg) {
     if (section !== "file") return;
     const selected = files.find((f) => f.path === arg);
     if (!selected) {
-      mount(editorPanel, h("div", { class: "empty" }, `No local config named ${arg}.`));
+      mount(editorPanel, h("div", { class: "empty" }, t("config.no_local_config_named", [arg])));
       return;
     }
     await showEditor(selected);
@@ -450,12 +458,12 @@ export function mountConfig(el, arg) {
       h("div", { class: "row between", style: { marginBottom: "10px" } },
         h("h2", {}, file.path),
         h("span", { class: "muted", style: { fontSize: "12px" } },
-          file.exists ? `${bytes(file.size)} · edited ${when(file.mod_time)} · not in git`
-            : file.optional ? "not generated: no repository needs it" : "missing on disk: saving creates it"),
+          file.exists ? t("config.edited_not_in_git", [bytes(file.size), when(file.mod_time)])
+            : file.optional ? t("config.not_generated_no_repository_needs") : t("config.missing_on_disk_saving_creates")),
       ),
       file.generated
         ? h("p", { class: "warning", style: { marginBottom: "10px" } },
-          "This file is written from repos.yaml. Change repos.yaml instead: saving it regenerates this file, and a hand edit here would be overwritten.")
+          t("config.this_file_is_written_from"))
         : null,
       editor.el,
     ));

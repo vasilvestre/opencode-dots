@@ -4,6 +4,7 @@ import { createEditor } from "../editor.js";
 import { renderFlow } from "../flow.js";
 import { navigate, setLeaveGuard } from "../router.js";
 import { confirmDialog } from "../modal.js";
+import { t } from "../i18n.js";
 
 // Workflows are read through awf, edited on disk. The list pairs each awf
 // entry with its file so the page knows what it can actually write.
@@ -19,15 +20,15 @@ export function mountWorkflows(el, arg) {
   const search = h("input", {
     class: "search",
     type: "search",
-    placeholder: "Filter workflows",
-    "aria-label": "Filter workflows",
+    placeholder: t("workflows.filter_workflows"),
+    "aria-label": t("workflows.filter_workflows"),
     oninput: () => renderList(),
   });
   const listEl = h("div", { class: "side-list" });
   const mainEl = h("div", {});
   const side = h("aside", { class: "side" },
     h("div", { class: "row between" },
-      h("h2", {}, "Workflows"),
+      h("h2", {}, t("common.workflows")),
       h("span", { class: "muted", id: "wf-count" }, ""),
     ),
     search,
@@ -39,9 +40,9 @@ export function mountWorkflows(el, arg) {
   async function leaveOk() {
     if (!editor?.isDirty()) return true;
     return confirmDialog({
-      title: "Discard unsaved changes?",
-      message: `${selected} has edits that are not saved. Leaving drops them.`,
-      confirm: "Discard",
+      title: t("common.discard_unsaved_changes"),
+      message: t("workflows.has_edits_that_are_not", [selected]),
+      confirm: t("common.discard"),
       danger: true,
     });
   }
@@ -58,7 +59,7 @@ export function mountWorkflows(el, arg) {
     const count = el.querySelector("#wf-count");
     if (count) count.textContent = `${rows.length}`;
     if (!rows.length) {
-      mount(listEl, h("div", { class: "empty" }, workflows.length ? "Nothing matches." : "No workflow found."));
+      mount(listEl, h("div", { class: "empty" }, workflows.length ? t("common.nothing_matches") : t("workflows.no_workflow_found")));
       return;
     }
     mount(listEl, rows.map((w) => {
@@ -75,7 +76,7 @@ export function mountWorkflows(el, arg) {
       },
       h("b", {},
         w.name,
-        !file?.exists ? h("span", { class: "warn-dot", title: "No YAML file in this repository" }, " ●") : null,
+        !file?.exists ? h("span", { class: "warn-dot", title: t("workflows.no_yaml_file_in_this") }, " ●") : null,
       ),
       h("span", {}, `${w.scope}${w.description ? ` · ${w.description}` : ""}`),
       );
@@ -95,12 +96,12 @@ export function mountWorkflows(el, arg) {
       else showEmpty();
     } catch (err) {
       mount(mainEl, h("div", { class: "empty" },
-        `Cannot list workflows (${err.message}). Is awf running? Start it with make up.`));
+        t("workflows.cannot_list_workflows_is_awf", [err.message])));
     }
   }
 
   function showEmpty() {
-    mount(mainEl, h("div", { class: "empty" }, "Pick a workflow on the left to read, edit or run it."));
+    mount(mainEl, h("div", { class: "empty" }, t("workflows.pick_a_workflow_on_the")));
   }
 
   async function open(name) {
@@ -108,15 +109,15 @@ export function mountWorkflows(el, arg) {
     renderList();
     const wf = workflows.find((w) => w.name === name);
     if (!wf) {
-      mount(mainEl, h("div", { class: "empty" }, `No workflow named ${name}.`));
+      mount(mainEl, h("div", { class: "empty" }, t("workflows.no_workflow_named", [name])));
       return;
     }
     document.title = `${name} · dots`;
     const key = `${wf.scope}/${wf.name}`;
-    const tabs = h("div", { class: "seg", role: "tablist", "aria-label": "View" },
-      h("button", { role: "tab", "aria-selected": String(mode === "editor"), onclick: () => setMode("editor") }, "Editor"),
-      h("button", { role: "tab", "aria-selected": String(mode === "split"), onclick: () => setMode("split") }, "Split"),
-      h("button", { role: "tab", "aria-selected": String(mode === "graph"), onclick: () => setMode("graph") }, "Graph"),
+    const tabs = h("div", { class: "seg", role: "tablist", "aria-label": t("workflows.view") },
+      h("button", { role: "tab", "aria-selected": String(mode === "editor"), onclick: () => setMode("editor") }, t("workflows.editor")),
+      h("button", { role: "tab", "aria-selected": String(mode === "split"), onclick: () => setMode("split") }, t("workflows.split")),
+      h("button", { role: "tab", "aria-selected": String(mode === "graph"), onclick: () => setMode("graph") }, t("workflows.graph")),
     );
 
     mount(mainEl,
@@ -126,7 +127,7 @@ export function mountWorkflows(el, arg) {
             h("h1", {}, wf.name),
             h("div", { class: "file-meta" },
               h("span", { class: "badge" }, wf.scope),
-              wf.version ? h("span", {}, `version ${wf.version}`) : null,
+              wf.version ? h("span", {}, t("common.version", [wf.version])) : null,
               h("span", { class: "mono" }, `workflows/${wf.name}.yaml`),
             ),
           ),
@@ -161,8 +162,8 @@ export function mountWorkflows(el, arg) {
     }
     editor?.destroy();
     editor = null;
-    const graphEl = h("div", {}, h("div", { class: "empty" }, "loading graph…"));
-    const editorEl = h("div", {}, h("div", { class: "empty" }, "loading file…"));
+    const graphEl = h("div", {}, h("div", { class: "empty" }, t("workflows.loading_graph")));
+    const editorEl = h("div", {}, h("div", { class: "empty" }, t("common.loading_file")));
     mount(container, h("div", { class: "wf-split" }, editorEl, graphEl));
     let flow = null;
     let ed = null;
@@ -188,7 +189,7 @@ export function mountWorkflows(el, arg) {
       } catch (err) {
         if (graphEl.isConnected) {
           mount(graphEl, h("div", { class: "empty" },
-            `The graph cannot be drawn from this file (${err.message}). Fix the YAML and save.`));
+            t("workflows.the_graph_cannot_be_drawn", [err.message])));
         }
       }
     };
@@ -214,12 +215,12 @@ export function mountWorkflows(el, arg) {
     const file = editable.get(`workflows/${wf.name}.yaml`);
     if (!file?.exists) {
       mount(container, h("div", { class: "empty" },
-        `This workflow comes from the ${wf.scope} source. It is not a file in this repository, so the page cannot edit it.`));
+        t("workflows.this_workflow_comes_from_the", [wf.scope])));
       return;
     }
     editor?.destroy();
     editor = null;
-    container.replaceChildren(h("div", { class: "empty" }, "loading file…"));
+    container.replaceChildren(h("div", { class: "empty" }, t("common.loading_file")));
     const ed = await createEditor({
       path: `workflows/${wf.name}.yaml`,
       kind: "workflow",
@@ -245,16 +246,16 @@ export function mountWorkflows(el, arg) {
       const reloadBtn = h("button", {
         class: "btn sm",
         onclick: () => { detailCache.delete(cacheKey); showGraph(container, cacheKey); },
-      }, "Reload from awf");
+      }, t("workflows.reload_from_awf"));
       mount(container,
         h("div", { class: "row between", style: { marginBottom: "14px" } },
-          h("span", { class: "muted" }, "Click a step to see where it goes and what it runs. Red dots mark steps whose failure ends the run."),
+          h("span", { class: "muted" }, t("workflows.click_a_step_to_see")),
           reloadBtn,
         ),
         renderFlow(detail),
       );
     } catch (err) {
-      mount(container, h("div", { class: "empty" }, `Cannot load the graph (${err.message}).`));
+      mount(container, h("div", { class: "empty" }, t("workflows.cannot_load_the_graph", [err.message])));
     }
   }
 

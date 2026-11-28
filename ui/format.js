@@ -1,15 +1,17 @@
+import { t, locale } from "./i18n.js";
+
 export function ago(iso) {
-  if (!iso) return "unknown";
+  if (!iso) return t("common.unknown");
   const diff = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(diff)) return "unknown";
+  if (!Number.isFinite(diff)) return t("common.unknown");
   const s = Math.max(0, Math.round(diff / 1000));
-  if (s < 5) return "just now";
-  if (s < 60) return `${s}s ago`;
+  if (s < 5) return t("format.just_now");
+  if (s < 60) return t("format.s_ago", [s]);
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return t("format.m_ago", [m]);
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  if (h < 24) return t("format.h_ago", [h]);
+  return t("format.d_ago", [Math.floor(h / 24)]);
 }
 
 export function dur(ms) {
@@ -22,7 +24,7 @@ export function dur(ms) {
 
 export function when(iso) {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "unknown" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? t("common.unknown") : d.toLocaleString(locale());
 }
 
 export function elapsed(fromISO) {

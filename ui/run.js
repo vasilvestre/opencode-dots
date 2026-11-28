@@ -2,6 +2,7 @@ import { h, mount } from "./dom.js";
 import { awf, getJSON, request } from "./api.js";
 import { toast } from "./toast.js";
 import { openModal } from "./modal.js";
+import { t } from "./i18n.js";
 
 // Collects the inputs of a workflow and starts it. Used by the editor and by
 // the Replay action on a finished run, so both start a run the same way and
@@ -25,7 +26,7 @@ export function openRunModal({ scope, name, inputs, prefill = {}, note = "", que
     let control;
     if (options) {
       control = h("select", { id },
-        input.Required ? null : h("option", { value: "", selected: current === "" }, "not set"),
+        input.Required ? null : h("option", { value: "", selected: current === "" }, t("run.not_set")),
         options.map(([value, label]) => h("option", {
           value,
           selected: String(current) === value,
@@ -63,7 +64,7 @@ export function openRunModal({ scope, name, inputs, prefill = {}, note = "", que
     },
   },
   h("div", { class: "warning" },
-    h("span", {}, "This starts a real run. It spends an agent pass and may post, push or comment, depending on the workflow."),
+    h("span", {}, t("run.this_starts_a_real_run")),
   ),
   note ? h("p", { class: "hint" }, note) : null,
   fields.length
@@ -76,7 +77,7 @@ export function openRunModal({ scope, name, inputs, prefill = {}, note = "", que
       control,
       input.Description ? h("span", { class: "hint" }, input.Description) : null,
     ))
-    : h("p", { class: "muted" }, "This workflow takes no inputs."),
+    : h("p", { class: "muted" }, t("run.this_workflow_takes_no_inputs")),
   repoList,
   );
 
@@ -92,7 +93,7 @@ export function openRunModal({ scope, name, inputs, prefill = {}, note = "", que
       const raw = control.value;
       if (raw === "" || raw == null) {
         if (input.Required) {
-          toast(`${input.Name} is required`, { tone: "err" });
+          toast(t("run.is_required", [input.Name]), { tone: "err" });
           control.focus();
           return;
         }
@@ -118,16 +119,16 @@ export function openRunModal({ scope, name, inputs, prefill = {}, note = "", que
       onStarted(id);
     } catch (err) {
       const detail = err.body?.error || err.message;
-      toast(`Run refused: ${detail}`, { tone: "err", timeout: 9000 });
+      toast(t("run.run_refused", [detail]), { tone: "err", timeout: 9000 });
     }
   };
 
   const modal = openModal({
-    title: `Run ${name}`,
+    title: t("common.run", [name]),
     body: form,
     actions: [
-      { label: "Cancel", class: "ghost", onClick: (close) => close() },
-      { label: "Run now", class: "primary", id: "run-submit", onClick: submit },
+      { label: t("common.cancel"), class: "ghost", onClick: (close) => close() },
+      { label: t("run.run_now"), class: "primary", id: "run-submit", onClick: submit },
     ],
   });
   closeFn = () => modal.close();

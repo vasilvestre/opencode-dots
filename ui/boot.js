@@ -17,19 +17,21 @@ import { mountAudit } from "./views/audit.js";
 import { mountLinks } from "./views/links.js";
 import { startNotifications } from "./notifications.js";
 import { openPalette } from "./palette.js";
+import { sortableTables } from "./table.js";
+import { getJSON } from "./api.js";
 
 const VIEWS = {
-  home: { mount: (el) => mountHome(el), title: "Home" },
-  activity: { mount: (el) => mountActivity(el), title: "Activity" },
-  workflows: { mount: (el, arg) => mountWorkflows(el, arg), title: "Workflows" },
-  config: { mount: (el, arg) => mountConfig(el, arg), title: "Settings" },
-  repos: { mount: (el) => mountRepos(el), title: "Repos" },
-  costs: { mount: (el) => mountCosts(el), title: "Cost" },
-  memory: { mount: (el, arg) => mountMemory(el, arg), title: "Memory" },
-  autonomy: { mount: (el) => mountAutonomy(el), title: "Autonomy" },
-  health: { mount: (el) => mountHealth(el), title: "Health" },
-  audit: { mount: (el) => mountAudit(el), title: "Audit" },
-  links: { mount: (el) => mountLinks(el), title: "Links" },
+  home: { mount: (el) => mountHome(el), title: t("common.home") },
+  activity: { mount: (el) => mountActivity(el), title: t("common.activity") },
+  workflows: { mount: (el, arg) => mountWorkflows(el, arg), title: t("common.workflows") },
+  config: { mount: (el, arg) => mountConfig(el, arg), title: t("common.settings") },
+  repos: { mount: (el) => mountRepos(el), title: t("common.repos") },
+  costs: { mount: (el) => mountCosts(el), title: t("common.cost") },
+  memory: { mount: (el, arg) => mountMemory(el, arg), title: t("common.memory") },
+  autonomy: { mount: (el) => mountAutonomy(el), title: t("common.autonomy") },
+  health: { mount: (el) => mountHealth(el), title: t("common.health") },
+  audit: { mount: (el) => mountAudit(el), title: t("common.audit") },
+  links: { mount: (el) => mountLinks(el), title: t("common.links") },
 };
 
 const viewEl = $("#view");
@@ -53,16 +55,34 @@ function show(route) {
     current = def.mount(viewEl, decodeURIComponent(route.arg));
   } catch (err) {
     console.error(err);
-    viewEl.replaceChildren(h("div", { class: "empty" }, `This view failed to load: ${err.message}`));
+    viewEl.replaceChildren(h("div", { class: "empty" }, t("boot.this_view_failed_to_load", [err.message])));
   }
   viewEl.scrollTop = 0;
   window.scrollTo({ top: 0, behavior: "instant" });
 }
 
+translatePage();
 shapeNav();
 startRouter(show);
+sortableTables(viewEl);
+
+// What waits for a decision, as a count on the tab: held items and open link proposals.
+function badge(view, n) {
+  const a = document.querySelector(`#tabs a[data-view="${view}"]`);
+  if (!a) return;
+  a.querySelector(".count")?.remove();
+  if (n > 0) a.append(h("span", { class: "count" }, String(n), h("span", { class: "sr-only" }, t("boot.waiting"))));
+}
+async function counts() {
+  const [aut, links] = await Promise.all([getJSON("/api/autonomy").catch(() => null), getJSON("/api/links").catch(() => null)]);
+  if (aut) badge("autonomy", (aut.held || []).length);
+  if (links) badge("links", links.filter((p) => p.state === "open").length);
+}
+counts();
+setInterval(counts, 30000);
 
 import "./theme.js";
+import { t, translatePage } from "./i18n.js";
 
 $("#palette-btn").addEventListener("click", () => openPalette());
 
@@ -74,15 +94,15 @@ async function ping() {
   try {
     await awf("/api/history/stats", { timeout: 6000 });
     pill.className = "pill on";
-    pill.lastElementChild.textContent = "awf live";
+    pill.lastElementChild.textContent = t("boot.awf_live");
     banner.hidden = true;
-    if (wasDown) toast("awf is answering again", { tone: "ok" });
+    if (wasDown) toast(t("boot.awf_is_answering_again"), { tone: "ok" });
     wasDown = false;
   } catch {
     pill.className = "pill off";
-    pill.lastElementChild.textContent = "awf down";
+    pill.lastElementChild.textContent = t("boot.awf_down");
     banner.hidden = false;
-    banner.textContent = "awf is not reachable on its API. Runs, history and workflow validation stay unavailable until you start it: make up";
+    banner.textContent = t("boot.awf_is_not_reachable_on");
     wasDown = true;
   }
 }
@@ -104,23 +124,23 @@ document.addEventListener("keydown", (ev) => {
   if (ev.key === "?" && !typing) {
     ev.preventDefault();
     openModal({
-      title: "Keyboard shortcuts",
+      title: t("boot.keyboard_shortcuts"),
       body: h("dl", { class: "kbd-help" },
         h("dt", {}, h("kbd", {}, "1"), "–", h("kbd", {}, "9"), ", ", h("kbd", {}, "0")),
-        h("dd", {}, "switch section"),
+        h("dd", {}, t("boot.switch_section")),
         h("dt", {}, h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "K")),
-        h("dd", {}, "go to a section, workflow or file"),
+        h("dd", {}, t("boot.go_to_a_section_workflow")),
         h("dt", {}, h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "S")),
-        h("dd", {}, "save the open file, in the editor"),
+        h("dd", {}, t("boot.save_the_open_file_in")),
         h("dt", {}, h("kbd", {}, "Esc")),
-        h("dd", {}, "close a dialog"),
+        h("dd", {}, t("boot.close_a_dialog")),
         h("dt", {}, h("kbd", {}, "?")),
-        h("dd", {}, "this list"),
+        h("dd", {}, t("boot.this_list")),
       ),
     });
   }
   if (!typing && /^[0-9]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-    const view = ["home", "activity", "workflows", "config", "repos", "costs", "memory", "autonomy", "health", "audit"][(Number(ev.key) + 9) % 10];
+    const view = ["home", "activity", "autonomy", "links", "workflows", "repos", "config", "costs", "health", "memory"][(Number(ev.key) + 9) % 10];
     location.hash = `#${view}`;
   }
 });

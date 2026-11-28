@@ -108,3 +108,7 @@ way).
 ```bash
 ./bin/dashboard -state ~/elsewhere/state -awf http://127.0.0.1:2511
 ```
+
+## Language
+
+The page is in English and French. Settings, Appearance, Language picks `auto` (the browser's language), `en` or `fr`; the choice is kept in this browser (`dots-lang`) and reloads the page. Every visible string is a key in `ui/locale-en.js`, with its French in `ui/locale-fr.js`; code calls `t("key", [args])` from `ui/i18n.js`, and a missing key falls back to English. A new language is one more `ui/locale-xx.js` registered in `i18n.js`. The files are flat because the dashboard serves only flat assets and `ui/views/*.js`.

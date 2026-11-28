@@ -1,5 +1,6 @@
 import { h } from "./dom.js";
 import { stepLabel } from "./steps.js";
+import { t } from "./i18n.js";
 
 // A workflow drawn as a diagram: one box per step, one arrow per transition,
 // laid out in rows from the initial step downwards. Everything comes from the
@@ -29,9 +30,9 @@ function svg(tag, attrs = {}, ...kids) {
 
 export function renderFlow(w, { onSelect, compact = false } = {}) {
   const steps = w.Steps || {};
-  if (!Object.keys(steps).length) return h("div", { class: "empty" }, "This workflow has no steps.");
+  if (!Object.keys(steps).length) return h("div", { class: "empty" }, t("flow.this_workflow_has_no_steps"));
   if (!steps[w.Initial]) {
-    return h("div", { class: "empty" }, `The initial step ${w.Initial || ""} is not in Steps, so there is no diagram to draw.`);
+    return h("div", { class: "empty" }, t("flow.the_initial_step_is_not", [w.Initial || ""]));
   }
 
   const model = buildModel(w, steps);
@@ -63,9 +64,9 @@ export function renderFlow(w, { onSelect, compact = false } = {}) {
 
   const out = h("div", { class: "stack" },
     h("div", { class: "file-meta" },
-      h("span", {}, `${model.nodes.size} steps`),
-      h("span", {}, `initial: ${w.Initial}`),
-      w.Version ? h("span", {}, `version ${w.Version}`) : null,
+      h("span", {}, t("flow.steps", [model.nodes.size])),
+      h("span", {}, t("flow.initial", [w.Initial])),
+      w.Version ? h("span", {}, t("common.version", [w.Version])) : null,
     ),
     w.Description ? h("p", { class: "muted" }, w.Description) : null,
     legend(model),
@@ -108,10 +109,10 @@ function buildModel(w, steps) {
       add(name, "success", s.OnSuccess);
     }
     if (s.Loop) {
-      add(name, "loop", s.Loop.Body?.[0], `each round, up to ${s.Loop.MaxIterations || "?"}`);
-      add(name, "success", s.Loop.OnComplete, "when the loop ends");
+      add(name, "loop", s.Loop.Body?.[0], t("flow.each_round_up_to", [s.Loop.MaxIterations || "?"]));
+      add(name, "success", s.Loop.OnComplete, t("flow.when_the_loop_ends"));
     }
-    for (const t of s.Transitions || []) add(name, "branch", t.Goto, conditionLabel(t.When));
+    for (const tr of s.Transitions || []) add(name, "branch", tr.Goto, conditionLabel(tr.When));
     for (const b of s.Branches || []) add(name, "branch", b.Next, conditionLabel(b.Condition || b.When || b.Name));
     add(name, "failure", s.OnFailure);
   }
@@ -230,7 +231,7 @@ function draw(layout, wfName, onSelect) {
     viewBox: `0 0 ${width} ${height}`,
     width,
     role: "group",
-    "aria-label": "Workflow diagram",
+    "aria-label": t("flow.workflow_diagram"),
   });
 
   const defs = svg("defs");
@@ -307,12 +308,12 @@ function draw(layout, wfName, onSelect) {
       transform: `translate(${x} ${y})`,
       tabindex: "0",
       role: "button",
-      "aria-label": `${title}, ${n.kind} step`,
+      "aria-label": t("flow.step", [title, n.kind]),
     });
     g.append(svg("rect", { width: NODE_W, height: NODE_H, rx: 9 }));
-    const t = svg("text", { x: 12, y: sub ? 19 : 28, class: "fn-title" });
-    t.textContent = truncate(title, 24);
-    g.append(t);
+    const titleEl = svg("text", { x: 12, y: sub ? 19 : 28, class: "fn-title" });
+    titleEl.textContent = truncate(title, 24);
+    g.append(titleEl);
     if (sub) {
       const s = svg("text", { x: 12, y: 35, class: "fn-sub" });
       s.textContent = truncate(sub, 30);
@@ -320,7 +321,7 @@ function draw(layout, wfName, onSelect) {
     }
     if (n.failsTo.length) {
       const dot = svg("circle", { cx: NODE_W - 12, cy: 12, r: 4, class: "fail-dot" });
-      dot.append(svg("title", {}, `On failure: ${n.failsTo.join(", ")}`));
+      dot.append(svg("title", {}, t("flow.on_failure", [n.failsTo.join(", ")])));
       g.append(dot);
     }
     if (n.kind === "while" || n.kind === "for_each") {
@@ -353,10 +354,10 @@ function nodeSub(n) {
   const s = n.step;
   if (s.Agent) {
     const model = s.Agent.Options?.model;
-    return model && !String(model).includes("{{") ? `agent · ${model}` : "agent";
+    return model && !String(model).includes("{{") ? t("flow.agent", [model]) : "agent";
   }
   if (n.kind === "terminal") return s.Status ? String(s.Status) : "end";
-  if (n.kind === "while" || n.kind === "for_each") return `loop · ${s.Loop?.Body?.length || 0} steps`;
+  if (n.kind === "while" || n.kind === "for_each") return t("flow.loop_steps", [s.Loop?.Body?.length || 0]);
   return n.loop ? `in ${n.loop}` : "";
 }
 
@@ -371,7 +372,7 @@ function detailNodes(n, model, wfName, select) {
   const label = stepLabel(wfName, n.name);
   const edge = (e) => h("li", {},
     h("span", { class: `edge ${e.kind}` },
-      e.kind === "success" ? "✓ success" : e.kind === "failure" ? "✗ failure" : e.kind === "loop" ? "↻ loop" : `branch${e.label ? ` ${e.label}` : ""}`),
+      e.kind === "success" ? t("flow.success") : e.kind === "failure" ? t("flow.failure") : e.kind === "loop" ? t("flow.loop") : `branch${e.label ? ` ${e.label}` : ""}`),
     " → ",
     h("button", { class: "link", onclick: () => select(e.to) }, e.to),
     e.kind !== "branch" && e.label ? h("span", { class: "muted" }, ` ${e.label}`) : null,
@@ -380,12 +381,12 @@ function detailNodes(n, model, wfName, select) {
   const kv = [];
   if (s.Agent?.Provider) kv.push(["agent", s.Agent.Provider]);
   if (s.Agent?.Options?.model) kv.push(["model", s.Agent.Options.model]);
-  if (n.kind === "command") kv.push(["runs", "shell command"]);
+  if (n.kind === "command") kv.push(["runs", t("flow.shell_command")]);
   if (s.Timeout) kv.push(["timeout", `${s.Timeout}s`]);
-  if (n.loop) kv.push(["inside loop", n.loop]);
+  if (n.loop) kv.push([t("flow.inside_loop"), n.loop]);
   if (s.Loop) {
-    kv.push(["max rounds", String(s.Loop.MaxIterations || "")]);
-    if (s.Loop.BreakCondition) kv.push(["stops when", conditionLabel(s.Loop.BreakCondition)]);
+    kv.push([t("flow.max_rounds"), String(s.Loop.MaxIterations || "")]);
+    if (s.Loop.BreakCondition) kv.push([t("flow.stops_when"), conditionLabel(s.Loop.BreakCondition)]);
     kv.push(["body", (s.Loop.Body || []).join(" → ")]);
   }
 
@@ -401,14 +402,14 @@ function detailNodes(n, model, wfName, select) {
       : null,
     n.out.length || n.failsTo.length
       ? h("div", {},
-        h("h4", {}, "Goes to"),
+        h("h4", {}, t("flow.goes_to")),
         h("ul", { class: "flow-edges" },
           n.out.map(edge),
-          n.failsTo.map((to) => edge({ kind: "failure", to, label: "(ends the run)" }))))
-      : h("p", { class: "muted" }, "Ends the run here."),
+          n.failsTo.map((to) => edge({ kind: "failure", to, label: t("flow.ends_the_run") }))))
+      : h("p", { class: "muted" }, t("flow.ends_the_run_here")),
     code
       ? h("details", {},
-        h("summary", {}, s.Agent ? "Prompt" : "Command"),
+        h("summary", {}, s.Agent ? t("common.prompt") : t("flow.command")),
         h("pre", {}, code.length > 1800 ? `${code.slice(0, 1800)}\n…` : code))
       : null,
   ];
@@ -420,7 +421,7 @@ function legend() {
     item("success", "success"),
     item("failure", "failure"),
     item("branch", "condition"),
-    item("back", "returns to an earlier step"),
-    h("span", { class: "lg" }, h("i", { class: "fail-dot-lg" }), "fails to an error end"),
+    item("back", t("flow.returns_to_an_earlier_step")),
+    h("span", { class: "lg" }, h("i", { class: "fail-dot-lg" }), t("flow.fails_to_an_error_end")),
   );
 }

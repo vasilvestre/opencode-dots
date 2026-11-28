@@ -3,6 +3,7 @@ import { awf, getText, putJSON } from "./api.js";
 import { toast } from "./toast.js";
 import { openRunModal } from "./run.js";
 import { navigate } from "./router.js";
+import { t } from "./i18n.js";
 
 // Shared source editor for workflows and local configs. It writes files
 // through /api/save and never touches git: the repository is the undo.
@@ -17,19 +18,19 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
     autocapitalize: "off",
     autocomplete: "off",
     wrap: "off",
-    "aria-label": `Content of ${path}`,
+    "aria-label": t("editor.content_of", [path]),
     readonly: readOnly ? "" : null,
   });
-  const dirtyDot = h("span", { class: "dirty-dot", hidden: true, title: "Unsaved changes" });
+  const dirtyDot = h("span", { class: "dirty-dot", hidden: true, title: t("common.unsaved_changes") });
   const pathLabel = h("span", { class: "path" }, path);
   const issues = h("div", { class: "issues", hidden: true });
-  const saveBtn = h("button", { class: "btn primary", onclick: () => save(), title: "Save (Ctrl+S)" }, "Save");
-  const revertBtn = h("button", { class: "btn", onclick: () => revert(), title: "Reload from disk" }, "Revert");
+  const saveBtn = h("button", { class: "btn primary", onclick: () => save(), title: t("editor.save_ctrl_s") }, t("common.save"));
+  const revertBtn = h("button", { class: "btn", onclick: () => revert(), title: t("editor.reload_from_disk") }, t("editor.revert"));
   const validateBtn = kind === "workflow"
-    ? h("button", { class: "btn", onclick: () => validate(), title: "Save, then ask awf to validate" }, "Validate")
+    ? h("button", { class: "btn", onclick: () => validate(), title: t("editor.save_then_ask_awf_to") }, t("editor.validate"))
     : null;
   const runBtn = kind === "workflow"
-    ? h("button", { class: "btn", onclick: () => run(), title: "Run with inputs" }, "Run")
+    ? h("button", { class: "btn", onclick: () => run(), title: t("editor.run_with_inputs") }, t("editor.run"))
     : null;
 
   const el = h("div", { class: "editor" },
@@ -45,9 +46,9 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
     issues,
     h("div", { class: "code-box" }, gutter, area),
     h("div", { class: "file-meta" },
-      readOnly ? h("span", {}, "read only") : h("span", { class: "mono" }, "ctrl+s save"),
-      readOnly ? null : h("span", {}, "tab inserts two spaces"),
-      validateBtn ? h("span", {}, "validate reads the file from disk, so it saves first") : null,
+      readOnly ? h("span", {}, t("editor.read_only")) : h("span", { class: "mono" }, t("editor.ctrl_s_save")),
+      readOnly ? null : h("span", {}, t("editor.tab_inserts_two_spaces")),
+      validateBtn ? h("span", {}, t("editor.validate_reads_the_file_from")) : null,
     ),
   );
 
@@ -106,9 +107,9 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
     try {
       load(await getText(`/api/source?path=${encodeURIComponent(path)}`));
       setIssues(null);
-      toast(`Reloaded ${path} from disk`, { tone: "info" });
+      toast(t("editor.reloaded_from_disk", [path]), { tone: "info" });
     } catch (err) {
-      setIssues("bad", "Cannot read the file", [err.message]);
+      setIssues("bad", t("editor.cannot_read_the_file"), [err.message]);
     }
   }
 
@@ -118,13 +119,13 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
     try {
       const res = await putJSON("/api/save", { path, content: area.value });
       state.saved = area.value;
-      setIssues("ok", "Saved to disk",
-        [res.backup ? `Previous content kept as ${res.backup}.` : "New file."]);
-      if (!quiet) toast(`Saved ${path}`, { tone: "ok" });
+      setIssues("ok", t("editor.saved_to_disk"),
+        [res.backup ? t("editor.previous_content_kept_as", [res.backup]) : t("editor.new_file")]);
+      if (!quiet) toast(t("editor.saved", [path]), { tone: "ok" });
       Promise.resolve().then(() => onSave?.()).catch(() => {});
       return true;
     } catch (err) {
-      setIssues("bad", err.status === 422 ? "YAML does not parse, nothing written" : "Save failed",
+      setIssues("bad", err.status === 422 ? t("editor.yaml_does_not_parse_nothing") : t("editor.save_failed"),
         [err.message]);
       toast(err.message, { tone: "err", timeout: 8000 });
       return false;
@@ -145,13 +146,13 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
         timeout: 30000,
       });
       const errors = res?.body?.errors || res?.errors || [];
-      if (errors.length) setIssues("bad", `awf reports ${errors.length} error(s)`, errors);
-      else setIssues("ok", "awf accepts this workflow", ["It can be run from the Run button."]);
+      if (errors.length) setIssues("bad", t("editor.awf_reports_error_s", [errors.length]), errors);
+      else setIssues("ok", t("editor.awf_accepts_this_workflow"), [t("editor.it_can_be_run_from")]);
     } catch (err) {
       const detail = err.body?.detail || err.body?.error || err.message;
       const errors = Array.isArray(detail) ? detail : [detail];
-      if (!Array.isArray(detail)) errors.push("awf stops at the first structural error and does not name the line. Check states.initial and every OnSuccess target.");
-      setIssues("bad", "awf refuses this workflow", errors);
+      if (!Array.isArray(detail)) errors.push(t("editor.awf_stops_at_the_first"));
+      setIssues("bad", t("editor.awf_refuses_this_workflow"), errors);
     } finally {
       setBusy(false);
     }
@@ -163,11 +164,11 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
     try {
       workflow = (await awf(`/api/workflows/${encodeURIComponent(scope)}/${encodeURIComponent(name)}`)).body;
     } catch (err) {
-      toast(`Cannot load the workflow: ${err.message}`, { tone: "err" });
+      toast(t("editor.cannot_load_the_workflow", [err.message]), { tone: "err" });
       return;
     }
     openRunModal({ scope, name, inputs: workflow.Inputs || [], onStarted: (id) => {
-      toast(`Run started: ${id.slice(0, 8)}`, { tone: "ok" });
+      toast(t("common.run_started", [id.slice(0, 8)]), { tone: "ok" });
       navigate("activity");
     } });
   }
@@ -200,7 +201,7 @@ export async function createEditor({ path, kind, scope = "global", name, onSave,
   try {
     load(await getText(`/api/source?path=${encodeURIComponent(path)}`));
   } catch (err) {
-    setIssues("bad", "Cannot read the file", [err.message]);
+    setIssues("bad", t("editor.cannot_read_the_file"), [err.message]);
     area.disabled = true;
   }
 

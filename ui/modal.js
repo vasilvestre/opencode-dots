@@ -1,4 +1,5 @@
 import { $, h } from "./dom.js";
+import { t } from "./i18n.js";
 
 let openCount = 0;
 
@@ -27,7 +28,7 @@ export function openModal({ title, body, actions = [], width, onClose }) {
   },
   h("header", {},
     h("h2", {}, title),
-    h("button", { class: "btn ghost sm", "aria-label": "Close", onclick: close }, "Esc"),
+    h("button", { class: "btn ghost sm", "aria-label": t("modal.close_esc"), title: "Esc", onclick: close }, t("modal.close")),
   ),
   h("div", { class: "body" }, body),
   actions.length ? h("footer", {}, actions.map((a) =>
@@ -73,14 +74,14 @@ function trapFocus(ev, dialog) {
   else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
 }
 
-export function confirmDialog({ title, message, confirm = "Confirm", danger = false }) {
+export function confirmDialog({ title, message, confirm = t("modal.confirm"), danger = false }) {
   return new Promise((resolve) => {
     let answered = false;
     const modal = openModal({
       title,
       body: h("p", {}, message),
       actions: [
-        { label: "Cancel", class: "ghost", onClick: (close) => close() },
+        { label: t("common.cancel"), class: "ghost", onClick: (close) => close() },
         {
           label: confirm,
           class: danger ? "danger" : "primary",

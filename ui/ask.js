@@ -4,6 +4,7 @@ import { when } from "./format.js";
 import { openModal } from "./modal.js";
 import { openRunModal } from "./run.js";
 import { toast } from "./toast.js";
+import { t } from "./i18n.js";
 
 // One conversation per pull request: the operator writes, the ask-pr workflow
 // answers, and the page keeps the exchange on disk so a reload finds it again.
@@ -14,10 +15,10 @@ export async function openAskModal({ repo, pr, title }) {
   const input = h("textarea", {
     class: "chat-input",
     rows: 3,
-    placeholder: `Ask about ${repo}#${pr}…`,
-    "aria-label": "Message to the agent",
+    placeholder: t("ask.ask_about", [repo, pr]),
+    "aria-label": t("ask.message_to_the_agent"),
   });
-  const send = h("button", { class: "btn primary", type: "submit" }, "Send");
+  const send = h("button", { class: "btn primary", type: "submit" }, t("ask.send"));
   const form = h("form", { class: "composer", onsubmit: (ev) => { ev.preventDefault(); dispatch(); } },
     input, send);
   const body = h("div", { class: "chat" },
@@ -27,7 +28,7 @@ export async function openAskModal({ repo, pr, title }) {
     ),
     log, status, form);
 
-  const modal = openModal({ title: `Ask · ${repo}#${pr}`, body, width: "760px" });
+  const modal = openModal({ title: t("ask.ask", [repo, pr]), body, width: "760px" });
 
   let busy = false;
   let stream = null;
@@ -52,13 +53,13 @@ export async function openAskModal({ repo, pr, title }) {
     if (bits.length) rows.push(h("div", { class: "bubble-meta muted" }, bits.join(" · ")));
     if (m.suggest?.length) {
       rows.push(h("div", { class: "suggest" },
-        h("span", { class: "muted" }, "Next step:"),
+        h("span", { class: "muted" }, t("ask.next_step")),
         m.suggest.map((sg) => h("button", {
           class: "btn sm",
           type: "button",
-          title: `Start ${sg.workflow} for ${repo}#${pr}`,
+          title: t("ask.start_for", [sg.workflow, repo, pr]),
           onclick: () => runSuggested(sg),
-        }, `Run ${sg.workflow}`)),
+        }, t("common.run", [sg.workflow]))),
       ));
     }
     return rows.length ? h("div", {}, rows) : null;
@@ -71,7 +72,7 @@ export async function openAskModal({ repo, pr, title }) {
       const list = await getJSON("/awf/api/workflows");
       const wf = (list.body?.workflows || []).find((w) => w.name === sg.workflow);
       if (!wf) {
-        toast(`awf has no workflow named ${sg.workflow}`, { tone: "err" });
+        toast(t("ask.awf_has_no_workflow_named", [sg.workflow]), { tone: "err" });
         return;
       }
       const detail = await getJSON(`/awf/api/workflows/${encodeURIComponent(wf.scope)}/${encodeURIComponent(wf.name)}`);
@@ -80,10 +81,10 @@ export async function openAskModal({ repo, pr, title }) {
         name: wf.name,
         inputs: detail.body?.Inputs || [],
         prefill: { repo, pr, ...(sg.inputs || {}) },
-        note: "Suggested by the agent from this conversation. Check the inputs before running.",
+        note: t("ask.suggested_by_the_agent_from"),
       });
     } catch (err) {
-      toast(`Cannot open ${sg.workflow}: ${err.message}`, { tone: "err" });
+      toast(t("ask.cannot_open", [sg.workflow, err.message]), { tone: "err" });
     }
   }
 
@@ -92,31 +93,31 @@ export async function openAskModal({ repo, pr, title }) {
     send.disabled = on;
     input.disabled = on;
     status.hidden = !on;
-    if (on) status.textContent = text || "Working…";
+    if (on) status.textContent = text || t("ask.working");
   }
 
   try {
-    const t = await getJSON(`/api/thread?repo=${encodeURIComponent(repo)}&pr=${encodeURIComponent(pr)}`);
-    if (!t.messages.length) {
-      bubble("system", "No message yet. The agent also reads the reply a previous run posted and the pull request diff, so a question about them does not need a summary.");
+    const thread = await getJSON(`/api/thread?repo=${encodeURIComponent(repo)}&pr=${encodeURIComponent(pr)}`);
+    if (!thread.messages.length) {
+      bubble("system", t("ask.no_message_yet_the_agent"));
     }
-    for (const m of t.messages) bubble(m.role, m.text, answerExtra(m));
+    for (const m of thread.messages) bubble(m.role, m.text, answerExtra(m));
   } catch (err) {
-    bubble("system", `Cannot read the thread: ${err.message}`);
+    bubble("system", t("ask.cannot_read_the_thread", [err.message]));
   }
 
   async function dispatch() {
     const text = input.value.trim();
     if (!text || busy) return;
     input.value = "";
-    busyState(true, "Starting the run…");
+    busyState(true, t("ask.starting_the_run"));
     let started;
     try {
       started = await postJSON("/api/ask", { repo, pr, question: text });
     } catch (err) {
       busyState(false);
       input.value = text;
-      bubble("system", `The run did not start: ${err.body?.error || err.message}`);
+      bubble("system", t("ask.the_run_did_not_start", [err.body?.error || err.message]));
       return;
     }
     bubble("user", text);
@@ -130,7 +131,7 @@ export async function openAskModal({ repo, pr, title }) {
       let e;
       try { e = JSON.parse(ev.data); } catch { return; }
       if (e.kind === "message.assistant" && e.text) {
-        status.textContent = `Answering… ${String(e.text).slice(0, 120)}`;
+        status.textContent = t("ask.answering", [String(e.text).slice(0, 120)]);
         return;
       }
       if (e.step) status.textContent = `${e.step} · ${e.status || e.kind}`;
@@ -149,16 +150,16 @@ export async function openAskModal({ repo, pr, title }) {
     if (stream) { stream.close(); stream = null; }
     if (last && last.kind === "workflow.failed") {
       busyState(false);
-      bubble("system", `The run failed${last.error ? `: ${last.error}` : ""}. Run ${id.slice(0, 8)}. Nothing was added to the thread.`);
+      bubble("system", t("ask.the_run_failed_run_nothing", [last.error ? `: ${last.error}` : "", id.slice(0, 8)]));
       return;
     }
-    busyState(true, "Reading the answer…");
+    busyState(true, t("ask.reading_the_answer"));
     try {
       const msg = await postJSON("/api/ask/answer", { repo, pr, run: id });
       bubble("assistant", msg.text, answerExtra(msg));
     } catch (err) {
-      const why = err.status === 404 ? "the run wrote no answer" : `the answer could not be read (${err.body?.error || err.message})`;
-      bubble("system", `${why}. Run ${id.slice(0, 8)}; its log is in Activity.`);
+      const why = err.status === 404 ? t("ask.the_run_wrote_no_answer") : t("ask.the_answer_could_not_be", [err.body?.error || err.message]);
+      bubble("system", t("ask.run_its_log_is_in", [why, id.slice(0, 8)]));
     } finally {
       busyState(false);
       input.focus();

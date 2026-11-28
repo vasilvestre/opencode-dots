@@ -1,4 +1,5 @@
 import { $, h } from "./dom.js";
+import { t } from "./i18n.js";
 
 export function toast(message, { tone = "info", timeout = 5000 } = {}) {
   const root = $("#toasts");
@@ -7,7 +8,7 @@ export function toast(message, { tone = "info", timeout = 5000 } = {}) {
     h("span", { class: "msg" }, message),
     h("button", {
       class: "btn ghost sm",
-      "aria-label": "Dismiss",
+      "aria-label": t("toast.dismiss"),
       onclick: () => el.remove(),
     }, "×"),
   );
