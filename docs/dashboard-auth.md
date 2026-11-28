@@ -138,7 +138,7 @@ and target a minute, so a page that polls does not flood the table). See `docs/a
 - The list of repositories is the dot's own; a run or a record of a repository outside it is hidden
   from visitors.
 - No organisation-level rules: the answer is the visitor's own permission on the repository.
-- Sessions survive a restart through `sessions.json`; a visible set changed on GitHub still shows until the hour ends.
+- Sessions survive a restart through `sessions.json`; a visible set changed on GitHub still shows until the session ends (seven idle hours, a day at most, ADR 0053).
 - The Activity page does not work for a visitor yet; runs show on the Cost page and through
   `/api/logs`.
 - A run with no repository in its recorded inputs or in the head of its first prompt stays hidden from

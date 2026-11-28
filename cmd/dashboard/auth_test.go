@@ -387,7 +387,7 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 			cookie = c
 		}
 	}
-	if cookie == nil || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Secure || len(cookie.Value) != 64 || cookie.MaxAge != 3600 {
+	if cookie == nil || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Secure || len(cookie.Value) != 64 || cookie.MaxAge != int(auth.MaxLife.Seconds()) {
 		t.Fatalf("cookie = %+v", cookie)
 	}
 	if r.gh.userCalls != 1 {
@@ -403,7 +403,7 @@ func TestDeviceFlowSignsAVisitorIn(t *testing.T) {
 			t.Errorf("the token is in the %s: %s", name, text)
 		}
 	}
-	if s, _ := r.d.auth.Lookup(cookie.Value); s.Login != "alice" || !s.Expires.Equal(r.clk.now().Add(time.Hour)) ||
+	if s, _ := r.d.auth.Lookup(cookie.Value); s.Login != "alice" || !s.Expires.Equal(r.clk.now().Add(auth.TTL)) ||
 		len(s.Visible) != 1 || !s.Visible[openRepo] {
 		t.Fatalf("session = %+v", s)
 	}
@@ -927,16 +927,23 @@ func TestLogoutEndsTheSession(t *testing.T) {
 	}
 }
 
-func TestSessionExpiresAfterOneHour(t *testing.T) {
+func TestSessionSlidesButEndsAtMaxLife(t *testing.T) {
 	r := newRig(t)
 	r.signIn()
-	r.clk.advance(time.Hour - time.Minute)
-	if r.visitor("/api/repos").Code != 200 {
-		t.Fatal("the session ended early")
+	for range 3 { // 18h of use, each step inside the idle window
+		r.clk.advance(auth.TTL - time.Minute)
+		if r.visitor("/api/repos").Code != 200 {
+			t.Fatal("the session ended while in use")
+		}
 	}
-	r.clk.advance(2 * time.Minute)
+	r.clk.advance(auth.TTL - time.Minute) // past MaxLife
 	if r.visitor("/api/repos").Code != 401 {
-		t.Fatal("the session outlived one hour")
+		t.Fatal("the session outlived MaxLife")
+	}
+	r.signIn()
+	r.clk.advance(auth.TTL + time.Minute)
+	if r.visitor("/api/repos").Code != 401 {
+		t.Fatal("an idle session outlived TTL")
 	}
 }
 

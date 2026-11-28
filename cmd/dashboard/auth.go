@@ -141,7 +141,7 @@ func (d *dash) devicePoll(w http.ResponseWriter, r *http.Request) {
 	case "pending":
 		writeJSON(w, map[string]any{"status": "pending", "interval": p.Interval})
 	case "ok":
-		http.SetCookie(w, newSessionCookie(r, p.SessionID, int(auth.TTL.Seconds())))
+		http.SetCookie(w, newSessionCookie(r, p.SessionID, int(auth.MaxLife.Seconds())))
 		d.recordSignIn(r, p.Login)
 		writeJSON(w, map[string]any{"status": "ok", "login": p.Login})
 	default:

@@ -77,7 +77,7 @@ repositories where they can push. Any free local port works (`-L 9000:127.0.0.1:
 - A restricted key can only open that tunnel: no shell (`command="/bin/false"`, `restrict`), no agent or X
   forwarding, no other port than the one in `permitopen`. Revoke by `remove`; an open tunnel ends when
   its connection drops, so also end sessions on the server if needed (`sessions.json`, see dashboard-auth.md).
-- A session lasts one hour. A right removed on GitHub disappears at the latest then.
+- A session lasts seven idle hours and a day at most (ADR 0053). A right removed on GitHub disappears at the latest then.
 - The key opens the tunnel, not the dashboard: the developer still signs in with their own GitHub account.
 - NetBird later would only change how a developer reaches the server. The team listener stays on loopback.
 

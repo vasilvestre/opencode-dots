@@ -74,7 +74,7 @@ func TestSessionSurvivesARestart(t *testing.T) {
 	}
 	clk.advance(TTL + time.Minute)
 	if login, _ := b.SessionView(id); login != "" {
-		t.Fatal("the restored session outlived its hour")
+		t.Fatal("the restored session outlived its idle time")
 	}
 }
 

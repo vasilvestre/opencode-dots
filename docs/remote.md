@@ -68,7 +68,7 @@ from a subscriber whose token does not name its topic.
 
 ### Worker token (a worker nobody watches)
 
-A sign-in session lasts an hour, so an unattended `dots-worker` cannot renew its 15 minute hub token
+A sign-in session lasts seven idle hours (a day at most, ADR 0053), so an unattended `dots-worker` cannot renew its 15 minute hub token
 from it. The owner issues a **worker token** instead, once, where the dashboard runs:
 
 ```bash

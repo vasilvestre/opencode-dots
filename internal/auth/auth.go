@@ -27,9 +27,11 @@ import (
 )
 
 const (
-	// CookieName is the session cookie; TTL is how long a session lives.
+	// CookieName is the session cookie; TTL is how long a session lives without use, and each use
+	// renews it, up to MaxLife after sign-in, when the rights are read again (ADR 0053).
 	CookieName = "dots_session"
-	TTL        = time.Hour
+	TTL        = 7 * time.Hour
+	MaxLife    = 24 * time.Hour
 
 	maxSessions    = 1000
 	maxPending     = 200
@@ -155,10 +157,22 @@ func (a *Auth) SessionView(id string) (string, map[string]bool) {
 	if !ok {
 		return "", nil
 	}
-	if !a.now().Before(s.Expires) {
+	now := a.now()
+	if !now.Before(s.Expires) {
 		delete(a.sessions, key)
 		a.scheduleSave()
 		return "", nil
+	}
+	// Sliding: a use pushes the end out to TTL from now, never past MaxLife. Saved at most once a
+	// minute of slide, so a busy page does not rewrite the file on every request.
+	end := now.Add(TTL)
+	if cap := s.Created.Add(MaxLife); end.After(cap) {
+		end = cap
+	}
+	if end.Sub(s.Expires) >= time.Minute {
+		s.Expires = end
+		a.sessions[key] = s
+		a.scheduleSave()
 	}
 	return s.Login, s.Visible
 }
