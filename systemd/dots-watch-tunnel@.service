@@ -1,0 +1,16 @@
+[Unit]
+Description=Read-only view of another dots instance: SSH forwards to its awf and its dashboard (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# One instance per remote dot. ~/.config/dots/watch-%i.env holds the private part, so no host name is
+# tracked: TARGET=dots@host AWF_PORT=2512 DASH_PORT=8101 (local ports). The remote ends are the
+# instance's own loopback ports, 2511 (awf) and 8099 (dashboard): nothing public, nothing written.
+EnvironmentFile=%h/.config/dots/watch-%i.env
+ExecStart=/usr/bin/ssh -NT -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:${AWF_PORT}:127.0.0.1:2511 -L 127.0.0.1:${DASH_PORT}:127.0.0.1:8099 ${TARGET}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

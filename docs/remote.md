@@ -131,3 +131,30 @@ DOTS_WORKER_URL=https://hub.example/worker bin/worker -once    # run what is pen
 
 The hub's Caddy relays `/worker/*` to the worker listener (prefix removed), next to the older
 `/worker-token`.
+
+## Watching other instances from the local dashboard
+
+One local dashboard can list the runs of every dot you run (a personal server, a company server), tagged
+with the instance that ran them, on the Activity page. Nothing is written to them: it reads their awf API
+and, for the price and the log of a run, their dashboard, both on their own loopback.
+
+1. A forward tunnel per instance, as a user unit: `systemd/dots-watch-tunnel@.service`. Its private part is
+   `~/.config/dots/watch-NAME.env` (mode 600), so no host name is tracked:
+
+   ```
+   TARGET=dots@host        # the SSH target
+   AWF_PORT=2512           # local port that reaches the instance's awf (2511 over there)
+   DASH_PORT=8111          # local port that reaches its dashboard (8099 over there)
+   ```
+
+   `systemctl --user enable --now dots-watch-tunnel@NAME`. It reconnects on its own (`Restart=always`).
+2. Name the instances in the local `repos.yaml`, where `settings.executors` is also what the dashboard polls:
+   `settings: {executors: {NAME: "http://127.0.0.1:2512"}}`. A name no repository uses as `executor:` only
+   makes the instance visible.
+3. Give the dashboard the second port, for cost and logs, in `systemd/dots-dashboard.env`:
+   `DOTS_EXECUTOR_DASHBOARDS=NAME=http://127.0.0.1:8111`, then restart `dots-dashboard`.
+
+An instance that is down keeps its last answer on the page, with its runs marked unknown. A tunnel needs
+SSH access to the instance, so an instance you only reach by SSH (the company one) is fine; do not put it
+on your personal tailnet for this. Check a local port is free first (`ss -ltn`): a port already in use
+makes the tunnel fail with "Address already in use".
