@@ -24,7 +24,14 @@ import (
 // toggles are the keys the table switches on and off with a checkbox.
 var toggles = []string{"review", "reply", "fix_issue", "fix_ci", "tend", "sync"}
 
-var providers = []string{"opencode", "claude"}
+// providers are the values of a repository's `provider`; "any" leaves the choice to the worker that
+// takes the job, so it needs an executor and is never a default for every repository.
+var providers = []string{"opencode", "claude", "any"}
+
+var defaultProviders = providers[:2]
+
+// repoless are the operations on the file's own blocks, not on one repository.
+var repoless = map[string]bool{"default_provider": true, "settings": true, "default_authors": true}
 
 var repoNameOK = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
@@ -59,16 +66,47 @@ type repoRow struct {
 	// ProviderSource is "repo", "default" or "" (the built-in opencode).
 	ProviderSource string `json:"provider_source,omitempty"`
 	Checkout       string `json:"checkout,omitempty"`
+	// Executor names the worker queue that runs this repository's tasks; "any" needs one.
+	Executor string `json:"executor,omitempty"`
 	// Trust is the level of ADR 0032, empty for the default `open`.
 	Trust string `json:"trust,omitempty"`
+	// What the dot may do here and how it is held back; each is the effective value, after
+	// defaults and profiles, so the page shows what the workflows will see.
+	Autonomy       string   `json:"autonomy,omitempty"`
+	Identity       string   `json:"identity,omitempty"`
+	CircuitBreaker bool     `json:"circuit_breaker,omitempty"`
+	BudgetUSD      *float64 `json:"budget_usd,omitempty"`
+	Sandbox        *sandbox `json:"sandbox,omitempty"`
+	// Work sources polled for this repository: the Jira project key and the Sentry project.
+	Jira       []string `json:"jira,omitempty"`
+	Sentry     []string `json:"sentry,omitempty"`
+	Advisories bool     `json:"advisories,omitempty"`
 }
 
+// sandbox is the part of the `sandbox` block the page edits: the test command. The rest of the
+// block (image, dockerfile, limits) is shown as a summary and kept as it is on a save.
+type sandbox struct {
+	Command string `json:"command,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+var (
+	autonomyLevels = []string{"observe", "propose", "act", "auto"}
+	identityLevels = []string{"off", "marker", "signed"}
+)
+
 type reposConfig struct {
-	Repos     []repoRow            `json:"repos"`
-	Profiles  []string             `json:"profiles"`
-	Toggles   []string             `json:"toggles"`
-	Providers []string             `json:"providers"`
-	Forms     map[string]watchForm `json:"forms"`
+	Repos     []repoRow `json:"repos"`
+	Profiles  []string  `json:"profiles"`
+	Toggles   []string  `json:"toggles"`
+	Providers []string  `json:"providers"`
+	// DefaultProviders are the agents offered as the default for every repository.
+	DefaultProviders []string `json:"default_providers"`
+	// DefaultProvider is defaults.provider of repos.yaml, empty for the built-in opencode.
+	DefaultProvider string `json:"default_provider"`
+	// Settings is the machine's own block of repos.yaml (watcher knobs, trust, executors).
+	Settings repos.Settings       `json:"settings"`
+	Forms    map[string]watchForm `json:"forms"`
 }
 
 func (d *dash) reposConfigPath() string { return filepath.Join(d.root, repos.SourceFile) }
@@ -124,7 +162,7 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 	if err != nil {
 		return nil, httpError{http.StatusUnprocessableEntity, err.Error()}
 	}
-	cfg := &reposConfig{Repos: []repoRow{}, Profiles: []string{}, Toggles: toggles, Providers: providers, Forms: map[string]watchForm{}}
+	cfg := &reposConfig{Repos: []repoRow{}, Profiles: []string{}, Toggles: toggles, Providers: providers, DefaultProviders: defaultProviders, Forms: map[string]watchForm{}}
 	for _, key := range toggles {
 		if schema, ok := repos.WatchSchemaOf(key); ok {
 			form := watchForm{WatchSchema: schema}
@@ -135,6 +173,8 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 			cfg.Forms[key] = form
 		}
 	}
+	cfg.DefaultProvider, _ = doc.Defaults["provider"].(string)
+	cfg.Settings = doc.Settings
 	for name := range doc.Profiles {
 		cfg.Profiles = append(cfg.Profiles, name)
 	}
@@ -186,9 +226,67 @@ func buildReposConfig(data []byte) (*reposConfig, error) {
 		if v, _ := res.Value("trust"); v != nil {
 			row.Trust, _ = v.(string)
 		}
+		row.Autonomy = stringValue(res, "autonomy")
+		row.Identity = stringValue(res, "identity")
+		row.Executor = stringValue(res, "executor")
+		row.Jira = projectsValue(res, "jira")
+		row.Sentry = projectsValue(res, "sentry")
+		if v, _ := res.Value("advisories"); v != nil && v != false {
+			row.Advisories = true
+		}
+		if v, _ := res.Value("circuit_breaker"); v != nil && v != false {
+			row.CircuitBreaker = true
+		}
+		if v, _ := res.Value("budget"); v != nil {
+			if m, ok := v.(map[string]any); ok {
+				if n, ok := toFloat(m["daily_usd"]); ok {
+					row.BudgetUSD = &n
+				}
+			}
+		}
+		if v, on := res.Value("sandbox"); on && v != false && v != nil {
+			sb := &sandbox{}
+			if m, ok := v.(map[string]any); ok {
+				if test, ok := m["test"].(map[string]any); ok {
+					sb.Command, _ = test["command"].(string)
+					var parts []string
+					for _, k := range []string{"image", "dockerfile", "target"} {
+						if x, _ := test[k].(string); x != "" {
+							parts = append(parts, x)
+						}
+					}
+					sb.Detail = strings.Join(parts, " · ")
+				}
+			}
+			row.Sandbox = sb
+		}
 		cfg.Repos = append(cfg.Repos, row)
 	}
 	return cfg, nil
+}
+
+func stringValue(res *repos.Resolved, key string) string {
+	v, _ := res.Value(key)
+	s, _ := v.(string)
+	return s
+}
+
+// projectsValue is the project list of a tracker key: one repository may take several projects.
+func projectsValue(res *repos.Resolved, key string) []string {
+	v, _ := res.Value(key)
+	return repos.Projects(v)
+}
+
+func toFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
 }
 
 // rawFeature is what the repository's block says for a key, else what its first
@@ -263,7 +361,7 @@ func flowText(v any) string {
 }
 
 type reposPatch struct {
-	Op   string `json:"op"`   // "set" (default), "add", "remove"
+	Op   string `json:"op"`   // "set" (default), "add", "remove", "default_provider"
 	Repo string `json:"repo"` // owner/name
 	Key  string `json:"key"`
 	// Feature names the watcher feature a "rules" change is for.
@@ -351,7 +449,7 @@ func applyReposPatch(data []byte, p reposPatch) ([]byte, error) {
 	if err != nil {
 		return nil, httpError{http.StatusUnprocessableEntity, err.Error()}
 	}
-	if !repoNameOK.MatchString(p.Repo) {
+	if !repoless[p.Op] && !repoNameOK.MatchString(p.Repo) {
 		return nil, httpError{http.StatusBadRequest, fmt.Sprintf("%q is not an owner/repo name", p.Repo)}
 	}
 	before, err := doc.Marshal()
@@ -360,6 +458,24 @@ func applyReposPatch(data []byte, p reposPatch) ([]byte, error) {
 	}
 	i := slices.IndexFunc(doc.Repos, func(e repos.Entry) bool { return e.Name == p.Repo })
 	switch p.Op {
+	case "default_provider":
+		name, _ := p.Value.(string)
+		switch {
+		case name == "":
+			delete(doc.Defaults, "provider")
+		case slices.Contains(defaultProviders, name):
+			doc.Defaults["provider"] = name
+		default:
+			return nil, httpError{http.StatusBadRequest, "the default agent is opencode or claude: \"any\" is set on a repository that has an executor"}
+		}
+	case "settings":
+		if err := setSetting(doc, p); err != nil {
+			return nil, err
+		}
+	case "default_authors":
+		if err := setDefaultAuthors(doc, p); err != nil {
+			return nil, err
+		}
 	case "add":
 		if i >= 0 {
 			return nil, httpError{http.StatusConflict, p.Repo + " is already listed"}
@@ -390,6 +506,49 @@ func applyReposPatch(data []byte, p reposPatch) ([]byte, error) {
 	return after, nil
 }
 
+// setSetting edits the settings the page owns; repos.Settings.Set holds the rules.
+func setSetting(doc *repos.Document, p reposPatch) error {
+	if err := doc.Settings.Set(p.Key, p.Value); err != nil {
+		return httpError{http.StatusBadRequest, err.Error()}
+	}
+	return nil
+}
+
+// setDefaultAuthors writes defaults.<feature>.ignore_authors or only_authors: the authors every
+// repository inherits, which a repository's own rule can still replace.
+func setDefaultAuthors(doc *repos.Document, p reposPatch) error {
+	if _, ok := repos.WatchSchemaOf(p.Feature); !ok {
+		return httpError{http.StatusBadRequest, fmt.Sprintf("%q has no author lists", p.Feature)}
+	}
+	if p.Key != "ignore_authors" && p.Key != "only_authors" {
+		return httpError{http.StatusBadRequest, "authors are ignore_authors or only_authors"}
+	}
+	names := repos.Projects(p.Value) // a list of strings, whatever they name
+	if p.Value != nil && names == nil {
+		return httpError{http.StatusBadRequest, p.Key + " takes a list of logins"}
+	}
+	names = slices.DeleteFunc(names, func(s string) bool { return strings.TrimSpace(s) == "" })
+	block, _ := doc.Defaults[p.Feature].(map[string]any)
+	if block == nil {
+		block = map[string]any{}
+	}
+	if len(names) == 0 {
+		delete(block, p.Key)
+	} else {
+		items := make([]any, len(names))
+		for i, n := range names {
+			items[i] = strings.TrimSpace(n)
+		}
+		block[p.Key] = items
+	}
+	if len(block) == 0 {
+		delete(doc.Defaults, p.Feature)
+	} else {
+		doc.Defaults[p.Feature] = block
+	}
+	return nil
+}
+
 func setKey(doc *repos.Document, cfg map[string]any, p reposPatch) error {
 	switch {
 	case slices.Contains(toggles, p.Key):
@@ -413,17 +572,129 @@ func setKey(doc *repos.Document, cfg map[string]any, p reposPatch) error {
 		return setRules(cfg, p)
 	case p.Key == "auto_merge":
 		return setAutoMerge(doc, cfg, p)
+	case p.Key == "autonomy" || p.Key == "identity":
+		return setChoice(cfg, p.Key, p.Value, map[string][]string{"autonomy": autonomyLevels, "identity": identityLevels}[p.Key])
+	case p.Key == "jira" || p.Key == "sentry":
+		// A name or a list of names; the format is checked when the document is built.
+		list := repos.Projects(p.Value)
+		if _, isString := p.Value.(string); p.Value != nil && !isString && list == nil {
+			return httpError{http.StatusBadRequest, p.Key + " takes a project name or a list of them"}
+		}
+		list = slices.DeleteFunc(list, func(s string) bool { return strings.TrimSpace(s) == "" })
+		switch len(list) {
+		case 0:
+			delete(cfg, p.Key)
+		case 1:
+			cfg[p.Key] = strings.TrimSpace(list[0])
+		default:
+			items := make([]any, len(list))
+			for i, name := range list {
+				items[i] = strings.TrimSpace(name)
+			}
+			cfg[p.Key] = items
+		}
+	case p.Key == "circuit_breaker" || p.Key == "advisories":
+		on, ok := p.Value.(bool)
+		if !ok {
+			return httpError{http.StatusBadRequest, p.Key + " takes true or false"}
+		}
+		switch {
+		case on:
+			cfg[p.Key] = true
+		case profileEnables(doc, cfg, p.Key):
+			cfg[p.Key] = false
+		default:
+			delete(cfg, p.Key)
+		}
+	case p.Key == "budget":
+		if p.Value == nil {
+			delete(cfg, "budget")
+			return nil
+		}
+		n, ok := toFloat(p.Value)
+		if !ok {
+			return httpError{http.StatusBadRequest, "budget takes a number of dollars per day, or null"}
+		}
+		cfg["budget"] = map[string]any{"daily_usd": n}
+	case p.Key == "sandbox":
+		on, ok := p.Value.(bool)
+		if !ok {
+			return httpError{http.StatusBadRequest, "sandbox takes true or false"}
+		}
+		switch {
+		case on && cfg["sandbox"] != nil && cfg["sandbox"] != false:
+			// already on, keep its options
+		case on:
+			cfg["sandbox"] = true
+		case profileEnables(doc, cfg, p.Key):
+			cfg["sandbox"] = false
+		default:
+			delete(cfg, "sandbox")
+		}
+	case p.Key == "sandbox_command":
+		return setSandboxCommand(cfg, p.Value)
 	case p.Key == "provider":
 		if p.Value == nil || p.Value == "" {
 			delete(cfg, "provider")
 			return nil
 		}
 		if s, ok := p.Value.(string); !ok || !slices.Contains(providers, s) {
-			return httpError{http.StatusBadRequest, "provider must be opencode or claude"}
+			return httpError{http.StatusBadRequest, "provider must be opencode, claude or any"}
 		}
 		cfg["provider"] = p.Value
 	default:
 		return httpError{http.StatusBadRequest, fmt.Sprintf("the table does not edit %q: use the repos.yaml editor", p.Key)}
+	}
+	return nil
+}
+
+// setChoice writes a key that takes one of a few words; null or "" removes it.
+func setChoice(cfg map[string]any, key string, value any, allowed []string) error {
+	if value == nil || value == "" {
+		delete(cfg, key)
+		return nil
+	}
+	name, _ := value.(string)
+	if !slices.Contains(allowed, name) {
+		return httpError{http.StatusBadRequest, fmt.Sprintf("%s must be one of %s", key, strings.Join(allowed, ", "))}
+	}
+	cfg[key] = name
+	return nil
+}
+
+// setSandboxCommand sets sandbox.test.command and leaves the rest of the block alone. An empty
+// command removes it (and the test block, once empty); the block stays, since it still switches
+// the check on.
+func setSandboxCommand(cfg map[string]any, value any) error {
+	cmd, ok := value.(string)
+	if !ok && value != nil {
+		return httpError{http.StatusBadRequest, "the sandbox command is a string"}
+	}
+	block, _ := cfg["sandbox"].(map[string]any)
+	if block == nil {
+		if cfg["sandbox"] != true {
+			return httpError{http.StatusConflict, "the sandbox is off on this repository: switch it on first"}
+		}
+		block = map[string]any{}
+	}
+	test, _ := block["test"].(map[string]any)
+	if test == nil {
+		test = map[string]any{}
+	}
+	if cmd == "" {
+		delete(test, "command")
+	} else {
+		test["command"] = cmd
+	}
+	if len(test) == 0 {
+		delete(block, "test")
+	} else {
+		block["test"] = test
+	}
+	if len(block) == 0 {
+		cfg["sandbox"] = true
+	} else {
+		cfg["sandbox"] = block
 	}
 	return nil
 }

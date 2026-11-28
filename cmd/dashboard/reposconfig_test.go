@@ -1,6 +1,7 @@
 package main
 
 import (
+	"opencode-dots/internal/repos"
 	"reflect"
 	"strings"
 	"testing"
@@ -121,6 +122,113 @@ func TestProviderSetAndClear(t *testing.T) {
 	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "provider", Value: nil})
 	if rowOf(t, out, "acme/plain").Provider != "opencode" {
 		t.Fatal("clearing should fall back to opencode")
+	}
+}
+
+func TestDefaultProviderSetAndClear(t *testing.T) {
+	out := patch(t, sampleRepos, reposPatch{Op: "default_provider", Value: "claude"})
+	if r := rowOf(t, out, "acme/plain"); r.Provider != "claude" || r.ProviderSource != "default" {
+		t.Fatalf("default not applied: %+v", r)
+	}
+	out = patch(t, out, reposPatch{Op: "default_provider", Value: ""})
+	if rowOf(t, out, "acme/plain").Provider != "opencode" {
+		t.Fatal("clearing should fall back to opencode")
+	}
+	for _, bad := range []string{"gpt", "any"} {
+		if _, err := applyReposPatch([]byte(sampleRepos), reposPatch{Op: "default_provider", Value: bad}); err == nil {
+			t.Fatalf("%q must be refused as a default agent", bad)
+		}
+	}
+}
+
+func TestSafetyKeysRoundTrip(t *testing.T) {
+	out := patch(t, sampleRepos, reposPatch{Repo: "acme/plain", Key: "autonomy", Value: "propose"})
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "identity", Value: "marker"})
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "budget", Value: 5.0})
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "sandbox", Value: true})
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "sandbox_command", Value: "go test ./..."})
+	r := rowOf(t, out, "acme/plain")
+	if r.Autonomy != "propose" || r.Identity != "marker" || r.BudgetUSD == nil || *r.BudgetUSD != 5 {
+		t.Fatalf("keys not written: %+v", r)
+	}
+	if r.Sandbox == nil || r.Sandbox.Command != "go test ./..." {
+		t.Fatalf("sandbox command not written: %+v", r.Sandbox)
+	}
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "sandbox_command", Value: ""})
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "autonomy", Value: nil})
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "budget", Value: nil})
+	r = rowOf(t, out, "acme/plain")
+	if r.Autonomy != "" || r.BudgetUSD != nil || r.Sandbox == nil || r.Sandbox.Command != "" {
+		t.Fatalf("clearing failed: %+v", r)
+	}
+}
+
+func TestSafetyKeysRefuseBadValues(t *testing.T) {
+	for _, p := range []reposPatch{
+		{Repo: "acme/plain", Key: "autonomy", Value: "yolo"},
+		{Repo: "acme/plain", Key: "identity", Value: "loud"},
+		{Repo: "acme/plain", Key: "budget", Value: "lots"},
+		{Repo: "acme/plain", Key: "sandbox_command", Value: "go test"}, // sandbox is off
+	} {
+		if _, err := applyReposPatch([]byte(sampleRepos), p); err == nil {
+			t.Fatalf("%+v should be refused", p)
+		}
+	}
+}
+
+func TestSourcesRoundTripAndFormat(t *testing.T) {
+	out := patch(t, sampleRepos, reposPatch{Repo: "acme/plain", Key: "jira", Value: "ABC"})
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "sentry", Value: "acme/web"})
+	if r := rowOf(t, out, "acme/plain"); len(r.Jira) != 1 || r.Jira[0] != "ABC" || len(r.Sentry) != 1 {
+		t.Fatalf("sources not written: %+v", r)
+	}
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "advisories", Value: true})
+	if !rowOf(t, out, "acme/plain").Advisories {
+		t.Fatal("advisories not switched on")
+	}
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "jira", Value: ""})
+	if len(rowOf(t, out, "acme/plain").Jira) != 0 {
+		t.Fatal("jira not cleared")
+	}
+	out = patch(t, out, reposPatch{Repo: "acme/plain", Key: "jira", Value: []any{"ABC", "DEF"}})
+	if r := rowOf(t, out, "acme/plain"); len(r.Jira) != 2 || r.Jira[1] != "DEF" {
+		t.Fatalf("two jira projects not written: %+v", r.Jira)
+	}
+	// A bad shape is refused when the document is built, before anything is written.
+	next := patch(t, sampleRepos, reposPatch{Repo: "acme/plain", Key: "jira", Value: "abc-1"})
+	if _, err := repos.Build([]byte(next), t.TempDir(), repos.Settings{}); err == nil {
+		t.Fatal("a lowercase jira key must be refused")
+	}
+}
+
+func TestSettingsAndDefaultAuthors(t *testing.T) {
+	out := patch(t, sampleRepos, reposPatch{Op: "settings", Key: "max_per_run", Value: 4.0})
+	out = patch(t, out, reposPatch{Op: "settings", Key: "dot_id", Value: "perso"})
+	out = patch(t, out, reposPatch{Op: "default_authors", Feature: "reply", Key: "only_authors", Value: []any{"me"}})
+	cfg, err := buildReposConfig([]byte(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Settings.MaxPerRun != 4 || cfg.Settings.DotID != "perso" {
+		t.Fatalf("settings not written: %+v", cfg.Settings)
+	}
+	if got := cfg.Forms["reply"].DefaultOnly; len(got) != 1 || got[0] != "me" {
+		t.Fatalf("default authors not written: %+v", got)
+	}
+	out = patch(t, out, reposPatch{Op: "default_authors", Feature: "review", Key: "ignore_authors", Value: []any{}})
+	if strings.Contains(out, "bot[bot]") {
+		t.Fatal("clearing the list should drop the default")
+	}
+	for _, p := range []reposPatch{
+		{Op: "settings", Key: "max_per_run", Value: 0.0},
+		{Op: "settings", Key: "max_per_run", Value: 2.5},
+		{Op: "settings", Key: "dot_id", Value: "Bad Id"},
+		{Op: "settings", Key: "trust", Value: "x"},
+		{Op: "default_authors", Feature: "tend", Key: "only_authors", Value: []any{"me"}},
+	} {
+		if _, err := applyReposPatch([]byte(sampleRepos), p); err == nil {
+			t.Fatalf("%+v should be refused", p)
+		}
 	}
 }
 
