@@ -83,7 +83,7 @@ states:
         > "$d/meta.json"
       gh pr diff {{.inputs.pr}} --repo "$repo" > "$d/diff.patch" || true
 
-      head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
+      head_repo=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/meta.json")
       branch=$(jq -r '.headRefName' "$d/meta.json")
       url="https://github.com/$head_repo.git"
       # WORK_ROOT holds the clones; REPOS_MAP reuses a checkout already on this
@@ -290,7 +290,7 @@ states:
       fi
       owner=$(jq -r '.headRepositoryOwner.login' "$d/meta.json")
       branch=$(jq -r '.headRefName' "$d/meta.json")
-      head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
+      head_repo=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/meta.json")
       me=$(gh api user --jq .login)
       if [ "$owner" != "$me" ]; then
         echo "branch $branch belongs to $owner, not $me: no push"

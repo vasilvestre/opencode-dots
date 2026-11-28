@@ -88,7 +88,7 @@ states:
       jq -s 'map(select(.body != "")) | sort_by(.at)' \
         "$d/thread.comments.jsonl" "$d/thread.reviews.jsonl" > "$d/thread.json"
       rm -f "$d/thread.comments.jsonl" "$d/thread.reviews.jsonl"
-      head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/pr.json")
+      head_repo=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/pr.json")
       branch=$(jq -r '.headRefName' "$d/pr.json")
       url="https://github.com/$head_repo.git"
       # WORK_ROOT holds the clones; each run gets its own worktree so nothing
@@ -340,7 +340,7 @@ states:
         git -C "$work" add -A -N; git -C "$work" diff HEAD > "$d/held.patch"
         AUTONOMY="{{.inputs.autonomy}}" GATE_REF="{{.inputs.repo}}#{{.inputs.pr}}" GATE_ARTIFACT="$d/held.patch" \
         GATE_REPO="{{.inputs.repo}}" GATE_BRANCH="$branch" \
-        GATE_PUSH_REPO="$(jq -r '.headRepository.nameWithOwner // empty' "$d/pr.json")" \
+        GATE_PUSH_REPO="$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end)) // empty' "$d/pr.json")" \
         GATE_TITLE="Address review comment on {{.inputs.repo}}#{{.inputs.pr}}" \
         GATE_SANDBOX="{{.inputs.sandbox}}" GATE_WORKDIR="$PWD" \
           "${DOTS_HOME:-/work}/bin/publish-gate" push || grc=$?
@@ -354,7 +354,7 @@ states:
       git config user.email "$uid+$login@users.noreply.github.com"
       git add -A
       git commit --quiet -m "Address review comment on {{.inputs.repo}}#{{.inputs.pr}}"
-      head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/pr.json")
+      head_repo=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/pr.json")
       git push --quiet "https://github.com/$head_repo.git" "HEAD:$branch"
       git rev-parse --short HEAD > "$d/pushed.sha"
       git --no-pager diff --stat HEAD~1

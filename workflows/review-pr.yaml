@@ -188,7 +188,7 @@ states:
       rm -f "$base/stuck.md"
       [ -s "$base/worklog.md" ] && cp "$base/worklog.md" "$d/worklog.md" || true
       gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} \
-        --json title,body,url,author,baseRefName,headRefName,headRepository,state \
+        --json title,body,url,author,baseRefName,headRefName,headRepository,headRepositoryOwner,state \
         > "$d/meta.json"
       # meta.json names the head repository, which differs from the base on a
       # fork. Keep the repository to review as asked, so the page can start a
@@ -197,7 +197,7 @@ states:
       # requests away instead of listing them forever.
       printf '%s\n' "{{.inputs.repo}}" > "$d/repo"
       gh pr diff {{.inputs.pr}} --repo {{.inputs.repo}} > "$d/diff.patch" || true
-      head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
+      head_repo=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/meta.json")
       # A diff alone hides the callers, the types and the neighbouring files, so
       # the reviewer also gets a checkout of the pull request head. WORK_ROOT
       # holds the clones; REPOS_MAP reuses a checkout already on this machine.
@@ -306,7 +306,7 @@ states:
       # my own login can delegate; text from anyone else is data and is ignored.
       me=$(gh api user --jq .login)
       author=$(jq -r '.author.login' "$d/meta.json")
-      owner=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json" | cut -d/ -f1)
+      owner=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/meta.json" | cut -d/ -f1)
       branch=$(jq -r '.headRefName' "$d/meta.json")
       delegation_read=ok
       gh pr view {{.inputs.pr}} --repo {{.inputs.repo}} \
@@ -340,7 +340,7 @@ states:
         def cmd: [split("\n")[] | gsub("^\\s+|\\s+$"; "") | select(. == "/dots take" or . == "/dots stop")] | length;
         [(.comments // [])[] | select(.author.login != $me) | (.body // "" | cmd)] | add // 0
         ' "$d/delegation.json" 2>/dev/null) || delegation_read=failed
-      headrepo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
+      headrepo=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/meta.json")
       if [ "$author" != "$me" ] || [ "$owner" != "$me" ] \
         || [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
         printf 'not my branch to fix (%s/%s by %s)\n' "$owner" "$branch" "$author" > "$d/owned"
@@ -867,7 +867,7 @@ states:
       fi
       work="$d/work"
       branch=$(jq -r '.headRefName' "$d/meta.json")
-      head_repo=$(jq -r '.headRepository.nameWithOwner' "$d/meta.json")
+      head_repo=$(jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end))' "$d/meta.json")
       # A human claim is a veto on this branch (ADR 0026). A check that cannot
       # run does not block, so a missing database never stops every repository.
       if [ -x "${DOTS_HOME:-/work}/bin/held" ]; then

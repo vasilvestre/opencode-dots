@@ -24,6 +24,7 @@ jobs:
       - run: test/workspace.sh
       - run: test/watchers.sh
       - run: test/held.sh
+      - run: test/headrepo.sh
       - run: test/model.sh
       - run: test/tend.sh
       - run: test/propose-links.sh

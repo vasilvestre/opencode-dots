@@ -44,6 +44,7 @@ workspace-test: ## run bin/workspace against a local bare repository (nothing le
 
 held-test: ## check bin/held exit codes against a stub
 	test/held.sh
+	test/headrepo.sh
 
 tend-test: ## check what bin/tend posts to awf serve, with a fake curl
 	test/tend.sh
@@ -144,6 +145,7 @@ ci: ## run every step of .github/workflows/ci.yml locally; run it before pushing
 	test/workspace.sh
 	test/watchers.sh
 	test/held.sh
+	test/headrepo.sh
 	test/model.sh
 	test/tend.sh
 	test/propose-links.sh

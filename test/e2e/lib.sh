@@ -176,7 +176,8 @@ held_id() { ls "$T/state/held" 2>/dev/null | grep -E -- "-$1-" | grep -v '^relea
 
 # The call log with run-specific noise folded, to compare two runs.
 norm_log() {
-  sed -E -e "s#$T#<T>#g" -e 's#fix/([0-9]+)-[0-9]{8}-[0-9]{4}#fix/\1-<ts>#g' "$T/fake/gh.log"
+  # headRepositoryOwner is asked for by the newer workflows, so gh 2.46 (no nameWithOwner) works: not a behaviour change
+  sed -E -e "s#$T#<T>#g" -e 's#fix/([0-9]+)-[0-9]{8}-[0-9]{4}#fix/\1-<ts>#g' -e 's/headRepositoryOwner,//g' "$T/fake/gh.log"
 }
 
 case_done() {

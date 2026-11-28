@@ -254,11 +254,11 @@ states:
 
         push)
           if [ -z "$branch" ]; then
-            pr=$(gh pr view "$num" --repo "$repo" --json headRefName,headRepository,state 2>/dev/null) \
+            pr=$(gh pr view "$num" --repo "$repo" --json headRefName,headRepository,headRepositoryOwner,state 2>/dev/null) \
               || die "refused: the record names no branch and $ref is not a pull request"
             [ "$(printf '%s' "$pr" | jq -r .state)" = OPEN ] || die "refused: $ref is not open"
             branch=$(printf '%s' "$pr" | jq -r .headRefName)
-            [ -n "$push_repo" ] || push_repo=$(printf '%s' "$pr" | jq -r '.headRepository.nameWithOwner // empty')
+            [ -n "$push_repo" ] || push_repo=$(printf '%s' "$pr" | jq -r '(.headRepository.nameWithOwner // (if .headRepository and .headRepositoryOwner then .headRepositoryOwner.login + "/" + .headRepository.name else null end)) // empty')
             safe_branch branch "$branch"
           fi
           [ -n "$push_repo" ] || push_repo=$repo
