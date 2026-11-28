@@ -1,26 +1,21 @@
 import { h, mount } from "../dom.js";
 import { getJSON, putJSON } from "../api.js";
 import { toast } from "../toast.js";
-import { createEditor } from "../editor.js";
-import { bytes, when } from "../format.js";
 import { confirmDialog } from "../modal.js";
-import { setLeaveGuard } from "../router.js";
+import { navigate, setLeaveGuard } from "../router.js";
 import { setThemeMode, themeMode } from "../theme.js";
 import { desktopState, isDesktopEnabled, requestDesktopPermission, setDesktopEnabled } from "../notifications.js";
 import { t, LANGS, langMode, setLang } from "../i18n.js";
+import { dotPanel } from "./dot-settings.js";
 
-const KIND_LABEL = {
-  watcher: t("config.watcher_rules_which_repository_which"),
-  list: t("config.repositories_visited_by_the_daily"),
-  map: t("config.host_paths_for_the_workflow"),
-  repos: t("config.every_repository_and_what_the"),
-};
-
-// Local configs are the files the agent stack reads from the repository root.
-// They never leave this machine; the page still edits them like the workflows.
+// Preferences only: model defaults, notifications, appearance. The repos.yaml
+// files live in the Repos view; an old #config/<file> link is sent there.
 export function mountConfig(el, arg) {
+  if (arg && !["models", "notifications", "appearance", "dot"].includes(arg)) {
+    navigate("repos", arg, { replace: true });
+    return { destroy() {} };
+  }
   let destroyed = false;
-  let editor = null;
   let modelLoading = true;
   let modelSaving = false;
   let modelInputs = [];
@@ -58,21 +53,20 @@ export function mountConfig(el, arg) {
     onclick: toggleDesktop,
   }, desktopLabel());
 
-  const section = arg === "notifications" ? "notifications" : arg === "appearance" ? "appearance" : (!arg || arg === "models") ? "models" : "file";
+  const section = arg || "models";
   let notifBase = { webhook: "", enabled: false };
-  let files = [];
-  let filesLoaded = false;
 
   const modelsPanel = h("div", { class: "card" },
     h("div", { class: "row between" },
       h("h2", {}, t("common.model_defaults")),
       saveModelsBtn,
     ),
-    h("p", { class: "muted", style: { marginTop: "6px" } },
+    h("details", { class: "help" }, h("summary", {}, t("config.model_format_help")),
+      h("p", { class: "muted" },
       t("config.models_hint_1"),
         h("code", {}, "provider/model#variant"), t("config.models_hint_2"), h("code", {}, "local/helper#fast"),
         t("config.models_hint_3"), h("code", {}, "sonnet"), t("config.models_hint_4"), h("code", {}, "claude-haiku-4-5"),
-        t("config.models_hint_5"), h("code", {}, "provider: claude"), t("config.models_hint_6")),
+        t("config.models_hint_5"), h("code", {}, "provider: claude"), t("config.models_hint_6"))),
       modelsEl,
   );
   const notifPanel = h("div", { class: "card" },
@@ -110,32 +104,26 @@ export function mountConfig(el, arg) {
       h("label", { for: "lang-mode" }, t("config.language")), langSelect,
       h("p", { class: "muted", style: { marginTop: "6px" } }, t("config.language_hint"))),
   );
-  const editorPanel = h("div", { id: "config-editor" },
-    h("div", { class: "empty" }, t("common.loading_file")));
-
   const navEl = h("nav", { class: "side-list", "aria-label": t("config.settings_sections") });
-  const filesNav = h("div", { class: "side-list" });
-  const generatedNav = h("div", {});
   const side = h("aside", { class: "side" },
     h("h2", {}, t("common.settings")),
     navEl,
-    h("h3", { class: "muted", style: { marginTop: "6px" } }, t("config.local_files")),
-    filesNav,
-    generatedNav,
   );
+  const dot = h("div", { class: "stack" }, h("h2", {}, t("dot.title")));
+  if (section === "dot") dot.append(dotPanel());
+  dot.hidden = section !== "dot";
   modelsPanel.hidden = section !== "models";
   notifPanel.hidden = section !== "notifications";
   appearancePanel.hidden = section !== "appearance";
-  editorPanel.hidden = section !== "file";
   mount(el, h("div", { class: "split" }, side,
     h("div", { class: "stack" },
       h("p", { class: "muted" }, t("config.dashboard_preferences_and_the_local")),
-      modelsPanel, notifPanel, appearancePanel, editorPanel)));
+      modelsPanel, dot, notifPanel, appearancePanel)));
 
   const modelsDirty = () => modelInputs.some((i) => i.value !== i.dataset.initial)
     || modelRoles.some((r) => r.checkbox.checked !== (r.checkbox.dataset.initial === "1"));
   const notifDirty = () => webhookInput.value !== notifBase.webhook || enabledInput.checked !== notifBase.enabled;
-  const anyDirty = () => modelsDirty() || notifDirty() || Boolean(editor?.isDirty());
+  const anyDirty = () => modelsDirty() || notifDirty();
   async function leaveOk() {
     if (!anyDirty()) return true;
     return confirmDialog({
@@ -163,19 +151,9 @@ export function mountConfig(el, arg) {
   function paintNav() {
     mount(navEl,
       navItem("#config/models", section === "models", t("common.model_defaults"), t("config.which_model_each_role_uses"), modelsDirty()),
+      navItem("#config/dot", section === "dot", t("dot.title"), t("dot.nav_sub"), false),
       navItem("#config/notifications", section === "notifications", t("common.notifications"), t("config.discord_and_desktop"), notifDirty()),
       navItem("#config/appearance", section === "appearance", t("common.appearance"), t("config.light_or_dark_theme"), false));
-    const item = (f) => navItem(`#config/${f.path}`, section === "file" && arg === f.path, f.path,
-      f.generated ? (f.optional && !f.exists ? t("config.not_generated_no_rule_needs") : t("config.generated_read_only")) : KIND_LABEL[f.kind] || f.kind,
-      section === "file" && arg === f.path && editor?.isDirty(), !f.exists && !f.optional);
-    // repos.yaml is the file to edit; the files it generates stay readable.
-    const own = files.filter((f) => !f.generated);
-    const generated = files.filter((f) => f.generated);
-    mount(filesNav,
-      own.length ? own.map(item) : h("div", { class: "empty" }, filesLoaded ? t("config.no_local_file") : t("common.loading")));
-    mount(generatedNav,
-      generated.length ? h("h3", { class: "muted", style: { margin: "6px 0 4px" } }, t("config.generated_from_repos_yaml")) : null,
-      generated.length ? h("div", { class: "side-list" }, generated.map(item)) : null);
   }
   modelsEl.addEventListener("input", () => { updateModelsSave(); paintNav(); });
   webhookInput.addEventListener("input", () => { updateNotifSave(); paintNav(); });
@@ -255,7 +233,7 @@ export function mountConfig(el, arg) {
         const details = `model-role-${i}-details`;
         role.input.setAttribute("aria-describedby", details);
         return h("div", { class: "field" },
-          h("label", { for: role.checkbox.id }, role.checkbox, " Use a custom override"),
+          h("label", { for: role.checkbox.id }, role.checkbox, " ", t("config.use_custom_override")),
           role.input,
           h("div", { class: "hint", id: details },
             t("config.preset", [v.workflow, v.input]), h("code", {}, v.preset || "unassigned"),
@@ -265,34 +243,30 @@ export function mountConfig(el, arg) {
       const rolesOf = (provider) => variables
         .map((v, i) => (v.provider === provider ? roleField(v, i) : null))
         .filter(Boolean);
+      const preset = (id, label, input, hint) => h("div", { class: "field" },
+        h("label", { for: id }, label), input, h("div", { class: "hint" }, hint));
+      const custom = modelRoles.filter((r) => r.checkbox.checked).length;
+      const overrides = (provider, title) => {
+        const list = rolesOf(provider);
+        return list.length ? h("details", { class: "help" },
+          h("summary", {}, title, ` (${variables.filter((v) => v.provider === provider).length})`), list) : null;
+      };
       mount(modelsEl,
         catalog,
         hasClaude ? claudeCatalog : null,
-        h("div", { class: "field" },
-          h("label", { for: "model-preset-light" }, t("config.light_preset")),
-          presetInputs.light,
-          h("div", { class: "hint" }, t("config.ask_ci_fixes_replies_and")),
-        ),
-        h("div", { class: "field" },
-          h("label", { for: "model-preset-default" }, t("config.default_preset")),
-          presetInputs.default,
-          h("div", { class: "hint" }, t("config.issue_fixes_daily_tending_and")),
-        ),
-        hasClaude ? h("h3", { style: { marginTop: "14px" } }, "claude presets") : null,
-        hasClaude ? h("div", { class: "field" },
-          h("label", { for: "model-preset-claude-default" }, t("config.claude_default_preset")),
-          presetInputs.claude_default,
-          h("div", { class: "hint" }, t("config.reviews_when_a_repository_is")),
-        ) : null,
-        hasClaude ? h("div", { class: "field" },
-          h("label", { for: "model-preset-claude-light" }, t("config.claude_light_preset")),
-          presetInputs.claude_light,
-          h("div", { class: "hint" }, t("config.review_addressing_when_a_repository")),
-        ) : null,
-        h("h3", { style: { marginTop: "14px" } }, t("config.role_overrides_opencode")),
-        variables.length ? rolesOf("opencode") : h("div", { class: "empty" }, t("config.no_model_roles_found")),
-        hasClaude ? h("h3", { style: { marginTop: "14px" } }, t("config.role_overrides_claude")) : null,
-        hasClaude ? rolesOf("claude") : null,
+        h("div", { class: hasClaude ? "grid-2" : "" },
+          h("div", { class: "stack", style: { gap: "10px" } },
+            h("h3", {}, "opencode"),
+            preset("model-preset-light", t("config.light_preset"), presetInputs.light, t("config.ask_ci_fixes_replies_and")),
+            preset("model-preset-default", t("config.default_preset"), presetInputs.default, t("config.issue_fixes_daily_tending_and"))),
+          hasClaude ? h("div", { class: "stack", style: { gap: "10px" } },
+            h("h3", {}, "claude"),
+            preset("model-preset-claude-default", t("config.claude_default_preset"), presetInputs.claude_default, t("config.reviews_when_a_repository_is")),
+            preset("model-preset-claude-light", t("config.claude_light_preset"), presetInputs.claude_light, t("config.review_addressing_when_a_repository"))) : null),
+        variables.length ? h("div", { class: "stack", style: { gap: "6px", marginTop: "14px" } },
+          h("h3", {}, t("config.role_overrides"), custom ? h("span", { class: "badge warn", style: { marginLeft: "8px" } }, t("config.n_custom", [custom])) : null),
+          overrides("opencode", "opencode"),
+          hasClaude ? overrides("claude", "claude") : null) : h("div", { class: "empty" }, t("config.no_model_roles_found")),
       );
     } catch (err) {
       if (destroyed) return;
@@ -430,57 +404,14 @@ export function mountConfig(el, arg) {
     }
   }
 
-  async function load() {
-    try {
-      files = (await getJSON("/api/files")).filter((f) => f.kind !== "workflow");
-    } catch (err) {
-      mount(filesNav, h("div", { class: "empty" }, t("config.cannot_list_files", [err.message])));
-      if (section === "file") mount(editorPanel, h("div", { class: "empty" }, t("config.cannot_list_the_local_files")));
-      return;
-    }
-    if (destroyed) return;
-    filesLoaded = true;
-    paintNav();
-    if (section !== "file") return;
-    const selected = files.find((f) => f.path === arg);
-    if (!selected) {
-      mount(editorPanel, h("div", { class: "empty" }, t("config.no_local_config_named", [arg])));
-      return;
-    }
-    await showEditor(selected);
-  }
-
-  async function showEditor(file) {
-    editor?.destroy();
-    editor = await createEditor({ path: file.path, kind: file.kind, readOnly: Boolean(file.generated) });
-    if (destroyed) { editor.destroy(); return; }
-    mount(editorPanel, h("div", { class: "card" },
-      h("div", { class: "row between", style: { marginBottom: "10px" } },
-        h("h2", {}, file.path),
-        h("span", { class: "muted", style: { fontSize: "12px" } },
-          file.exists ? t("config.edited_not_in_git", [bytes(file.size), when(file.mod_time)])
-            : file.optional ? t("config.not_generated_no_repository_needs") : t("config.missing_on_disk_saving_creates")),
-      ),
-      file.generated
-        ? h("p", { class: "warning", style: { marginBottom: "10px" } },
-          t("config.this_file_is_written_from"))
-        : null,
-      editor.el,
-    ));
-    paintNav();
-  }
-
   loadModels();
   loadNotifications();
-  load();
 
   return {
     destroy() {
       destroyed = true;
       window.removeEventListener("beforeunload", beforeUnload);
       setLeaveGuard(null);
-      editor?.destroy();
-      editor = null;
     },
   };
 }

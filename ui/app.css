@@ -173,7 +173,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .btn.sm { padding: 3px 8px; font-size: 12px; }
 
-select, input[type="text"], input[type="search"], textarea {
+select, input[type="text"], input[type="search"], input[type="number"], textarea {
   padding: 6px 10px; border-radius: var(--radius-sm);
   border: 1px solid var(--border); background: var(--surface);
   color: var(--text); font: inherit;
@@ -603,26 +603,33 @@ button.stat:hover { background: var(--surface-2); }
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-/* Repositories table ------------------------------------------------------ */
+/* Repositories: list and settings of the selected one ---------------------- */
 
-.repo-table th.cell-check, .repo-table td.cell-check { text-align: center; }
-.repo-table td { vertical-align: middle; }
-.repo-table input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; accent-color: var(--accent); }
-.repo-table select.provider { padding: 3px 6px; font-size: 12.5px; }
-.repo-table tr.open > td { border-bottom-color: transparent; background: var(--surface-2); }
-.repo-table tr.detail td { background: var(--surface-2); padding: 4px 16px 16px; }
-.repo-table tbody tr.detail:hover { background: var(--surface-2); }
-.repo-table td[data-cell] { transition: background .5s; }
-.repo-table td.saving { opacity: .45; pointer-events: none; }
-.repo-table td.saved { background: var(--ok-soft); }
-.repo-table .cb { position: relative; display: inline-flex; vertical-align: middle; }
-.rules-btn {
-  position: absolute; left: calc(100% + 2px); top: 50%; transform: translateY(-50%);
-  padding: 0 3px; border: 0; background: none; color: var(--muted);
-  font-size: 12px; line-height: 1; cursor: pointer; opacity: 0;
+button.side-item { width: 100%; text-align: left; background: none; font: inherit; cursor: pointer; }
+.dot-state { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: var(--border-strong); }
+.dot-state.ok { background: var(--ok); }
+.dot-state.warn { background: var(--warn); }
+.feat-group { padding: 4px 16px 6px; }
+.feat-group h3 { margin: 10px 0 2px; font-size: 12px; font-weight: 500; }
+.feat-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); transition: background .5s; }
+.feat-group h3 + .feat-row { border-top: 0; }
+.feat-row.saving { opacity: .45; pointer-events: none; }
+.feat-row.saved { background: var(--ok-soft); }
+.feat-text { flex: 1; min-width: 0; }
+.feat-text b { font-weight: 600; }
+.feat-text .muted { font-size: 12.5px; margin-top: 1px; }
+.btn.custom { color: var(--accent); }
+input.switch {
+  appearance: none; flex: none; width: 34px; height: 20px; border-radius: 10px; margin: 0;
+  background: var(--border-strong); position: relative; cursor: pointer; transition: background .15s;
 }
-.repo-table tr:hover .rules-btn, .rules-btn:focus-visible, .rules-btn.custom { opacity: .75; }
-.rules-btn:hover { opacity: 1; color: var(--accent); }
+input.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; transition: transform .15s;
+}
+input.switch:checked { background: var(--ok); }
+input.switch:checked::after { transform: translateX(14px); }
+input.switch:disabled { opacity: .4; cursor: not-allowed; }
 
 /* Rules dialog ------------------------------------------------------------ */
 
@@ -701,3 +708,15 @@ th[aria-sort="descending"]::after { content: " \25BC"; font-size: 9px; }
   .tabs { order: 3; flex: 1 0 100%; }
   .side { top: 100px; }
 }
+
+/* Settings: two columns of presets, folded help and overrides */
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+details.help { border-top: 1px solid var(--border); padding: 8px 0; }
+details.help > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details.help[open] > summary { margin-bottom: 8px; }
+.feat-row.wrap { flex-wrap: wrap; }
+.feat-row.wrap > .cmd { flex: 0 0 100%; width: 100%; resize: vertical; font-size: 12.5px; line-height: 1.5; }
+.chip-x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 0 0 6px; font: inherit; }
+.chip-x:hover { color: var(--err); }
+.author-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: center; }

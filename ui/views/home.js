@@ -129,7 +129,7 @@ export async function mountHome(el) {
       pause ? h("th", {}, t("home.stop")) : null,
     )),
     h("tbody", {}, rows.map((r) => h("tr", {},
-      h("td", {}, h("a", { href: `https://github.com/${r.repo}`, target: "_blank", rel: "noreferrer" }, h("b", {}, r.repo))),
+      h("td", {}, h("a", { href: "#repos" }, h("b", {}, r.repo)), " ", h("a", { class: "muted", href: `https://github.com/${r.repo}`, target: "_blank", rel: "noreferrer", title: t("common.open_on_github") }, "↗")),
       h("td", {}, r.lastAt ? h("span", { title: when(r.lastAt) }, ago(r.lastAt)) : h("span", { class: "muted" }, t("home.none_yet"))),
       h("td", { class: "num" }, String(r.runs7d)),
       h("td", { class: "num" }, r.cost7d ? `$${r.cost7d.toFixed(4)}` : h("span", { class: "muted" }, "—")),

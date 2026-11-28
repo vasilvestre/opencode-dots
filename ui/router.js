@@ -2,8 +2,8 @@
 //   #home (the landing page)
 //   #activity
 //   #workflows[/<name>]
-//   #config[/<file>]
-//   #repos
+//   #config[/models|notifications|appearance]
+//   #repos[/<file>]
 //   #costs
 //   #memory
 //   #autonomy

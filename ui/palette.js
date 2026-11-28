@@ -79,7 +79,7 @@ export function openPalette() {
   }).catch(() => {});
   getJSON("/api/files").then((files) => {
     const cfg = files.filter((f) => f.kind !== "workflow").map((f) => ({
-      label: f.path, hint: t("palette.settings_file"), href: `#config/${f.path}`,
+      label: f.path, hint: t("palette.settings_file"), href: `#repos/${encodeURIComponent(f.path)}`,
     }));
     items = [...items, ...cfg];
     paint();

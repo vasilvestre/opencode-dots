@@ -61,3 +61,11 @@ export function postJSON(url, value) {
     body: JSON.stringify(value),
   });
 }
+
+export function patchJSON(url, value) {
+  return request(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+}
