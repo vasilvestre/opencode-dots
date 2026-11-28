@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ type sandbox struct{}
 
 func (sandbox) Key() string { return "sandbox" }
 func (sandbox) Doc() string {
-	return "check every push before it goes out: {max_lines: N (default 400, up to 5000), allow_paths: [globs], allow_locks: true, test: {image: dots-... or dockerfile: Dockerfile, command: ...}}; the patch goes through bin/patch-guard (no secrets, CI config, links, binaries, or oversized change) and the test runs in a throwaway container with no network; an empty block takes the defaults; required on a client or strict repository (ADR 0032, docs/runner.md)"
+	return "check every push before it goes out: {max_lines: N (default 400, up to 5000), allow_paths: [globs], allow_locks: true, test: {image: dots-... or dockerfile: Dockerfile [target: dev], command: ...}}; the patch goes through bin/patch-guard (no secrets, CI config, links, binaries, or oversized change) and the test runs in a throwaway container with no network; an empty block takes the defaults; required on a client or strict repository (ADR 0032, docs/runner.md)"
 }
 
 func (sandbox) Check(v any) error {
@@ -65,14 +66,16 @@ func (sandbox) Check(v any) error {
 	return nil
 }
 
+var dockerStageName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+
 func checkSandboxTest(v any) error {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return errors.New("must be a block with `image` or `dockerfile`, and `command`")
 	}
 	for k := range m {
-		if k != "image" && k != "dockerfile" && k != "command" {
-			return fmt.Errorf("unknown key %q: image, dockerfile or command", k)
+		if k != "image" && k != "dockerfile" && k != "target" && k != "command" {
+			return fmt.Errorf("unknown key %q: image, dockerfile, target or command", k)
 		}
 	}
 	image, _ := m["image"].(string)
@@ -89,6 +92,15 @@ func checkSandboxTest(v any) error {
 	default:
 		if strings.HasPrefix(dockerfile, "/") || strings.Contains(dockerfile, "..") || strings.ContainsAny(dockerfile, " \t\n") {
 			return errors.New("dockerfile must be a path inside the repository, with no spaces or `..`")
+		}
+	}
+	if target, has := m["target"]; has {
+		name, _ := target.(string)
+		if dockerfile == "" {
+			return errors.New("target needs a dockerfile")
+		}
+		if !dockerStageName.MatchString(name) {
+			return errors.New("target must be the name of a stage: letters, digits, `_`, `.` or `-`")
 		}
 	}
 	command, _ := m["command"].(string)

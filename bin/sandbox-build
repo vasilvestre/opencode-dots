@@ -2,7 +2,10 @@
 # Builds the image a repository's tests run in, from the Dockerfile of its DEFAULT BRANCH, and prints
 # its name. The tests then run on the files of the change in bin/sandbox-test, with no network.
 #
-#   bin/sandbox-build WORKDIR OWNER/REPO DOCKERFILE
+#   bin/sandbox-build WORKDIR OWNER/REPO DOCKERFILE [TARGET]
+#
+# TARGET names a stage of the Dockerfile (`build --target`): a repository keeps one Dockerfile and a `dev`
+# stage for its tests, instead of a second file.
 #
 # Why the default branch and never the change: a build runs the Dockerfile's RUN lines with network
 # access, which is code execution. The Dockerfile a pull request carries is untrusted; the one on the
@@ -13,10 +16,12 @@
 # otherwise the cached image answers. Old tags are kept: prune them with `podman image prune`.
 # Exit: 0 and the name on stdout; 1 when it cannot build (fail closed); 2 on a usage error.
 set -uo pipefail
-[ $# -eq 3 ] || { echo "usage: bin/sandbox-build WORKDIR OWNER/REPO DOCKERFILE" >&2; exit 2; }
-work=$1 repo=$2 dockerfile=$3
+[ $# -eq 3 ] || [ $# -eq 4 ] || { echo "usage: bin/sandbox-build WORKDIR OWNER/REPO DOCKERFILE [TARGET]" >&2; exit 2; }
+work=$1 repo=$2 dockerfile=$3 target=${4:-}
 [ -d "$work" ] || { echo "sandbox-build: $work is not a directory" >&2; exit 2; }
 case "$dockerfile" in ""|/*|*..*) echo "sandbox-build: the Dockerfile path must be inside the repository" >&2; exit 2 ;; esac
+case "$target" in ""|[A-Za-z0-9]*) ;; *) echo "sandbox-build: bad target name" >&2; exit 2 ;; esac
+case "$target" in *[!A-Za-z0-9_.-]*) echo "sandbox-build: bad target name" >&2; exit 2 ;; esac
 case "$repo" in */*) ;; *) echo "sandbox-build: the repository must be OWNER/REPO" >&2; exit 2 ;; esac
 engine=${DOTS_SANDBOX_ENGINE:-docker}
 command -v "$engine" >/dev/null 2>&1 || { echo "sandbox-build: no $engine on this machine, the image cannot be built" >&2; exit 1; }
@@ -32,12 +37,13 @@ tree=$(git -C "$work" rev-parse "$ref^{tree}" 2>/dev/null) || { echo "sandbox-bu
 git -C "$work" cat-file -e "$ref:$dockerfile" 2>/dev/null || { echo "sandbox-build: $ref has no $dockerfile" >&2; exit 1; }
 
 slug=$(printf '%s' "$repo" | tr 'A-Z/' 'a-z-' | tr -c 'a-z0-9_.\n-' '-')
-image="dots-$slug:${tree:0:12}"
+image="dots-$slug:${tree:0:12}${target:+-$target}"
 if "$engine" image inspect "$image" >/dev/null 2>&1; then echo "$image"; exit 0; fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 git -C "$work" archive "$ref" | tar -C "$tmp" -xf - || { echo "sandbox-build: cannot export $ref" >&2; exit 1; }
-timeout "${DOTS_SANDBOX_BUILD_TIMEOUT:-1200}" "$engine" build -q -t "$image" -f "$tmp/$dockerfile" "$tmp" >&2 \
+targetflag=(); [ -n "$target" ] && targetflag=(--target "$target")
+timeout "${DOTS_SANDBOX_BUILD_TIMEOUT:-1200}" "$engine" build -q -t "$image" ${targetflag[@]+"${targetflag[@]}"} -f "$tmp/$dockerfile" "$tmp" >&2 \
   || { echo "sandbox-build: building $image failed or timed out" >&2; exit 1; }
 echo "$image"

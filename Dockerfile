@@ -20,6 +20,18 @@ COPY cmd/dots/ cmd/dots/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/repos ./cmd/repos \
  && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dots ./cmd/dots
 
+# The sandbox test image (docs/runner.md): `docker build --target dev`. The default build below is
+# still the production image, because the last stage wins when no target is named. The module cache
+# is filled here, with network, so `go vet` and `go test` run offline in the container. Go builds
+# test programs in GOTMPDIR, which must be executable: /tmp of the sandbox is not, /work is.
+FROM golang:1.24-bookworm AS dev
+RUN apt-get update && apt-get install -y --no-install-recommends jq \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+ENV GOFLAGS=-mod=mod GOPROXY=off GOCACHE=/work/.gocache GOTMPDIR=/work/.gotmp CGO_ENABLED=0
+
 FROM debian:stable-slim
 
 ARG TARGETARCH=amd64

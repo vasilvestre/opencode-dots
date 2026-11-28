@@ -20,7 +20,7 @@ E2
 chmod +x "$tools/sandbox-test"
 cat >"$tools/sandbox-build" <<'E2'
 #!/bin/sh
-echo "built $2 from $3" >> "$FAKE_LOG"
+echo "built $2 from $3 target=${4:-none}" >> "$FAKE_LOG"
 [ -z "$FAKE_BUILD_FAIL" ] || { echo "sandbox-build: building failed"; exit 1; }
 echo "dots-o-r:abc123"
 E2
@@ -81,7 +81,9 @@ GATE_WORKDIR=/nonexistent GATE_SANDBOX=$(printf %s "$T" | base64 -w0) GATE_ARTIF
 # A Dockerfile instead of an image: the image is built from the repository's default branch first.
 : >"$w/log"
 D='{"test":{"dockerfile":"Dockerfile","command":"make test"}}'
-[ "$(g "$D" "$good")" = 0 ] && grep -q "built o/r from Dockerfile" "$w/log" && grep -q "ran in $w/work with dots-o-r:abc123: make test" "$w/log" && ok "a dockerfile is built, then the tests run in that image" || ko "dockerfile run: $(cat "$w/log")"
+[ "$(g "$D" "$good")" = 0 ] && grep -q "built o/r from Dockerfile target=none" "$w/log" && grep -q "ran in $w/work with dots-o-r:abc123: make test" "$w/log" && ok "a dockerfile is built, then the tests run in that image" || ko "dockerfile run: $(cat "$w/log")"
+: >"$w/log"; DT='{"test":{"dockerfile":"Dockerfile","target":"dev","command":"go test ./..."}}'
+[ "$(g "$DT" "$good")" = 0 ] && grep -q "built o/r from Dockerfile target=dev" "$w/log" && ok "a target stage is passed to the build" || ko "target: $(cat "$w/log")"
 [ "$(FAKE_BUILD_FAIL=1 g "$D" "$good")" = 5 ] && grep -q "test image could not be built" "$w/err" && ok "an image that cannot be built refuses the push" || ko "build failure"
 : >"$w/log"; g "$D" "$ci" >/dev/null; [ ! -s "$w/log" ] && ok "a patch refused by the guard builds nothing" || ko "built after a refusal"
 
@@ -101,6 +103,10 @@ E2
 chmod +x "$b/engine"; export ENGINE_LOG=$w/engine.log; : >"$ENGINE_LOG"
 img=$(DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile 2>/dev/null)
 case "$img" in dots-acme-my.app:????????????) ok "the image is named from the repository and the tree of the default branch" ;; *) ko "image name: $img" ;; esac
+: >"$ENGINE_LOG"; timg=$(DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile dev 2>/dev/null)
+case "$timg" in dots-acme-my.app:????????????-dev) grep -q -- "--target dev" "$ENGINE_LOG" && ok "a target names the image and reaches the build" || ko "target flag missing" ;; *) ko "target image name: $timg" ;; esac
+DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile 'dev;x' >/dev/null 2>&1; [ $? = 2 ] && ok "a target that is not a stage name is a usage error" || ko "bad target accepted"
+: >"$ENGINE_LOG"; DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile >/dev/null 2>&1
 grep -q "trusted" "$ENGINE_LOG" && ! grep -q "curl evil" "$ENGINE_LOG" && ok "the build reads the Dockerfile of the default branch, not the working copy" || ko "built the wrong Dockerfile"
 : >"$ENGINE_LOG"; ENGINE_HAS=1 DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile >/dev/null 2>&1
 ! grep -q "^build" "$ENGINE_LOG" && ok "an image already built is not built again" || ko "rebuilt a cached image"
