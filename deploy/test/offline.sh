@@ -43,6 +43,8 @@ cat >"$work/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >>"$HOME/systemctl.log"
 [ "$2" = is-active ] && echo active
+# This machine has opencode.service only: no dots-opencode.service, so mcp.sh restarts the plain one.
+[ "$2" = cat ] && [ "$3" = dots-opencode.service ] && exit 1
 exit 0
 EOF
 cat >"$work/skillshare" <<'EOF'
