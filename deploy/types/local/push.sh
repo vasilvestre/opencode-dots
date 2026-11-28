@@ -61,6 +61,6 @@ if [ -n "$repos_yaml" ]; then
   [ -f "$repos_yaml" ] || die "$repos_yaml not found"
   log "repos.yaml and the generated files"
   scp -q "${ssh_opts[@]}" "$repos_yaml" "$host:$remote/repos.yaml"
-  ssh "${ssh_opts[@]}" "$host" "chmod 600 '$remote/repos.yaml' && cd '$remote' && bin/repos generate"
+  ssh "${ssh_opts[@]}" "$host" "chmod 600 '$remote/repos.yaml' && cd '$remote' && bin/repos generate -state-path \"\$PWD/state/awf-gh/seen.jsonl\""
 fi
 log "done"
