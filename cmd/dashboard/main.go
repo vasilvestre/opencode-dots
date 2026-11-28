@@ -201,6 +201,7 @@ type dash struct {
 	hub          *hubIssuer      // nil: no subscriber tokens
 	wtokens      *workertokens.Store
 	queue        *jobs.Queue
+	polling      pollingWorkers // the workers that read the queue lately, and the agents they run
 	clones       cloneState
 	gh           string // the gh binary that clones a project; empty means "gh" on the PATH
 	editMu       sync.Mutex

@@ -157,3 +157,47 @@ func TestAnEmergencyStopHoldsJobsBackAndCancelsAClaim(t *testing.T) {
 		t.Fatalf("a global stop offers nothing: %+v", got)
 	}
 }
+
+// A worker that declares its agents is only offered the jobs it can run; one that declares none
+// is not filtered. A job that names no provider runs on opencode, and "any" runs on whatever the
+// worker has.
+func TestJobsAreFilteredByTheWorkersAgents(t *testing.T) {
+	q := Open("")
+	with := func(provider string) Job {
+		in := run("org/app")
+		if provider != "" {
+			in["provider"] = provider
+		}
+		j, err := q.Enqueue("local", "review-pr", in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	plain, claude, anyJob := with(""), with("claude"), with("any")
+	ids := func(agents ...string) map[string]bool {
+		out := map[string]bool{}
+		for _, j := range q.Pending(mine, agents...) {
+			out[j.ID] = true
+		}
+		return out
+	}
+	if got := ids("claude"); got[plain.ID] || !got[claude.ID] || !got[anyJob.ID] {
+		t.Fatalf("claude worker sees %v", got)
+	}
+	if got := ids("opencode"); !got[plain.ID] || got[claude.ID] || !got[anyJob.ID] {
+		t.Fatalf("opencode worker sees %v", got)
+	}
+	if got := ids(); len(got) != 3 {
+		t.Fatalf("a worker that declares nothing sees %v", got)
+	}
+	if _, err := q.Claim(plain.ID, "bob", mine, "claude"); !errors.Is(err, ErrAgent) {
+		t.Fatalf("claude worker claiming an opencode job = %v, want ErrAgent", err)
+	}
+	if _, err := q.Claim(claude.ID, "bob", mine, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Claim(claude.ID, "bob", mine, "claude"); err != nil { // the heartbeat
+		t.Fatal(err)
+	}
+}

@@ -318,3 +318,17 @@ func TestWorkerHintsAreLimitedToTheOwnersItServes(t *testing.T) {
 		t.Fatalf("hints without a token = %d, want 401", rec.Code)
 	}
 }
+
+func TestWorkerAgentsHeaderAndPollingList(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
+	r.Header.Set("X-Worker-Agents", "Claude, gpt , opencode")
+	if got := workerAgents(r); len(got) != 2 || got[0] != "claude" || got[1] != "opencode" {
+		t.Fatalf("agents = %v", got)
+	}
+	var p pollingWorkers
+	p.note("ada#1", []string{"claude"})
+	p.note("ada#1", []string{"claude", "opencode"})
+	if got := p.list(); len(got) != 1 || len(got[0].Agents) != 2 {
+		t.Fatalf("list = %+v", got)
+	}
+}

@@ -28,6 +28,19 @@ bin/repos db worker expire    -name ada-laptop              # end it now
 `registered_at`, `renewed_at` and `expires_at`. The Repos view shows a Workers card with the live
 and expired counts and each machine's age. The card is absent while no worker has registered.
 
+## Which agent a worker runs
+
+A worker says which agent CLIs it runs: `dots-worker -agents claude,opencode` (or `DOTS_AGENTS`), by default
+whatever it finds on `PATH`, opencode first. It sends the list with every request (`X-Worker-Agents`).
+The queue then offers it only the jobs it can run: a job runs on its `provider` input, on opencode when it
+has none, and a worker that declares nothing is not filtered (an older worker keeps working).
+
+A repository can leave the choice to the worker that takes the job: `provider: any`. It needs an
+`executor`, since the choice is made at the queue (so it is set on a repository, never as the default for all of them), and the worker fills in the first agent it runs. A
+colleague who uses only claude and one who uses only opencode can then serve the same repository.
+Health lists the workers reading the queue with their agents (`GET /api/queue/workers`, owner only,
+kept in memory).
+
 ## Not done
 
 Pulling tasks, the executor allow-list of ADR 0032, a token or tailnet identity for a worker, and

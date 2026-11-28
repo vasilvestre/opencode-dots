@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"opencode-dots/internal/events"
@@ -110,12 +112,63 @@ func workerName(t workertokens.Token, r *http.Request) string {
 	return t.Label + "#" + inst
 }
 
+// workerAgents are the agent CLIs a worker says it runs, from its X-Worker-Agents header
+// ("claude,opencode"). None means it says nothing and is not filtered.
+func workerAgents(r *http.Request) []string {
+	var out []string
+	for a := range strings.SplitSeq(strings.ToLower(r.Header.Get("X-Worker-Agents")), ",") {
+		if a = strings.TrimSpace(a); a == "claude" || a == "opencode" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// pollingWorkers remembers each worker that read the queue: its agents and when it last did. It is
+// in memory only, a worker is back within a minute of a restart.
+type pollingWorkers struct {
+	mu   sync.Mutex
+	seen map[string]pollingWorker
+}
+
+type pollingWorker struct {
+	Name   string    `json:"name"`
+	Agents []string  `json:"agents"`
+	Seen   time.Time `json:"seen"`
+}
+
+func (p *pollingWorkers) note(name string, agents []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.seen == nil {
+		p.seen = map[string]pollingWorker{}
+	}
+	p.seen[name] = pollingWorker{Name: name, Agents: agents, Seen: time.Now()}
+}
+
+func (p *pollingWorkers) list() []pollingWorker {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]pollingWorker, 0, len(p.seen))
+	for _, w := range p.seen {
+		out = append(out, w)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// queueWorkers is the owner's view of the workers reading the queue.
+func (d *dash) queueWorkers(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"workers": d.polling.list()})
+}
+
 func (d *dash) jobsPending(w http.ResponseWriter, r *http.Request) {
-	_, repos, ok := d.workerAuth(w, r)
+	t, repos, ok := d.workerAuth(w, r)
 	if !ok {
 		return
 	}
-	writeJSON(w, map[string]any{"jobs": d.queue.Pending(repos)})
+	d.polling.note(workerName(t, r), workerAgents(r))
+	writeJSON(w, map[string]any{"jobs": d.queue.Pending(repos, workerAgents(r)...)})
 }
 
 func (d *dash) jobClaim(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +176,7 @@ func (d *dash) jobClaim(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	j, err := d.queue.Claim(r.PathValue("id"), workerName(t, r), repos)
+	j, err := d.queue.Claim(r.PathValue("id"), workerName(t, r), repos, workerAgents(r)...)
 	if err != nil {
 		jobError(w, err)
 		return
@@ -137,7 +190,7 @@ func (d *dash) jobHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	j, err := d.queue.Claim(r.PathValue("id"), workerName(t, r), repos)
+	j, err := d.queue.Claim(r.PathValue("id"), workerName(t, r), repos, workerAgents(r)...)
 	if err != nil {
 		jobError(w, err)
 		return
@@ -175,7 +228,7 @@ func jobError(w http.ResponseWriter, err error) {
 		code = http.StatusNotFound
 	case errors.Is(err, jobs.ErrTaken), errors.Is(err, jobs.ErrNotYours):
 		code = http.StatusConflict
-	case errors.Is(err, jobs.ErrForbidden):
+	case errors.Is(err, jobs.ErrForbidden), errors.Is(err, jobs.ErrAgent):
 		code = http.StatusForbidden
 	case errors.Is(err, jobs.ErrPaused):
 		code = http.StatusLocked

@@ -36,6 +36,7 @@ var (
 	ErrTaken     = errors.New("jobs: already taken by another worker")
 	ErrForbidden = errors.New("jobs: not a repository of this worker")
 	ErrPaused    = errors.New("jobs: this repository is stopped (an emergency stop)")
+	ErrAgent     = errors.New("jobs: this worker does not run the agent the job needs")
 	ErrNotYours  = errors.New("jobs: this job is held by another worker")
 )
 
@@ -186,14 +187,34 @@ func (q *Queue) claimable(j *Job) bool {
 	return j.State == Pending || (j.State == Taken && !q.Now().Before(j.Lease))
 }
 
-// Pending lists the jobs a worker may claim now, oldest first, for the repositories it may serve.
-func (q *Queue) Pending(repos map[string]bool) []Job {
+// needs is the agent CLI a job runs on: its `provider` input, opencode when it names none (the
+// workflows default to it), and "" for "any", which the worker fills with the agent it has.
+func needs(j *Job) string {
+	switch p, _ := j.Inputs["provider"].(string); p {
+	case "":
+		return "opencode"
+	case "any":
+		return ""
+	default:
+		return p
+	}
+}
+
+// runnable says whether a worker declaring these agents can run the job. A worker that declares
+// none is an older one, or one that says nothing: it is not filtered.
+func runnable(j *Job, agents []string) bool {
+	return len(agents) == 0 || needs(j) == "" || slices.Contains(agents, needs(j))
+}
+
+// Pending lists the jobs a worker may claim now, oldest first, for the repositories it may serve
+// and the agents it runs (none given: every agent).
+func (q *Queue) Pending(repos map[string]bool, agents ...string) []Job {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.settle()
 	var out []Job
 	for _, j := range q.jobs {
-		if repos[j.Repo] && q.claimable(j) && !q.paused(j.Repo) {
+		if repos[j.Repo] && q.claimable(j) && !q.paused(j.Repo) && runnable(j, agents) {
 			out = append(out, *j)
 		}
 	}
@@ -205,7 +226,7 @@ func (q *Queue) Pending(repos map[string]bool) []Job {
 // claim wins; a claim whose lease ran out can be taken over. The holder claiming again renews its
 // lease (the heartbeat) and gets the job back, whose State is Cancelled when the watcher cancelled
 // the run: the worker must then stop it.
-func (q *Queue) Claim(id, by string, repos map[string]bool) (Job, error) {
+func (q *Queue) Claim(id, by string, repos map[string]bool, agents ...string) (Job, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.settle()
@@ -215,6 +236,9 @@ func (q *Queue) Claim(id, by string, repos map[string]bool) (Job, error) {
 	}
 	if !repos[j.Repo] {
 		return Job{}, ErrForbidden
+	}
+	if j.By != by && !runnable(j, agents) {
+		return Job{}, ErrAgent // a holder renewing its claim has already shown it can run it
 	}
 	switch {
 	case j.By == by && j.State == Cancelled:

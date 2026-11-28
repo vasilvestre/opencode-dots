@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -342,5 +344,32 @@ func TestWorkerListsTheRepositoriesItServes(t *testing.T) {
 	w.keepServed(nil)
 	if raw, _ := os.ReadFile(w.servedFile); strings.Contains(string(raw), "/") && strings.Contains(string(raw), "org/webapp") {
 		t.Fatalf("an empty token must clear the list: %q", raw)
+	}
+}
+
+func TestAgentListAndAnyProvider(t *testing.T) {
+	found := func(names ...string) func(string) (string, error) {
+		return func(n string) (string, error) {
+			if slices.Contains(names, n) {
+				return n, nil
+			}
+			return "", errors.New("not found")
+		}
+	}
+	if got := agentList("", found("claude")); len(got) != 1 || got[0] != "claude" {
+		t.Fatalf("detected %v", got)
+	}
+	if got := agentList("", found("claude", "opencode")); got[0] != "opencode" || len(got) != 2 {
+		t.Fatalf("both found: %v", got)
+	}
+	if got := agentList("claude, gpt", found("opencode")); len(got) != 1 || got[0] != "claude" {
+		t.Fatalf("the flag wins and drops unknown names: %v", got)
+	}
+	w := &worker{agents: []string{"claude"}}
+	if got := w.withAgent(map[string]any{"provider": "any", "pr": "7"}); got["provider"] != "claude" || got["pr"] != "7" {
+		t.Fatalf("any not filled: %v", got)
+	}
+	if got := w.withAgent(map[string]any{"provider": "opencode"}); got["provider"] != "opencode" {
+		t.Fatalf("a named provider must stay: %v", got)
 	}
 }

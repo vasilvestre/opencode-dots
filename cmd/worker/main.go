@@ -52,10 +52,11 @@ type worker struct {
 	poll       time.Duration
 	heartbeat  time.Duration
 	awfPoll    time.Duration
-	instance   string // tells this process apart from another one running the same token
-	servedFile string // the repositories this worker serves, for the local dashboard; empty: not kept
-	hintsFile  string // where the team's folder suggestions are kept for bin/where; empty: not kept
-	whereBin   string // bin/where, to say where a missing project should go; empty: no advice
+	instance   string   // tells this process apart from another one running the same token
+	agents     []string // the agent CLIs this machine runs, told to the server with every request
+	servedFile string   // the repositories this worker serves, for the local dashboard; empty: not kept
+	hintsFile  string   // where the team's folder suggestions are kept for bin/where; empty: not kept
+	whereBin   string   // bin/where, to say where a missing project should go; empty: no advice
 	wake       chan struct{}
 	log        *log.Logger
 }
@@ -69,6 +70,7 @@ func main() {
 	poll := flag.Duration("poll", time.Minute, "how often the queue is read when the hub says nothing")
 	hints := flag.String("hints-file", cmp.Or(os.Getenv("DOTS_HINTS"), filepath.Join(home, ".config", "dots", "hints")), "where the team's folder suggestions are written, for bin/where (empty: not kept)")
 	served := flag.String("served-file", cmp.Or(os.Getenv("DOTS_SERVED"), filepath.Join(home, ".config", "dots", "served")), "where the repositories this worker serves are listed, for the local dashboard (empty: not kept)")
+	agentsFlag := flag.String("agents", os.Getenv("DOTS_AGENTS"), "agent CLIs this machine runs, comma separated: claude, opencode (empty: those found on PATH, the first listed is used for a job that leaves the choice open)")
 	once := flag.Bool("once", false, "claim and run what is pending, then stop")
 	flag.Parse()
 	if *base == "" {
@@ -83,6 +85,8 @@ func main() {
 		token = strings.TrimSpace(string(raw))
 	}
 	w := newWorker(*base, token, *awf)
+	w.agents = agentList(*agentsFlag, exec.LookPath)
+	log.Printf("worker: runs %s", strings.Join(w.agents, ", "))
 	w.poll = *poll
 	w.hintsFile = *hints
 	w.servedFile = *served
@@ -120,6 +124,9 @@ func (w *worker) call(ctx context.Context, method, path string, body any, out an
 	}
 	req.Header.Set("Authorization", "Bearer "+w.token)
 	req.Header.Set("X-Worker-Instance", w.instance)
+	if len(w.agents) > 0 {
+		req.Header.Set("X-Worker-Agents", strings.Join(w.agents, ","))
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -248,7 +255,7 @@ func (w *worker) execute(ctx context.Context, j job) {
 }
 
 func (w *worker) startRun(ctx context.Context, j job) (string, error) {
-	raw, _ := json.Marshal(map[string]any{"inputs": j.Inputs})
+	raw, _ := json.Marshal(map[string]any{"inputs": w.withAgent(j.Inputs)})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/workflows/%s/%s/run", w.awf, url.PathEscape(j.Scope), url.PathEscape(j.Workflow)), bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := w.client.Do(req)
@@ -471,4 +478,39 @@ func (w *worker) keepServed(topics []string) {
 		return
 	}
 	_ = atomicfile.Write(w.servedFile, []byte(body), 0o644)
+}
+
+// agentList is what this machine runs: the -agents flag when set, else each agent CLI found on
+// PATH, opencode first. A name other than claude or opencode is dropped.
+func agentList(flagValue string, look func(string) (string, error)) []string {
+	var out []string
+	add := func(name string) {
+		if (name == "claude" || name == "opencode") && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	if flagValue != "" {
+		for name := range strings.SplitSeq(flagValue, ",") {
+			add(strings.ToLower(strings.TrimSpace(name)))
+		}
+		return out
+	}
+	for _, name := range []string{"opencode", "claude"} {
+		if _, err := look(name); err == nil {
+			add(name)
+		}
+	}
+	return out
+}
+
+// withAgent fills a job that leaves the agent open ("provider: any") with the first agent this
+// machine runs. Every other input goes through as it is.
+func (w *worker) withAgent(inputs map[string]any) map[string]any {
+	if p, _ := inputs["provider"].(string); p != "any" || len(w.agents) == 0 {
+		return inputs
+	}
+	out := make(map[string]any, len(inputs))
+	maps.Copy(out, inputs)
+	out["provider"] = w.agents[0]
+	return out
 }
