@@ -33,6 +33,9 @@ if [ -z "$ref" ]; then
   done
 fi
 [ -n "$ref" ] || { echo "sandbox-build: the default branch of $repo is not known in this checkout" >&2; exit 1; }
+# A clone made for a pull request can hold an old copy of the default branch, from before its
+# Dockerfile changed. Refresh it; offline, the copy it has is still a state the owner merged.
+git -C "$work" fetch -q origin "${ref#origin/}" >/dev/null 2>&1 || echo "sandbox-build: could not refresh $ref, using the copy this checkout has" >&2
 tree=$(git -C "$work" rev-parse "$ref^{tree}" 2>/dev/null) || { echo "sandbox-build: cannot read $ref" >&2; exit 1; }
 git -C "$work" cat-file -e "$ref:$dockerfile" 2>/dev/null || { echo "sandbox-build: $ref has no $dockerfile" >&2; exit 1; }
 

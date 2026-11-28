@@ -110,6 +110,10 @@ DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Docke
 grep -q "trusted" "$ENGINE_LOG" && ! grep -q "curl evil" "$ENGINE_LOG" && ok "the build reads the Dockerfile of the default branch, not the working copy" || ko "built the wrong Dockerfile"
 : >"$ENGINE_LOG"; ENGINE_HAS=1 DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile >/dev/null 2>&1
 ! grep -q "^build" "$ENGINE_LOG" && ok "an image already built is not built again" || ko "rebuilt a cached image"
+# the default branch moves on after the clone was made: the build must see the new Dockerfile
+printf 'FROM alpine\nRUN echo newer\n' >"$b/up/Dockerfile"; git -C "$b/up" -c user.email=t@t -c user.name=t commit -q -am newer
+: >"$ENGINE_LOG"; DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile >/dev/null 2>&1
+grep -q "newer" "$ENGINE_LOG" && ok "a default branch that moved since the clone is fetched before the build" || ko "built a stale Dockerfile"
 DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Missing >/dev/null 2>&1; [ $? = 1 ] && ok "a Dockerfile the default branch does not have refuses" || ko "missing Dockerfile"
 DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App ../x >/dev/null 2>&1; [ $? = 2 ] && ok "a path leaving the repository is a usage error" || ko "path traversal"
 DOTS_SANDBOX_ENGINE=no-such-engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile >/dev/null 2>&1; [ $? = 1 ] && ok "no container engine means no build (fail closed)" || ko "no engine"
