@@ -59,3 +59,4 @@ notifications.json.*.bak
 
 *.bak
 *.bak-*
+!bin/sandbox-build
