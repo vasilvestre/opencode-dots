@@ -86,6 +86,8 @@ repos:
       test: {image: dots-test, command: make test}   # optional, in a throwaway container
       # or build the image from the repository's own Dockerfile:
       # test: {dockerfile: Dockerfile, command: make test}
+      # or a stage of that Dockerfile, so there is one file and no second one for tests:
+      # test: {dockerfile: Dockerfile, target: dev, command: make test}
 ```
 
 - An empty block (`sandbox: {}`) takes the defaults and checks the patch only.
@@ -120,6 +122,19 @@ is on. `bin/sandbox-build WORKDIR OWNER/REPO PATH` does it:
   over `DOTS_SANDBOX_BUILD_TIMEOUT` (1200 s) refuses the push.
 - **Then the tests are the same as before:** the change's files, no network, read-only root. The image
   must carry the dependencies, since nothing can be installed at run time.
+
+**A `dev` stage instead of a second Dockerfile.** `target: dev` builds that stage only (`build --target dev`),
+so the repository keeps one Dockerfile: a production image as the last stage, and a test image as a stage
+before it. Since the last stage wins when no target is named, a plain `docker build` is unchanged. This
+repository does it (`Dockerfile`, stage `dev`: Go 1.24, `jq`, the module cache filled at build with network).
+Two things a test stage must know:
+
+- The tests run with no network, so everything they need is downloaded when the image is built (for Go,
+  `RUN go mod download`, then `GOPROXY=off` at run time).
+- `/tmp` of the sandbox is `noexec`, and Go builds test programs, and some tests run scripts, from the
+  temporary directory. Point `TMPDIR`, `GOTMPDIR` and `GOCACHE` at `/work` (writable and executable) in the
+  stage, and create the directory in the command: `mkdir -p /work/.gotmp && go vet ./... && go test ./...`.
+  Measured on the personal server with podman: 1 min 24 s for `go vet` and `go test ./...` of this repository.
 
 The build still runs the Dockerfile's commands with network as the unprivileged user of the server, so use
 `dockerfile` on repositories whose default branch only you (or people you trust) can change.
