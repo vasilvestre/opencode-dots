@@ -176,7 +176,7 @@ states:
     command: |
       set -eu
       d=${STATE_DIR:-/state}/fix/{{.inputs.repo}}/issue-{{.inputs.issue}}
-      rm -f "${STATE_DIR:-/state}/classify/{{.inputs.repo}}/issue-{{.inputs.issue}}.json" "$d/item_class"
+      rm -f "${STATE_DIR:-/state}/classify/{{.inputs.repo}}/issue-{{.inputs.issue}}.json" "${STATE_DIR:-/state}/classify/{{.inputs.repo}}/issue-{{.inputs.issue}}.agent_failed" "$d/item_class"
       jq -r '"# \(.title)\n\n\(.body // "")\n\n" + ([.comments[]? | "--\n\(.body // "")"] | join("\n"))' \
         "$d/issue.json" | head -c 8000
     timeout: 60
@@ -192,7 +192,24 @@ states:
       text: "{{.states.classify_text.Output}}"
     timeout: 1000
     on_success: level
-    on_failure: level
+    on_failure: classify_failed
+
+  # The classification call failed. Two cases. The agent itself failed (it crashed, no provider, a
+  # timeout): that is not a rating, and a fix whose every comment and push would be a note only costs a
+  # model call, so the run stops here and the failure is visible. The agent answered badly or not at
+  # all: that is the fail-closed path, and `level` reads it as 3.
+  classify_failed:
+    type: step
+    command: |
+      m=${STATE_DIR:-/state}/classify/{{.inputs.repo}}/issue-{{.inputs.issue}}.agent_failed
+      if [ -e "$m" ]; then
+        echo "classification failed: the agent did not run, the run stops and nothing was fixed or posted" >&2
+        exit 1
+      fi
+      echo "classification gave no valid answer: the item is treated as level 3"
+    timeout: 10
+    on_success: level
+    on_failure: error
 
   # The level the publish gate reads. A missing, unreadable or out-of-range
   # result is level 3: with a ceiling set, an unclassified item fails closed.

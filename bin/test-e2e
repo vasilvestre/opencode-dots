@@ -160,6 +160,15 @@ section_classify() {
     case_done
   done
 
+  case_new "classify crash"
+  FAKE_CLASS=crash FAKE_FIX=patch run_wf fix-issue repo=$REPO issue=7 autonomy=auto
+  check "classification crash: the run fails" test "$RC" != 0
+  check "classification crash: the fix agent did not run" bash -c "! agent_ran fix"
+  check "classification crash: nothing pushed" no_branch 'fix/*'
+  check "classification crash: no pull request" gh_none '^gh pr create'
+  check "classification crash: the reason is printed" grep -q 'classification failed' "$T/out.log"
+  case_done
+
   say "== fix-issue: the sandbox check before a push =="
   local sb
   for sb in pass refuse; do

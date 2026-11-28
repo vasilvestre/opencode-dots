@@ -99,7 +99,11 @@ Only when the `autonomy` input is non-empty. After `fetch`:
    `text` input. The text never enters a shell command.
 4. `level` reads `level` from `STATE_DIR/classify/<repo>/issue-<n>.json` and writes
    it to `STATE_DIR/fix/<repo>/issue-<n>/item_class`. Anything that is not 1, 2 or
-   3 (file missing, bad JSON, the classify run failed) becomes 3.
+   3 (file missing, bad JSON, an answer that fails the schema) becomes 3. The call itself is
+   checked first: when the classification agent fails (it crashes, no provider, a timeout),
+   `_classify-item` leaves `STATE_DIR/classify/<repo>/issue-<n>.agent_failed` and `classify_failed`
+   stops `fix-issue` there. The run fails, no fix is attempted and nothing is posted, so the
+   failure is visible. A bad or missing answer leaves no marker and still reads as level 3.
 
 Each `publish-gate` call in `push`, and `notify` reads `item_class` (3 if the file
 is absent) and passes it as `ITEM_CLASS`. Level 3: the agent still analyses, and

@@ -5,7 +5,7 @@
 # $FAKE_DIR/agent.log. It never reads the network and runs no model.
 #
 # Knobs (environment, set by the harness per case):
-#   FAKE_CLASS   1|2|3 (valid answer of that level), bad (invalid JSON), none (no file)
+#   FAKE_CLASS   1|2|3 (valid answer of that level), bad (invalid JSON), none (no file), crash (exit 1)
 #   FAKE_FIX     patch (edit + fix.md + answer.md), decline (answer.md only),
 #                half (edit, no fix.md)
 #   FAKE_REVIEW  clean-merge | finding-then-merge | finding-hold
@@ -27,6 +27,7 @@ case "$prompt" in
     mkdir -p "$w"
     case "${FAKE_CLASS:-1}" in
       none) exit 0 ;;
+      crash) echo "opencode: model unavailable" >&2; exit 1 ;;
       bad) printf 'not json at all\n' > "$w/answer.json"; exit 0 ;;
     esac
     printf '%s\n' "$prompt" | sed -n '/^<item>$/,/^<\/item>$/p' | sed '1d;$d' > "$w/item.txt"

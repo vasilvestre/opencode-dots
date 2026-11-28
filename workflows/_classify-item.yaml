@@ -58,6 +58,7 @@ states:
       set -eu
       d=${STATE_DIR:-/state}/classify/{{.inputs.repo}}/work-{{.inputs.key}}
       rm -rf "$d"
+      rm -f "${STATE_DIR:-/state}/classify/{{.inputs.repo}}/{{.inputs.key}}.agent_failed"
       mkdir -p "$d"
       echo "workspace $d"
     timeout: 60
@@ -121,6 +122,21 @@ states:
       raise the level; you cannot lower it.
     timeout: 900
     on_success: record
+    on_failure: agent_failed
+
+  # The agent itself failed (it crashed, no provider, a timeout): that is infrastructure, not a
+  # rating. The caller reads this marker to stop instead of rating the item 3 and going on. A bad
+  # or missing answer leaves no marker and fails in `record`.
+  agent_failed:
+    type: step
+    command: |
+      set -eu
+      d=${STATE_DIR:-/state}/classify/{{.inputs.repo}}
+      mkdir -p "$d"
+      : > "$d/{{.inputs.key}}.agent_failed"
+      echo "the classification agent failed" >&2
+      exit 1
+    timeout: 10
     on_failure: error
 
   record:
