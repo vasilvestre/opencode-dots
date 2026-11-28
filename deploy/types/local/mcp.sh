@@ -39,8 +39,9 @@ mkdir -p "\$(dirname "\$conf")"
 res=\$(merge_tower_mcp "\$conf"); rc=\$?
 [ \$rc = 0 ] || { echo "MERGE_FAILED \$rc"; exit 11; }
 echo "RESULT \$res"
-if [ "\$res" = changed ]; then systemctl --user restart opencode.service || { echo "RESTART_FAILED"; exit 12; }; fi
-echo "ACTIVE \$(systemctl --user is-active opencode.service)"
+unit=opencode.service; systemctl --user cat dots-opencode.service >/dev/null 2>&1 && unit=dots-opencode.service
+if [ "\$res" = changed ]; then systemctl --user restart "\$unit" || { echo "RESTART_FAILED"; exit 12; }; fi
+echo "ACTIVE \$(systemctl --user is-active "\$unit")"
 REMOTE
 )
 rc=$?
@@ -49,7 +50,7 @@ case $rc in
   0) ;;
   10) die "tower is missing on the server: push it first with push.sh --tower" ;;
   11) die "the opencode config on the server is not plain JSON (a // comment?) or cannot be merged, left untouched: add \"mcp\": {\"tower\": {\"type\": \"local\", \"command\": [\"tower\", \"mcp\"], \"enabled\": true}} to it by hand" ;;
-  12) die "the config was written but opencode.service did not restart" ;;
+  12) die "the config was written but opencode.service (opencode.service or dots-opencode.service) did not restart" ;;
   *) die "the server step failed (exit $rc)" ;;
 esac
 res=$(printf '%s\n' "$out" | sed -n 's/^RESULT //p')
@@ -57,4 +58,4 @@ case $res in
   changed) log "tower MCP added, opencode restarted (the previous config is kept beside it as .bak-<time>)" ;;
   *) log "tower MCP already there, nothing changed" ;;
 esac
-log "opencode.service: $(printf '%s\n' "$out" | sed -n 's/^ACTIVE //p')"
+log "opencode service: $(printf '%s\n' "$out" | sed -n 's/^ACTIVE //p')"
