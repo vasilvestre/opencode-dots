@@ -228,7 +228,7 @@ export function mountActivity(el) {
       h(onclick ? "button" : "div", { class: `stat ${tone}`, onclick, title },
         h("b", {}, String(value)), h("span", {}, label));
     mount(kpis,
-      stat(ts("running"), state.runs.length, { tone: state.runs.length ? "live" : "" }),
+      stat(ts("running"), state.runs.length + liveRemote().length, { tone: state.runs.length + liveRemote().length ? "live" : "" }),
       stat(ts("failed"), failed, {
         tone: failed ? "bad" : "",
         title: failed ? t("activity.show_the_failed_runs_in") : "",
@@ -250,8 +250,12 @@ export function mountActivity(el) {
   }
 
   // --- running runs -------------------------------------------------------
+  // Runs an executor reports as running: lines, not cards, since this machine has no log of them.
+  const liveRemote = () => state.remote.executions.filter((e) => e.status === "running" && !(e.workflow_name || "").startsWith("_"));
+
   function renderRuns() {
-    runsCount.textContent = state.runs.length ? `${state.runs.length} running` : t("activity.nothing_running");
+    const total = state.runs.length + liveRemote().length;
+    runsCount.textContent = total ? `${total} running` : t("activity.nothing_running");
     const alive = new Set(state.runs.map((e) => e.execution_id));
     for (const [id, entry] of runCards) {
       if (!alive.has(id)) {
@@ -261,7 +265,9 @@ export function mountActivity(el) {
       }
     }
     if (!state.runs.length) {
-      mount(runs, h("div", { class: "empty" }, t("activity.no_workflow_running_the_watcher")));
+      // The empty notice is only true when no executor is running something either.
+      if (liveRemote().length) runs.replaceChildren();
+      else mount(runs, h("div", { class: "empty" }, t("activity.no_workflow_running_the_watcher")));
       return;
     }
     if (runs.querySelector(".empty")) runs.replaceChildren();
@@ -288,9 +294,8 @@ export function mountActivity(el) {
   // The executors run tasks this machine only watches. Their live runs have no
   // log here, so they are listed as lines, not as cards with a stream.
   function renderRemote() {
-    const live = state.remote.executions.filter((e) => e.status === "running" && !(e.workflow_name || "").startsWith("_"));
+    const live = liveRemote();
     const down = state.remote.executors.filter((x) => !x.up);
-    if (live.length) runsCount.textContent = `${state.runs.length + live.length} running`;
     mount(remoteBox, [
       ...live.map((e) => h("div", { class: "row" },
         h("b", {}, e.workflow_name),
