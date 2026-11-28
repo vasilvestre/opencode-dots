@@ -95,13 +95,13 @@ write_unit() { # unit
   masked "$u" && return 0 # a mask is the user's choice
   [ -f "$f" ] || { echo "dots-units: $f is missing" >&2; return 1; }
   at=$(home_rel)
-  local awfsed=cat
-  if [ ! -x /usr/local/bin/awf ] && [ -x "$HOME/.local/bin/awf" ]; then awfsed="sed s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |"; fi
+  local awfexpr=b # sed's "b" leaves the line as it is
+  if [ ! -x /usr/local/bin/awf ] && [ -x "$HOME/.local/bin/awf" ]; then awfexpr='s|^ExecStart=/usr/local/bin/awf |ExecStart=%h/.local/bin/awf |'; fi
   if [ "$dry" = 1 ]; then echo "  would write $dst/$u"; return; fi
   # The target may be a link to the very file in systemd/ (an install by hand): writing through it
   # would empty the source. Render to a temporary file, then replace the target by a real file.
   local tmp; tmp=$(mktemp "$dst/.$u.XXXXXX")
-  sed -e "s|%h/projects/perso/opencode-dots|$at|g" "$f" | $awfsed >"$tmp"
+  sed -e "s|%h/projects/perso/opencode-dots|$at|g" "$f" | sed -e "$awfexpr" >"$tmp"
   [ -s "$tmp" ] || { rm -f "$tmp"; echo "dots-units: rendering $u gave nothing, left as it was" >&2; return 1; }
   chmod 644 "$tmp"; mv -f "$tmp" "$dst/$u"
 }

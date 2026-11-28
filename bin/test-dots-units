@@ -92,6 +92,13 @@ bin/dots-units prune >/dev/null 2>&1
 [ -e "$u/dots-custom.service" ] && [ -e "$u/dots-awf.service" ] && ok "prune leaves the rest alone" || ko "prune too far"
 : >"$h/sc.log"; bin/dots-units prune --dry-run >/dev/null 2>&1; [ ! -s "$h/sc.log" ] && ok "--dry-run touches nothing" || ko "dry-run"
 
+# awf in ~/.local/bin (a server that installs the release binary there): ExecStart follows it, no sed error
+if [ ! -x /usr/local/bin/awf ]; then
+  mkdir -p "$h/.local/bin"; : >"$h/.local/bin/awf"; chmod +x "$h/.local/bin/awf"; rm -f "$u"/*
+  err=$(bin/dots-units install --role server 2>&1 >/dev/null)
+  grep -q "^ExecStart=%h/.local/bin/awf serve" "$u/dots-awf.service" && [ -z "$err" ] && ok "awf in ~/.local/bin: ExecStart follows it" || ko "awf in ~/.local/bin: $err"
+fi
+
 # manifests only name unit files that exist
 for role in workstation server worker; do
   for f in $(bash -c "source <(sed -n '/^units_for()/,/^}/p' bin/dots-units); root=$root; units_for $role" 2>/dev/null); do
