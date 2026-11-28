@@ -180,6 +180,14 @@ if [ -n "${GATE_SANDBOX:-}" ] && [ "$action" = push ]; then
     refuse_sandbox "patch guard: $(printf '%s' "$guard_out" | head -n 3 | tr '\n' ' ')"
   fi
   test_image=$(jq -r '.test.image // empty' <<<"$sandbox_json")
+  test_dockerfile=$(jq -r '.test.dockerfile // empty' <<<"$sandbox_json")
+  if [ -n "$test_dockerfile" ]; then
+    [ -n "${GATE_WORKDIR:-}" ] && [ -d "$GATE_WORKDIR" ] || refuse_sandbox "tests are configured but no checkout was given"
+    [ -n "$pause_repo" ] || refuse_sandbox "the repository is not known, the image cannot be named"
+    # Built from the default branch, never from the change: see bin/sandbox-build.
+    test_image=$("$guard_root/sandbox-build" "$GATE_WORKDIR" "$pause_repo" "$test_dockerfile" 2>&1 | tail -n 1) \
+      && [ "${test_image#dots-}" != "$test_image" ] || refuse_sandbox "the test image could not be built: $test_image"
+  fi
   if [ -n "$test_image" ]; then
     [ -n "${GATE_WORKDIR:-}" ] && [ -d "$GATE_WORKDIR" ] || refuse_sandbox "tests are configured but no checkout was given"
     if ! test_out=$("$guard_root/sandbox-test" "$GATE_WORKDIR" "$test_image" "$(jq -r '.test.command' <<<"$sandbox_json")" 2>&1); then

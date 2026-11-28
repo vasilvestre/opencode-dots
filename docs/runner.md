@@ -84,6 +84,8 @@ repos:
       allow_paths: ["src/*", "tests/*"]   # optional: every touched path must match one
       allow_locks: false                  # lock files are refused unless true
       test: {image: dots-test, command: make test}   # optional, in a throwaway container
+      # or build the image from the repository's own Dockerfile:
+      # test: {dockerfile: Dockerfile, command: make test}
 ```
 
 - An empty block (`sandbox: {}`) takes the defaults and checks the patch only.
@@ -101,7 +103,28 @@ repos:
 - The setting reaches a workflow as the input `sandbox`, the base64 of the block's JSON, so that a quote in a command
   cannot break the shell line. `GATE_SANDBOX` and `GATE_WORKDIR` carry it into the gate.
 
-Tests: `bin/test-gate-sandbox` (the gate, with a fake test runner), the e2e cases of `review-pr` and `fix-issue`
+
+### A repository with a Dockerfile
+
+With `test: {dockerfile: PATH, command: ...}` the gate builds the image itself, so a repository that already
+has a Dockerfile needs no hand-made `dots-*` image, and its tests run on the server whether or not a laptop
+is on. `bin/sandbox-build WORKDIR OWNER/REPO PATH` does it:
+
+- **The Dockerfile comes from the default branch, never from the change.** A build runs the `RUN` lines
+  with network access, which is code execution; the Dockerfile in a pull request is not trusted, the one
+  its owner merged is. A change that edits the Dockerfile is tested on the old image until it is merged.
+  The build context is the default branch's tree (`git archive`), not the working copy.
+- **Built once per merge.** The image is `dots-<owner>-<repo>:<12 characters of the tree>`, so the cache
+  answers until the default branch changes. Old tags stay: free the disk with `podman image prune`.
+- **Fails closed.** No engine, no Dockerfile on the default branch, an unknown default branch or a build
+  over `DOTS_SANDBOX_BUILD_TIMEOUT` (1200 s) refuses the push.
+- **Then the tests are the same as before:** the change's files, no network, read-only root. The image
+  must carry the dependencies, since nothing can be installed at run time.
+
+The build still runs the Dockerfile's commands with network as the unprivileged user of the server, so use
+`dockerfile` on repositories whose default branch only you (or people you trust) can change.
+
+Tests: `bin/test-gate-sandbox` (the gate, with a fake test runner and a fake engine for `sandbox-build`), the e2e cases of `review-pr` and `fix-issue`
 (`bin/test-e2e`), and `internal/repos` for the key.
 
 ## Which engine on a server

