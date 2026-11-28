@@ -18,7 +18,7 @@ func TestNoBareWriteFile(t *testing.T) {
 	filepath.WalkDir(root, func(p string, d fs.DirEntry, _ error) error {
 		rel, _ := filepath.Rel(root, p)
 		if d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") ||
-			!(strings.HasPrefix(rel, "cmd/") || strings.HasPrefix(rel, "internal/")) || strings.HasPrefix(rel, "internal/atomicfile/") {
+			(!strings.HasPrefix(rel, "cmd/") && !strings.HasPrefix(rel, "internal/")) || strings.HasPrefix(rel, "internal/atomicfile/") {
 			return nil
 		}
 		b, _ := os.ReadFile(p)
