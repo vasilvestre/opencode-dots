@@ -497,12 +497,14 @@ states:
       Do not run commands. Do not edit any file. Write one Markdown review to
       {{.env.STATE_DIR}}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}/review.md
 
-      Report only what is wrong. Do not summarise the diff and never write a
-      line saying a thing came out clean: it costs the reader time and tells
-      them nothing. Keep the review under 30 lines unless a finding needs a
-      code block.
+      Report what is wrong, and nothing else about the diff: do not summarise
+      it. Keep the review under 30 lines unless a finding needs a code block.
 
-      Write two sections, in this order. A section with no finding is one line.
+      Write two sections, in this order. Never leave a section bare: a title
+      with nothing under it reads as a review that did not run. A section with
+      no finding is one line that starts with `- checked:`, says what you
+      looked at (the files and the kind of change) and that nothing in it
+      breaks, so the reader can tell what the review covered.
 
       1. Correctness. Findings as bullets: the file, the line, and what breaks
       for the user.
@@ -523,8 +525,10 @@ states:
       - Failure: what happens when the network, the API or the disk fails, and
       whether the error path leaks data or leaves a half-written state.
 
-      When none of them breaks, the whole section is one line. Never invent a
-      finding to fill it.
+      When none of them breaks, the whole section is one `- checked:` line that
+      names the points the diff touches (or says it touches no input, secret,
+      permission, deletion, dependency or error path). Never invent a finding
+      to fill it.
 
       Also write one word to
       {{.env.STATE_DIR}}/reviews/pr{{.inputs.pr}}-{{.inputs.sha}}/verdict.txt:
