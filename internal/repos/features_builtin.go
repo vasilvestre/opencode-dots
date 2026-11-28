@@ -274,13 +274,13 @@ type provider struct{}
 
 func (provider) Key() string { return "provider" }
 func (provider) Doc() string {
-	return "agent CLI for this repository: opencode (default) or claude, passed as the provider input of the workflows that take one"
+	return "agent CLI for this repository: opencode (default), claude, or any (the worker that takes the job uses the agent it has; needs an executor), passed as the provider input of the workflows that take one"
 }
 
 func (provider) Check(v any) error {
 	s, ok := v.(string)
-	if !ok || (s != "opencode" && s != "claude") {
-		return errors.New("must be opencode or claude")
+	if !ok || (s != "opencode" && s != "claude" && s != "any") {
+		return errors.New("must be opencode, claude or any")
 	}
 	return nil
 }
@@ -289,6 +289,12 @@ func (provider) Emit(*Resolved, *Output) error { return nil }
 
 func (provider) Modify(r *Resolved, out *Output, from int) error {
 	name := r.Values["provider"].(string)
+	if name == "any" {
+		// The choice is made by the worker that takes the job, so there has to be a queue.
+		if _, ok := r.Values["executor"]; !ok {
+			return errors.New("provider any needs an executor: the worker that takes the job chooses the agent")
+		}
+	}
 	if name == "opencode" {
 		return nil // the workflows default to it
 	}

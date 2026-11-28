@@ -176,7 +176,7 @@ func TestCheckoutAndTendValues(t *testing.T) {
 		{"checkout: [a]", "must be an absolute path"},
 		{"tend: {auto_merge: maybe}", "auto_merge must be true or false"},
 		{"tend: {delay: 1}", "unknown option"},
-		{"provider: gemini", "must be opencode or claude"},
+		{"provider: gemini", "must be opencode, claude or any"},
 	} {
 		if got := buildErr(t, "version: 1\nrepos:\n  a/b:\n    "+c.block+"\n"); !strings.Contains(got, c.want) {
 			t.Errorf("%s: error = %q, want %q", c.block, got, c.want)
@@ -695,5 +695,26 @@ func TestCheckoutHintsAreChecked(t *testing.T) {
 		if err := ok(hints); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestProviderAnyNeedsAnExecutor(t *testing.T) {
+	ok := "version: 1\nsettings:\n  executors:\n    pc: http://127.0.0.1:2512\nrepos:\n  acme/remote: {review: true, provider: any, executor: pc}\n"
+	files, err := Build([]byte(ok), t.TempDir(), Settings{StatePath: "/s/seen.jsonl"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for name, content := range files {
+		if strings.Contains(name, "pc") && strings.Contains(string(content), "provider: any") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the rule of an executor repository should carry provider any: %v", files)
+	}
+	bad := "version: 1\nrepos:\n  acme/local: {review: true, provider: any}\n"
+	if _, err := Build([]byte(bad), t.TempDir(), Settings{}); err == nil || !strings.Contains(err.Error(), "needs an executor") {
+		t.Fatalf("provider any without an executor must be refused: %v", err)
 	}
 }

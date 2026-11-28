@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // dotID is a dot's name: it appears in repos.yaml on every server that shares a repository.
@@ -69,4 +70,32 @@ func withSkipped(body []byte, n int) []byte {
 	}
 	h := len(commentHeader())
 	return append(append(append([]byte{}, body[:h]...), skippedLine(n)...), body[h:]...)
+}
+
+// Set changes one of the settings an editor may write: how many items a watcher pass takes
+// (nil clears it) and this server's dot id (empty clears it). Trust and executors are edited in the
+// file, where their cross-checks can be read.
+func (s *Settings) Set(key string, value any) error {
+	switch key {
+	case "max_per_run":
+		if value == nil {
+			s.MaxPerRun = 0
+			return nil
+		}
+		n, ok := value.(float64)
+		if !ok || n != float64(int(n)) || n < 1 || n > 50 {
+			return errors.New("max_per_run is a whole number from 1 to 50")
+		}
+		s.MaxPerRun = int(n)
+	case "dot_id":
+		id, _ := value.(string)
+		id = strings.TrimSpace(id)
+		if id != "" && !dotID.MatchString(id) {
+			return errors.New("dot_id is lowercase letters, digits, - and _")
+		}
+		s.DotID = id
+	default:
+		return fmt.Errorf("the page does not edit settings.%s: use the repos.yaml editor", key)
+	}
+	return nil
 }

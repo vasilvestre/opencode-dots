@@ -30,3 +30,27 @@ func TestJiraRejectsAnythingButAProjectKey(t *testing.T) {
 		}
 	}
 }
+
+// A client project with two Jira projects for one repository: one line each, the same repository.
+func TestJiraSeveralProjectsForOneRepository(t *testing.T) {
+	doc, err := Parse([]byte("version: 1\nrepos:\n  acme/app:\n    jira: [ABC, DEF]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Generate(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(out.Files[FileJira], "\n"); got != "ABC acme/app\nDEF acme/app" {
+		t.Fatalf("jira.list = %q", got)
+	}
+	for _, v := range []string{"[ABC, ABC]", "[ABC, abc]", "[]"} {
+		doc, err := Parse([]byte("version: 1\nrepos:\n  acme/app:\n    jira: " + v + "\n"))
+		if err == nil {
+			_, err = Generate(doc)
+		}
+		if err == nil {
+			t.Fatalf("%s should be refused", v)
+		}
+	}
+}
