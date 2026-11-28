@@ -89,7 +89,7 @@ through `GET /api/models` and `PUT /api/models`. Its role mapping is fixed:
 
 | Preset | Roles |
 | --- | --- |
-| `light` | `ask-pr/model`, `fix-ci/model`, `reply-pr/model`, `review-pr/address_model` |
+| `light` | `ask-pr/model`, `fix-ci/model`, `_classify-item/model`, `reply-pr/model`, `review-pr/address_model` |
 | `default` | `_fix-issue-owned/model`, `_fix-issue-external/model`, `tend-repo/model`, `review-pr/review_model` |
 | `claude_default` | `review-pr/claude_review_model` |
 | `claude_light` | `review-pr/claude_address_model` |

@@ -32,13 +32,25 @@ inputs:
   - name: model
     type: string
     required: false
-    default: mistral/deepseek-v4-1-flash-1017
-    description: model for the agent step
+    default: ""
+    description: model for the agent step; empty takes the preset of model-presets.yaml (bin/model)
     validation:
-      pattern: '^[A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?$'
+      pattern: '^([A-Za-z0-9][A-Za-z0-9._+-]*/[A-Za-z0-9][A-Za-z0-9._:+/@-]*(#[A-Za-z0-9][A-Za-z0-9._:+-]*)?)?$'
 
 states:
-  initial: prepare
+  initial: pick_model
+
+  # The model of this role is read when the run starts, from model-presets.yaml (ADR 0052);
+  # a model given as an input wins. A literal default here named a provider some machines do not
+  # have, and the classification then failed on a server that only had another one.
+  pick_model:
+    type: step
+    command: |
+      m='{{.inputs.model}}'
+      printf '%s' "${m:-$("${DOTS_HOME:-/work}/bin/model" _classify-item/model light)}"
+    timeout: 10
+    on_success: prepare
+    on_failure: error
 
   prepare:
     type: step
@@ -59,7 +71,7 @@ states:
       # Claude Code refuses a write outside its working directory unless the tool is allowed;
       # the run files live under STATE_DIR. Other providers ignore the option.
       allowed_tools: "Read,Grep,Glob,Write,Edit"
-      model: "{{.inputs.model}}"
+      model: "{{.states.pick_model.Output}}"
     prompt: |
       You classify one work item of {{.inputs.repo}}, reference {{.inputs.key}}.
       You do not fix it, you do not answer it, you rate it.

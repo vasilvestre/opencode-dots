@@ -58,6 +58,7 @@ func role(workflow, input, preset, provider string) Role {
 var Roles = []Role{
 	role("ask-pr", "model", "light", "opencode"),
 	role("fix-ci", "model", "light", "opencode"),
+	role("_classify-item", "model", "light", "opencode"),
 	role("_fix-issue-owned", "model", "default", "opencode"),
 	role("_fix-issue-external", "model", "default", "opencode"),
 	role("reply-pr", "model", "light", "opencode"),

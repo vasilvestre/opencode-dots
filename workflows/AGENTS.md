@@ -39,7 +39,7 @@ rules for editing them.
 
 - The tracked root `model-presets.yaml` uses version 1. It holds four required presets (`light`,
   `default`, `claude_light`, `claude_default`) plus optional per-role overrides (ADR 0052).
-- The fixed mapping assigns `ask-pr/model`, `fix-ci/model`, `reply-pr/model` and
+- The fixed mapping assigns `ask-pr/model`, `fix-ci/model`, `_classify-item/model`, `reply-pr/model` and
   `review-pr/address_model` to `light`. It assigns `_fix-issue-owned/model`, `_fix-issue-external/model`,
   `tend-repo/model` and `review-pr/review_model` to `default`. The claude pair covers
   `review-pr/claude_review_model` and `review-pr/claude_address_model`.
